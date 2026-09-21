@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocalSearchParams, usePathname } from 'expo-router'
 import { useRouteHandoff } from '../navigation/route-handoff'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useHostProtocolGates } from '../components/HostProtocolGate'
+import { resolveHostDisplay } from '../../../src/shared/host-display-resolution'
 import { visibleHostRouteNotice } from '../host-route-notice'
 import { resolveHostRouteActionState } from '../host-route-action-state'
 import { useActiveWorktreeScroll } from '../hooks/use-active-worktree-scroll'
@@ -23,6 +24,7 @@ import { useHostScreenState } from './use-host-screen-state'
 import { useHostViewSettings } from './use-host-view-settings'
 import { useHostWorktreeActions } from './use-host-worktree-actions'
 import { useHostWorktreeCatalog } from './use-host-worktree-catalog'
+import { updateHostMachineDescriptor } from '../transport/host-store'
 
 export type HostScreenProps = {
   // When true, rendered as the persistent tablet sidebar by the host layout, not as its own routed screen.
@@ -62,9 +64,45 @@ export function useHostScreenController({
   const forceReconnectHost = useForceReconnect()
   // One tick drives every visible agent row's relative timestamp.
   const now = useNow(30_000)
-  const { hostCapabilities, floatingWorkspaceEnabled } = useHostProtocolGates()
+  const { hostCapabilities, floatingWorkspaceEnabled, hostPlatform, machineName, statusReadable } =
+    useHostProtocolGates()
   const state = useHostScreenState(hostId, action)
   const settings = useHostViewSettings({ client, connState, hostId, state })
+
+  const hostDisplay = resolveHostDisplay({
+    personalLabel: state.hostName,
+    machineName: statusReadable ? machineName : state.machineName,
+    platform: statusReadable ? hostPlatform : state.machinePlatform,
+    descriptorFresh: statusReadable,
+    previousPlatform: state.machinePlatform,
+    fallbackLabel: state.hostName || 'Host'
+  })
+  const { setMachineDescriptorSeenAt, setMachineName, setMachinePlatform } = state
+
+  useEffect(() => {
+    if (!hostId || !statusReadable) {
+      return
+    }
+    const seenAt = Date.now()
+    setMachineName(machineName)
+    setMachinePlatform(hostPlatform)
+    setMachineDescriptorSeenAt(seenAt)
+    void updateHostMachineDescriptor(hostId, {
+      machineName,
+      machinePlatform: hostPlatform,
+      seenAt
+    }).catch(() => {})
+  }, [
+    hostId,
+    hostPlatform,
+    machineName,
+    state.machineName,
+    state.machinePlatform,
+    setMachineDescriptorSeenAt,
+    setMachineName,
+    setMachinePlatform,
+    statusReadable
+  ])
 
   useHostScreenIdentity({ client, hostId, state })
   const fetchRepoMetadata = useHostRepoMetadata({ client, connState, hostId, state })
@@ -146,7 +184,9 @@ export function useHostScreenController({
     floatingWorkspaceEnabled,
     forceReconnectHost,
     hostCapabilities,
+    hostDisplay,
     hostId,
+    hostPlatform,
     insets,
     isReadOnly: connState === 'auth-failed',
     isWideLayout,

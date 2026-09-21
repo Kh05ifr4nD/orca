@@ -6,18 +6,20 @@ import { ChevronLeft } from 'lucide-react-native'
 import { resolvePairConfirmRouteState } from '../src/transport/pair-confirm-state'
 import {
   startPreProfilePairing,
+  type PreProfilePairingResult,
   type PreProfilePairingAttempt
 } from '../src/transport/pre-profile-pairing-coordinator'
 import type { ConnectionLogEntry } from '../src/transport/types'
 import { useRefreshHostClient } from '../src/transport/client-context'
 import { colors, spacing, radii, typography } from '../src/theme/mobile-theme'
 import { ConnectionLog } from '../src/components/ConnectionLog'
+import { PairingNameConfirmation } from '../src/components/PairingNameConfirmation'
 import {
   loadMobileOnboardingSteps,
   mobileOnboardingDestination
 } from '../src/onboarding/mobile-onboarding-plan'
 
-type Status = 'awaiting-confirm' | 'connecting' | 'error'
+type Status = 'awaiting-confirm' | 'connecting' | 'naming' | 'saving' | 'error'
 
 // Why: cap how long the user stares at "Connecting…" during pairing.
 // rpc-client retries forever by design (good for live sessions), but for
@@ -33,6 +35,7 @@ export default function PairConfirmScreen() {
   const params = useLocalSearchParams<{ code?: string }>()
   const [status, setStatus] = useState<Status>('awaiting-confirm')
   const [errorMessage, setErrorMessage] = useState('')
+  const [pendingPairing, setPendingPairing] = useState<PreProfilePairingResult | null>(null)
   const [logs, setLogs] = useState<ConnectionLogEntry[]>([])
   // Why: collect logs in a ref so the rpc-client callback (which closures
   // over the initial state setter) always sees the freshest list and we
@@ -51,8 +54,12 @@ export default function PairConfirmScreen() {
       : errorMessage
 
   const cancel = useCallback(() => {
+    if (pendingPairing) {
+      void pendingPairing.cancel()
+      setPendingPairing(null)
+    }
     router.replace('/')
-  }, [router])
+  }, [pendingPairing, router])
 
   useFocusEffect(
     useCallback(() => {
@@ -64,17 +71,23 @@ export default function PairConfirmScreen() {
     }, [cancel])
   )
 
-  const setPairConfirmRootRef = useCallback((node: View | null): void => {
-    if (node !== null) {
-      mountedRef.current = true
-      return
-    }
-    // Why: pairing attempts can outlive the visible route; dispose them when
-    // the confirm screen detaches without a passive cleanup-only Effect.
-    mountedRef.current = false
-    activePairingAttemptRef.current?.dispose()
-    activePairingAttemptRef.current = null
-  }, [])
+  const setPairConfirmRootRef = useCallback(
+    (node: View | null): void => {
+      if (node !== null) {
+        mountedRef.current = true
+        return
+      }
+      // Why: pairing attempts can outlive the visible route; dispose them when
+      // the confirm screen detaches without a passive cleanup-only Effect.
+      mountedRef.current = false
+      activePairingAttemptRef.current?.dispose()
+      activePairingAttemptRef.current = null
+      if (pendingPairing) {
+        void pendingPairing.cancel()
+      }
+    },
+    [pendingPairing]
+  )
 
   async function confirm() {
     if (!offer) {
@@ -100,7 +113,7 @@ export default function PairConfirmScreen() {
     })
     activePairingAttemptRef.current = attempt
     try {
-      const { hostId } = await attempt.result
+      const pairing = await attempt.result
       const attemptIsCurrent = activePairingAttemptRef.current === attempt
       attempt.dispose()
       if (activePairingAttemptRef.current === attempt) {
@@ -109,16 +122,8 @@ export default function PairConfirmScreen() {
       if (!mountedRef.current || !attemptIsCurrent) {
         return
       }
-      // Why: re-pairing the same desktop now reuses its existing host id
-      // (STA-1840 dedup), so a client cached under that id from an earlier
-      // pairing would keep the stale endpoint/relay. Close it so the
-      // Refresh any cached client from the newly persisted pairing profile.
-      refreshHostClient(hostId)
-      const onboardingSteps = await loadMobileOnboardingSteps()
-      if (!mountedRef.current) {
-        return
-      }
-      router.replace(mobileOnboardingDestination(onboardingSteps, hostId))
+      setPendingPairing(pairing)
+      setStatus('naming')
     } catch (err) {
       const timedOut = attempt.timedOut
       const attemptIsCurrent = activePairingAttemptRef.current === attempt
@@ -135,6 +140,30 @@ export default function PairConfirmScreen() {
         timedOut
           ? `Couldn't connect within ${PAIRING_OVERALL_TIMEOUT_MS / 1000}s — see log below for where it stalled`
           : `Pairing failed: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
+
+  async function finalizePairing(name: string): Promise<void> {
+    if (!pendingPairing) {
+      return
+    }
+    setStatus('saving')
+    try {
+      await pendingPairing.finalize(name)
+      refreshHostClient(pendingPairing.hostId)
+      const onboardingSteps = await loadMobileOnboardingSteps()
+      if (!mountedRef.current) {
+        return
+      }
+      router.replace(mobileOnboardingDestination(onboardingSteps, pendingPairing.hostId))
+    } catch (err) {
+      if (!mountedRef.current) {
+        return
+      }
+      setStatus('error')
+      setErrorMessage(
+        `Couldn't save this host: ${err instanceof Error ? err.message : String(err)}`
       )
     }
   }
@@ -174,6 +203,17 @@ export default function PairConfirmScreen() {
             </View>
           </>
         )}
+
+        {(resolvedStatus === 'naming' || resolvedStatus === 'saving') && pendingPairing ? (
+          <PairingNameConfirmation
+            machineName={pendingPairing.machineName}
+            hostPlatform={pendingPairing.hostPlatform}
+            initialName={pendingPairing.suggestedName}
+            saving={resolvedStatus === 'saving'}
+            onConfirm={(name) => void finalizePairing(name)}
+            onCancel={cancel}
+          />
+        ) : null}
 
         {resolvedStatus === 'error' && (
           <>

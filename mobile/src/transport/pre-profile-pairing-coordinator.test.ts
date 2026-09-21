@@ -106,7 +106,8 @@ function dependencies(client: RpcClient, events: string[]) {
     }),
     resolveHostIdentity: vi.fn(async (_publicKeyB64: string, hostId: string) => ({
       id: hostId,
-      name: 'Blue Whale'
+      name: 'Blue Whale',
+      isExisting: false
     })),
     saveHost: vi.fn(async (_host: HostProfile) => {
       events.push('save-host')
@@ -126,6 +127,12 @@ function dependencies(client: RpcClient, events: string[]) {
     now: () => now,
     platform: 'ios'
   }
+}
+
+async function finalizePairing(attempt: ReturnType<typeof startPreProfilePairing>) {
+  const result = await attempt.result
+  await result.finalize()
+  return result
 }
 
 describe('pre-profile pairing coordinator', () => {
@@ -167,14 +174,15 @@ describe('pre-profile pairing coordinator', () => {
       dependencies: deps
     })
 
-    await expect(attempt.result).resolves.toEqual({ hostId: `host-${now}` })
+    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: `host-${now}` })
     expect(deps.saveHost).toHaveBeenCalledWith({
       id: `host-${now}`,
       name: 'Blue Whale',
       endpoint: directOffer.endpoint,
       deviceToken: directOffer.deviceToken,
       publicKeyB64: directOffer.publicKeyB64,
-      lastConnected: now
+      lastConnected: now,
+      machineDescriptorSeenAt: now
     })
     expect(events).toEqual(['connect', 'save-host'])
   })
@@ -188,7 +196,7 @@ describe('pre-profile pairing coordinator', () => {
     deps.resolveHostIdentity = vi.fn(async (publicKeyB64: string, newHostId: string) => {
       expect(publicKeyB64).toBe(directOffer.publicKeyB64)
       expect(newHostId).toBe(`host-${now}`)
-      return { id: 'host-existing', name: 'Studio Mac' }
+      return { id: 'host-existing', name: 'Studio Mac', isExisting: true }
     })
 
     const attempt = startPreProfilePairing({
@@ -197,15 +205,45 @@ describe('pre-profile pairing coordinator', () => {
       dependencies: deps
     })
 
-    await expect(attempt.result).resolves.toEqual({ hostId: 'host-existing' })
+    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: 'host-existing' })
     expect(deps.saveHost).toHaveBeenCalledWith({
       id: 'host-existing',
       name: 'Studio Mac',
       endpoint: directOffer.endpoint,
       deviceToken: directOffer.deviceToken,
       publicKeyB64: directOffer.publicKeyB64,
-      lastConnected: now
+      lastConnected: now,
+      machineDescriptorSeenAt: now
     })
+  })
+
+  it('returns the authenticated machine descriptor for naming before it publishes the host', async () => {
+    const events: string[] = []
+    const client = fakeClient([success({ machineName: 'm4airs-Air', hostPlatform: 'darwin' })])
+    const deps = dependencies(client, events)
+    const attempt = startPreProfilePairing({
+      offer: directOffer,
+      timeoutMs: 5_000,
+      dependencies: deps
+    })
+
+    const pending = await attempt.result
+    expect(pending).toMatchObject({
+      hostId: `host-${now}`,
+      machineName: 'm4airs-Air',
+      hostPlatform: 'darwin',
+      suggestedName: 'm4airs-Air'
+    })
+    expect(deps.saveHost).not.toHaveBeenCalled()
+
+    await pending.finalize('Windows-Low Spec')
+    expect(deps.saveHost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Windows-Low Spec',
+        machineName: 'm4airs-Air',
+        machinePlatform: 'darwin'
+      })
+    )
   })
 
   it('journals before connecting and publishes only after authoritative direct install', async () => {
@@ -260,7 +298,7 @@ describe('pre-profile pairing coordinator', () => {
       timeoutMs: 5_000,
       dependencies: deps
     })
-    await expect(attempt.result).resolves.toEqual({ hostId: `host-${now}` })
+    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: `host-${now}` })
 
     expect(journal).not.toBeNull()
     expect(events).toEqual([
@@ -302,7 +340,7 @@ describe('pre-profile pairing coordinator', () => {
       timeoutMs: 5_000,
       dependencies: deps
     })
-    await expect(attempt.result).resolves.toEqual({ hostId: `host-${now}` })
+    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: `host-${now}` })
 
     expect(deps.saveHost).toHaveBeenCalledWith(
       expect.not.objectContaining({ endpoints: expect.anything() })
@@ -333,7 +371,7 @@ describe('pre-profile pairing coordinator', () => {
       connectOptions: { onLog: (entry) => entries.push(entry) },
       dependencies: deps
     })
-    await expect(attempt.result).resolves.toEqual({ hostId: `host-${now}` })
+    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: `host-${now}` })
 
     expect(deps.saveHost).toHaveBeenCalledWith(
       expect.not.objectContaining({ endpoints: expect.anything() })
@@ -369,7 +407,7 @@ describe('pre-profile pairing coordinator', () => {
       timeoutMs: 5_000,
       dependencies: deps
     })
-    await expect(attempt.result).resolves.toEqual({ hostId: `host-${now}` })
+    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: `host-${now}` })
 
     expect(direct.close).toHaveBeenCalled()
     expect(relay.sendRequest).toHaveBeenNthCalledWith(2, 'pairing.provisionRelay', {
@@ -410,7 +448,7 @@ describe('pre-profile pairing coordinator', () => {
       connectOptions: { onLog: (entry) => entries.push(entry) },
       dependencies: deps
     })
-    await expect(attempt.result).resolves.toEqual({ hostId: `host-${now}` })
+    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: `host-${now}` })
 
     expect(entries.map((entry) => entry.message)).toEqual([
       'Relay: pairing candidate started',
@@ -464,7 +502,7 @@ describe('pre-profile pairing coordinator', () => {
       connectOptions: { onLog: (entry) => entries.push(entry) },
       dependencies: deps
     })
-    await expect(attempt.result).resolves.toEqual({ hostId: `host-${now}` })
+    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: `host-${now}` })
 
     expect(entries.map((entry) => entry.message)).toEqual([
       'Direct: Reconnecting (attempt 2)',

@@ -94,7 +94,11 @@ export function pairingJournalMountAdapters(
               connectDirect: () => candidateClient(client, effect, 'direct'),
               connectRelay: () => candidateClient(client, effect, 'relay'),
               resolveInviteDirector: async () => pairingRelay(),
-              resolveHostIdentity: async () => ({ id: HOST_ID, name: 'Fixture host' }),
+              resolveHostIdentity: async () => ({
+                id: HOST_ID,
+                name: 'Fixture host',
+                isExisting: false
+              }),
               saveHost: async (host: { relayHostId?: string }) => {
                 savedHost = host.relayHostId ?? 'direct-only'
                 effect('host-saved', savedHost)
@@ -114,15 +118,15 @@ export function pairingJournalMountAdapters(
               platform: 'ios'
             }
           } as Parameters<typeof start>[0])
-          attempt.result.then(
-            (result) => {
-              outcome = result.hostId
-            },
-            (error: unknown) => {
-              outcome = `failed: ${error instanceof Error ? error.message : String(error)}`
-            }
-          )
-          return attempt.result
+          const completed = attempt.result.then(async (result) => {
+            await result.finalize()
+            outcome = result.hostId
+            return { hostId: result.hostId }
+          })
+          completed.catch((error: unknown) => {
+            outcome = `failed: ${error instanceof Error ? error.message : String(error)}`
+          })
+          return completed
         },
         state: () => ({ outcome, savedHost, timedOut: attempt?.timedOut ?? null }),
         dispose: () => attempt?.dispose()

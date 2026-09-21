@@ -9,6 +9,7 @@ import {
   type MobileRelayHostOverlay
 } from './mobile-relay-host-overlay'
 import { MobileRelayEndpointSchema } from '../../../src/shared/mobile-relay-credential-contract'
+import { NODE_PLATFORM_NAMES } from './mobile-runtime-host-platform'
 
 export { PairingOfferSchema }
 export type { PairingOffer }
@@ -107,6 +108,9 @@ export type HostProfile = {
   deviceToken: string
   publicKeyB64: string
   lastConnected: number
+  machineName?: string
+  machinePlatform?: NodeJS.Platform
+  machineDescriptorSeenAt?: number
   endpoints?: MobileAccessEndpoint[]
   relayHostId?: MobileRelayHostOverlay['relayHostId']
   relay?: MobileRelayHostOverlay['relay']
@@ -126,6 +130,9 @@ export const HostProfileSchema = z.object({
   deviceToken: z.string().min(1),
   publicKeyB64: z.string().min(1),
   lastConnected: z.number().finite(),
+  machineName: z.string().trim().min(1).optional(),
+  machinePlatform: z.enum(NODE_PLATFORM_NAMES).optional(),
+  machineDescriptorSeenAt: z.number().finite().optional(),
   endpoints: z.array(MobileAccessEndpointSchema).min(1).max(16).optional(),
   relayHostId: z
     .string()
@@ -142,7 +149,10 @@ export const StoredHostProfileSchema = z.object({
   name: z.string().min(1),
   endpoint: z.string().min(1),
   publicKeyB64: z.string().min(1),
-  lastConnected: z.number().finite()
+  lastConnected: z.number().finite(),
+  machineName: z.string().trim().min(1).optional(),
+  machinePlatform: z.enum(NODE_PLATFORM_NAMES).optional(),
+  machineDescriptorSeenAt: z.number().finite().optional()
 })
 
 export type StoredHostProfile = z.infer<typeof StoredHostProfileSchema>

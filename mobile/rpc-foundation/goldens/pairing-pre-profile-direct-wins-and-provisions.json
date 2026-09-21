@@ -6,23 +6,13 @@
   "baseline": "37820f9683527becf68d8d4d4fb564f32c49e72d",
   "lockfileSha256": "1327605e77b3fed83c7410635d39fdab40c49380e5cbf483ec6ff1b404b4e1d1",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
-  "adapterSha256": "e33d584229530c716ecdc44d198b95fcfb4dfd9468fba7d5222ee3f122950197",
+  "adapterSha256": "5c844fa435ce1002939cd4402e47b8f31a497a8c2f48ef1ef69543fc0278aa72",
   "scenarioSha256": "e4fb7aa3b071c1207f206adcc0f31e92b6bb98a80f86a0772e48b5cebcab24ff",
   "platform": "darwin",
   "scenarioVersion": 1,
   "projectionVersion": 2,
   "goldenFormatVersion": 5,
   "values": {
-    "061b247f2805": {
-      "name": "host-saved",
-      "ordinal": 13,
-      "value": "relay-host-0001x"
-    },
-    "077b94702eb7": {
-      "name": "candidate-closed",
-      "ordinal": 15,
-      "value": "direct"
-    },
     "1f647ffe77b0": {
       "name": "pairing.getEndpoints#1",
       "ordinal": 11,
@@ -67,15 +57,32 @@
         }
       }
     },
-    "33c6a36cc4b6": {
+    "2b5606ff50ed": {
+      "name": "candidate-closed",
+      "ordinal": 12,
+      "value": "direct"
+    },
+    "38131a2042f6": {
       "name": "journal-cleared",
-      "ordinal": 14,
+      "ordinal": 16,
       "value": "pair-fixture-1"
     },
     "406c8ab0b9b6": {
       "name": "journal-saved",
       "ordinal": 1,
       "value": "pair-fixture-1"
+    },
+    "4fe77334bd35": {
+      "name": "bundle-written",
+      "ordinal": 14,
+      "value": {
+        "version": 4
+      }
+    },
+    "65e2707705d4": {
+      "name": "host-saved",
+      "ordinal": 15,
+      "value": "relay-host-0001x"
     },
     "6995d6b0bd4c": {
       "name": "status.get#1",
@@ -116,13 +123,6 @@
       "ordinal": 4,
       "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"status.get\"}"
     },
-    "8bf25ca8d4ae": {
-      "name": "bundle-written",
-      "ordinal": 12,
-      "value": {
-        "version": 4
-      }
-    },
     "8e378786864c": {
       "name": "candidate-closed",
       "ordinal": 6,
@@ -132,6 +132,11 @@
       "outcome": "host-1",
       "savedHost": "relay-host-0001x",
       "timedOut": false
+    },
+    "bb016ec23c9c": {
+      "name": "candidate-closed",
+      "ordinal": 13,
+      "value": "relay"
     },
     "c86730581187": {
       "name": "status.get#2",
@@ -243,11 +248,6 @@
       "name": "pairing.provisionRelay#1",
       "ordinal": 9,
       "json": "{\"id\":\"frame-3\",\"deviceToken\":\"recording-device\",\"method\":\"pairing.provisionRelay\",\"params\":{\"reqId\":\"install-l99UBPM71AZiC1ghz2glnA\",\"newResumeTokenHash\":\"yrnYzw4B0YZ_R6Tcm4arO3oysaG7lsPjvyp4uWmdBtU\"}}"
-    },
-    "f6b99510eefb": {
-      "name": "candidate-closed",
-      "ordinal": 16,
-      "value": "relay"
     }
   },
   "recording": {
@@ -266,11 +266,11 @@
             "406c8ab0b9b6",
             "8e378786864c",
             "e29d4c104dd3",
-            "8bf25ca8d4ae",
-            "061b247f2805",
-            "33c6a36cc4b6",
-            "077b94702eb7",
-            "f6b99510eefb"
+            "2b5606ff50ed",
+            "bb016ec23c9c",
+            "4fe77334bd35",
+            "65e2707705d4",
+            "38131a2042f6"
           ]
         }
       }

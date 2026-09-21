@@ -1,8 +1,4 @@
 import { Platform } from 'react-native'
-import type {
-  DeviceCredentialInstalled,
-  MobileRelayEndpoint
-} from '../../../src/shared/mobile-relay-credential-contract'
 import { connect, type ConnectOptions } from './rpc-client'
 import { resolvePairingHostIdentity, saveHost } from './host-store'
 import type { HostProfile, PairingOffer } from './types'
@@ -34,9 +30,13 @@ import { resolvePairingInviteThroughDirector } from './mobile-relay-invite-direc
 import { createRecoveringPairingRelayCandidate } from './pairing-relay-candidate'
 import { createPairingRelayLogger } from './pairing-relay-log'
 import { redactSocketEndpoint } from './socket-event-debug'
+import { createPendingPairing, type PairingPendingResult } from './pairing-pending-result'
+import { assertCommittedInstall, relayHost } from './pairing-relay-host'
+
+export type PreProfilePairingResult = PairingPendingResult
 
 export type PreProfilePairingAttempt = {
-  readonly result: Promise<{ hostId: string }>
+  readonly result: Promise<PreProfilePairingResult>
   readonly timedOut: boolean
   dispose(): void
 }
@@ -134,14 +134,15 @@ async function runPairing(
   dependencies: Dependencies,
   clients: Set<PairingCandidateClient>,
   isDisposed: () => boolean
-): Promise<{ hostId: string }> {
+): Promise<PreProfilePairingResult> {
   const now = dependencies.now()
   // Why: every pairing artifact must share the preserved host id so re-pairing
   // updates one card instead of publishing a second identity (STA-1840).
-  const { id: hostId, name: hostName } = await dependencies.resolveHostIdentity(
-    offer.publicKeyB64,
-    `host-${now}`
-  )
+  const {
+    id: hostId,
+    name: hostName,
+    isExisting
+  } = await dependencies.resolveHostIdentity(offer.publicKeyB64, `host-${now}`)
   assertActive(isDisposed)
   let journal: MobileRelayPairingJournal | null = null
   if (offer.relay && dependencies.platform !== 'web') {
@@ -205,8 +206,14 @@ async function runPairing(
   assertActive(isDisposed)
 
   if (!journal) {
-    await dependencies.saveHost(baseHost(offer, hostId, hostName, now))
-    return { hostId }
+    return createPendingPairing({
+      host: baseHost(offer, hostId, hostName, now),
+      status: winner.status,
+      isExisting,
+      dependencies,
+      journal: null,
+      credentialBundle: null
+    })
   }
 
   journal = {
@@ -229,9 +236,14 @@ async function runPairing(
     // Why: this commits a LAN-only host instead of failing, so the refusal code is the only
     // record of why the phone never got a relay endpoint.
     log('info', 'Relay: desktop will not serve relay pairing', provision.error.code)
-    await dependencies.saveHost(baseHost(offer, hostId, hostName, now))
-    await dependencies.clearJournal(journal.metadata.journalId)
-    return { hostId }
+    return createPendingPairing({
+      host: baseHost(offer, hostId, hostName, now),
+      status: winner.status,
+      isExisting,
+      dependencies,
+      journal,
+      credentialBundle: null
+    })
   }
   const installed = relayCredentialProvision.interpret(provision)
   const endpointsReply = await relayPairingEndpointsRead.request(winner.client, {
@@ -243,10 +255,14 @@ async function runPairing(
     throw new Error('desktop returned no relay endpoint after credential install')
   }
   assertActive(isDisposed)
-  await dependencies.writeCredentialBundle(promotePairingJournalCredential({ journal, installed }))
-  await dependencies.saveHost(relayHost(journal, endpoints.relay))
-  await dependencies.clearJournal(journal.metadata.journalId)
-  return { hostId }
+  return createPendingPairing({
+    host: relayHost(journal, endpoints.relay),
+    status: winner.status,
+    isExisting,
+    dependencies,
+    journal,
+    credentialBundle: promotePairingJournalCredential({ journal, installed })
+  })
 }
 
 function baseHost(
@@ -262,43 +278,6 @@ function baseHost(
     deviceToken: offer.deviceToken,
     publicKeyB64: offer.publicKeyB64,
     lastConnected
-  }
-}
-
-function relayHost(journal: MobileRelayPairingJournal, relay: MobileRelayEndpoint): HostProfile {
-  const host = journal.metadata.host
-  return {
-    ...host,
-    deviceToken: journal.secrets.deviceToken,
-    endpoints: [
-      { id: 'direct-primary', kind: 'lan', url: host.endpoint },
-      { id: 'relay-primary', kind: 'relay', url: relayWebSocketUrl(relay) }
-    ],
-    relayHostId: relay.relayHostId,
-    relay
-  }
-}
-
-function relayWebSocketUrl(relay: MobileRelayEndpoint): string {
-  const url = new URL(relay.cellUrl)
-  url.protocol = 'wss:'
-  url.pathname = `/v1/connect/${encodeURIComponent(relay.relayHostId)}`
-  return url.toString()
-}
-
-function assertCommittedInstall(
-  status:
-    | { state: 'not-found' }
-    | { state: 'committed'; result: DeviceCredentialInstalled }
-    | undefined,
-  installed: DeviceCredentialInstalled
-): void {
-  if (
-    !status ||
-    status.state !== 'committed' ||
-    JSON.stringify(status.result) !== JSON.stringify(installed)
-  ) {
-    throw new Error('relay credential install was not authoritatively reconciled')
   }
 }
 

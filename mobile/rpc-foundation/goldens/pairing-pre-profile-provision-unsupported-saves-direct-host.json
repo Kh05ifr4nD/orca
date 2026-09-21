@@ -6,22 +6,17 @@
   "baseline": "37820f9683527becf68d8d4d4fb564f32c49e72d",
   "lockfileSha256": "1327605e77b3fed83c7410635d39fdab40c49380e5cbf483ec6ff1b404b4e1d1",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
-  "adapterSha256": "e33d584229530c716ecdc44d198b95fcfb4dfd9468fba7d5222ee3f122950197",
+  "adapterSha256": "5c844fa435ce1002939cd4402e47b8f31a497a8c2f48ef1ef69543fc0278aa72",
   "scenarioSha256": "5696ea2a62bb3f24902305f8bac0c4ae8f1e505f359db76fd69aabe353adae86",
   "platform": "darwin",
   "scenarioVersion": 1,
   "projectionVersion": 2,
   "goldenFormatVersion": 5,
   "values": {
-    "2b5606ff50ed": {
-      "name": "candidate-closed",
-      "ordinal": 12,
-      "value": "direct"
-    },
-    "37a2861de5fb": {
-      "name": "host-saved",
-      "ordinal": 10,
-      "value": "direct-only"
+    "2b5aa76fdb8d": {
+      "name": "journal-cleared",
+      "ordinal": 13,
+      "value": "pair-fixture-1"
     },
     "3d5f8ca3d3af": {
       "name": "pairing.provisionRelay#1",
@@ -63,6 +58,11 @@
       "name": "journal-saved",
       "ordinal": 1,
       "value": "pair-fixture-1"
+    },
+    "4964fce533f6": {
+      "name": "candidate-closed",
+      "ordinal": 10,
+      "value": "direct"
     },
     "4a54bf2090c8": {
       "outcome": "host-1",
@@ -108,20 +108,20 @@
       "ordinal": 4,
       "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"status.get\"}"
     },
+    "79331d82af94": {
+      "name": "candidate-closed",
+      "ordinal": 11,
+      "value": "relay"
+    },
+    "79ffb33faf8a": {
+      "name": "host-saved",
+      "ordinal": 12,
+      "value": "direct-only"
+    },
     "8e378786864c": {
       "name": "candidate-closed",
       "ordinal": 6,
       "value": "relay"
-    },
-    "bb016ec23c9c": {
-      "name": "candidate-closed",
-      "ordinal": 13,
-      "value": "relay"
-    },
-    "c1372f4da2d7": {
-      "name": "journal-cleared",
-      "ordinal": 11,
-      "value": "pair-fixture-1"
     },
     "c86730581187": {
       "name": "status.get#2",
@@ -197,10 +197,10 @@
             "406c8ab0b9b6",
             "8e378786864c",
             "e29d4c104dd3",
-            "37a2861de5fb",
-            "c1372f4da2d7",
-            "2b5606ff50ed",
-            "bb016ec23c9c"
+            "4964fce533f6",
+            "79331d82af94",
+            "79ffb33faf8a",
+            "2b5aa76fdb8d"
           ]
         }
       }

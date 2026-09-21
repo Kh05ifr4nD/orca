@@ -121,6 +121,70 @@ describe('MobileHostCard', () => {
     )
   })
 
+  it('keeps a personal label above a disagreeing machine descriptor', async () => {
+    const consoleError = suppressRendererDeprecation()
+    await act(async () => {
+      renderer = create(
+        createElement(MobileHostCard, {
+          host: {
+            id: 'desk',
+            name: 'Windows-Low Spec',
+            endpoint: 'ws://192.168.1.2:6768',
+            deviceToken: 'token',
+            publicKeyB64: 'key',
+            lastConnected: 1
+          },
+          state: 'connected',
+          verdict: { kind: 'normal', label: 'Connected' },
+          path: 'lan',
+          hostPlatform: 'darwin',
+          machineName: 'm4airs-Air',
+          descriptorFresh: true,
+          onPress: vi.fn(),
+          onLongPress: vi.fn(),
+          onOpenActions: vi.fn()
+        })
+      )
+    })
+    consoleError.mockRestore()
+
+    expect(renderer.root.findAllByType('Text').map((node) => node.children.join(''))).toContain(
+      'macOS · m4airs-Air'
+    )
+  })
+
+  it('marks an offline machine descriptor as last known', async () => {
+    const consoleError = suppressRendererDeprecation()
+    await act(async () => {
+      renderer = create(
+        createElement(MobileHostCard, {
+          host: {
+            id: 'desk',
+            name: 'Desk',
+            endpoint: 'ws://192.168.1.2:6768',
+            deviceToken: 'token',
+            publicKeyB64: 'key',
+            lastConnected: 1
+          },
+          state: 'disconnected',
+          verdict: { kind: 'normal', label: 'Disconnected' },
+          path: 'lan',
+          machineName: 'Desk',
+          machinePlatform: 'darwin',
+          descriptorFresh: false,
+          onPress: vi.fn(),
+          onLongPress: vi.fn(),
+          onOpenActions: vi.fn()
+        })
+      )
+    })
+    consoleError.mockRestore()
+
+    expect(renderer.root.findAllByType('Text').map((node) => node.children.join(''))).toContain(
+      'Last known · macOS · Desk'
+    )
+  })
+
   it('preserves the connected worktree-catalog failure state', async () => {
     const consoleError = suppressRendererDeprecation()
     await act(async () => {

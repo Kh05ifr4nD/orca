@@ -40,6 +40,9 @@ export function useHostScreenState(hostId: string | undefined, action: string | 
   const [repoColorsByName, setRepoColorsByName] = useState<Map<string, string>>(new Map())
   const [repoIconsByName, setRepoIconsByName] = useState<Map<string, MobileHostRepoIcon>>(new Map())
   const [hostName, setHostName] = useState('')
+  const [machineName, setMachineName] = useState<string | null>(null)
+  const [machinePlatform, setMachinePlatform] = useState<NodeJS.Platform | null>(null)
+  const [machineDescriptorSeenAt, setMachineDescriptorSeenAt] = useState<number | null>(null)
   const [error, setError] = useState('')
   // An action that did not happen, said above the list rather than instead of it. Separate from
   // `error`, which is the screen's identity and is the one thing worth taking the whole view for.
@@ -105,6 +108,9 @@ export function useHostScreenState(hostId: string | undefined, action: string | 
     filters,
     groupMode,
     hostLabelById,
+    machineDescriptorSeenAt,
+    machineName,
+    machinePlatform,
     hostName,
     hostPlatform,
     lastKnownWorktrees,
@@ -129,6 +135,9 @@ export function useHostScreenState(hostId: string | undefined, action: string | 
     setFilters,
     setGroupMode,
     setHostLabelById,
+    setMachineDescriptorSeenAt,
+    setMachineName,
+    setMachinePlatform,
     setHostName,
     setHostPlatform,
     setLastKnownWorktrees,
