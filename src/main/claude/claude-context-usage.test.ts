@@ -69,7 +69,7 @@ describe('claudeContextReportFromControl', () => {
 })
 
 describe('claudeContextWindowFromResult', () => {
-  it('reads the largest window across the models the session used, in any order', () => {
+  it('reads the largest window when nothing names the main thread model, in any order', () => {
     const main = { contextWindow: 1_000_000 }
     const side = { contextWindow: 200_000 }
     expect(
@@ -77,6 +77,55 @@ describe('claudeContextWindowFromResult', () => {
     ).toBe(1_000_000)
     expect(
       claudeContextWindowFromResult({ modelUsage: { haiku: side, 'claude-fable-5-1[1m]': main } })
+    ).toBe(1_000_000)
+  })
+
+  it('reads the entry of the model that served the main thread, not a larger one', () => {
+    const modelUsage = {
+      'claude-fable-5-1[1m]': { contextWindow: 1_000_000, inputTokens: 10 },
+      'claude-sonnet-5': { contextWindow: 200_000, inputTokens: 10 }
+    }
+    const previousTotals = new Map<string, number>()
+    expect(
+      claudeContextWindowFromResult({ modelUsage }, { model: 'claude-sonnet-5', previousTotals })
+    ).toBe(200_000)
+    expect(
+      claudeContextWindowFromResult({ modelUsage }, { model: 'claude-fable-5-1', previousTotals })
+    ).toBe(1_000_000)
+    // A provider-specific key is matched through the canonical id it reports.
+    expect(
+      claudeContextWindowFromResult(
+        {
+          modelUsage: {
+            'us.anthropic.claude-sonnet-5-v1': {
+              contextWindow: 200_000,
+              canonicalModel: 'claude-sonnet-5'
+            },
+            'claude-fable-5-1[1m]': { contextWindow: 1_000_000 }
+          }
+        },
+        { model: 'claude-sonnet-5', previousTotals }
+      )
+    ).toBe(200_000)
+  })
+
+  it('picks the entry this result moved when the model runs with and without [1m]', () => {
+    const modelUsage = {
+      'claude-fable-5-1[1m]': { contextWindow: 1_000_000, inputTokens: 500 },
+      'claude-fable-5-1': { contextWindow: 200_000, inputTokens: 40 }
+    }
+    const main = { model: 'claude-fable-5-1' }
+    expect(
+      claudeContextWindowFromResult(
+        { modelUsage },
+        { ...main, previousTotals: new Map([['claude-fable-5-1[1m]', 500]]) }
+      )
+    ).toBe(200_000)
+    expect(
+      claudeContextWindowFromResult(
+        { modelUsage },
+        { ...main, previousTotals: new Map([['claude-fable-5-1', 40]]) }
+      )
     ).toBe(1_000_000)
   })
 

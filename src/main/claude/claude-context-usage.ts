@@ -46,19 +46,70 @@ export function claudeTokenUsage(value: unknown): AgentSessionTokenUsage | null 
   return total > 0 ? usage : null
 }
 
-/** The session's window from a result's per-model usage. Auxiliary models
- *  (a small model for side calls) report their own smaller windows, so the
- *  largest is the one the main loop runs in. */
-export function claudeContextWindowFromResult(message: Record<string, unknown>): number | null {
+/** Cumulative token total per `modelUsage` key, to tell which models a result's calls touched. */
+export function claudeModelUsageTotals(message: Record<string, unknown>): Map<string, number> {
+  const totals = new Map<string, number>()
+  if (isRecord(message.modelUsage)) {
+    for (const [key, usage] of Object.entries(message.modelUsage)) {
+      if (isRecord(usage)) {
+        totals.set(
+          key,
+          positiveCount(usage.inputTokens) +
+            positiveCount(usage.outputTokens) +
+            positiveCount(usage.cacheReadInputTokens) +
+            positiveCount(usage.cacheCreationInputTokens)
+        )
+      }
+    }
+  }
+  return totals
+}
+
+/** `claude-opus-5[1m]` and `Claude-Opus-5` name the same model; the suffix picks a window, not a model. */
+function baseModelId(model: string): string {
+  return model
+    .replace(/\[[^\]]*\]$/u, '')
+    .trim()
+    .toLowerCase()
+}
+
+/** The main thread's window from a result's per-model usage, which also counts
+ *  subagents, side calls and models used earlier in the session. The entry is the
+ *  one named by the model that served the newest main-thread response; among
+ *  entries sharing that model (`[1m]` or not), the one this result's calls moved. */
+export function claudeContextWindowFromResult(
+  message: Record<string, unknown>,
+  mainThread: { model: string | null; previousTotals: ReadonlyMap<string, number> } = {
+    model: null,
+    previousTotals: new Map()
+  }
+): number | null {
   if (!isRecord(message.modelUsage)) {
     return null
   }
-  let largest = 0
-  for (const usage of Object.values(message.modelUsage)) {
-    if (isRecord(usage)) {
-      largest = Math.max(largest, positiveCount(usage.contextWindow))
+  const totals = claudeModelUsageTotals(message)
+  const main = mainThread.model ? baseModelId(mainThread.model) : null
+  const entries: { window: number; named: boolean; moved: boolean }[] = []
+  for (const [key, usage] of Object.entries(message.modelUsage)) {
+    const window = isRecord(usage) ? positiveCount(usage.contextWindow) : 0
+    if (!isRecord(usage) || window === 0) {
+      continue
     }
+    const canonical = typeof usage.canonicalModel === 'string' ? usage.canonicalModel : null
+    entries.push({
+      window,
+      named:
+        main !== null &&
+        (baseModelId(key) === main || (canonical !== null && baseModelId(canonical) === main)),
+      moved: totals.get(key) !== mainThread.previousTotals.get(key)
+    })
   }
+  const named = entries.filter((entry) => entry.named)
+  // Nothing names the main thread's model: the largest window is usually the main loop's.
+  const candidates = named.length > 0 ? named : entries
+  const moved = candidates.filter((entry) => entry.moved)
+  const pool = moved.length > 0 ? moved : candidates
+  const largest = Math.max(0, ...pool.map((entry) => entry.window))
   return largest > 0 ? largest : null
 }
 

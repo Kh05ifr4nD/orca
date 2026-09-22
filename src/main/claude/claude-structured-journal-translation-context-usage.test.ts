@@ -58,7 +58,13 @@ const userFrame = (uuid: string, at: number) =>
     true
   )
 
-function assistantFrame(uuid: string, at: number, input: number, parentToolUseId?: string) {
+function assistantFrame(
+  uuid: string,
+  at: number,
+  input: number,
+  parentToolUseId?: string,
+  model = 'claude-fable-5-1'
+) {
   return frame(
     {
       type: 'assistant',
@@ -66,7 +72,7 @@ function assistantFrame(uuid: string, at: number, input: number, parentToolUseId
       ...(parentToolUseId ? { parent_tool_use_id: parentToolUseId } : {}),
       message: {
         role: 'assistant',
-        model: 'claude-fable-5-1',
+        model,
         content: [{ type: 'text', text: uuid }],
         usage: {
           input_tokens: input,
@@ -147,6 +153,57 @@ describe('context usage on journal rows', () => {
       usedTokens: 18_600,
       windowTokens: 1_000_000,
       estimated: true
+    })
+    t.translator.dispose()
+  })
+
+  it('reads the window of the model the main thread ran on, not the largest one used', () => {
+    const t = setup()
+    const entry = (contextWindow: number, inputTokens: number) => ({ contextWindow, inputTokens })
+    const windowOf = (turnId: string) => {
+      const body = t.turnRow(turnId)?.body
+      return body?.kind === 'turn' ? body.contextUsage?.window?.tokens : undefined
+    }
+    t.handle(userFrame('turn-a', 1_000))
+    t.handle(assistantFrame('reply-a', 2_000, 18_600))
+    t.handle(resultFrame(3_000, { 'claude-fable-5-1[1m]': entry(1_000_000, 18_600) }))
+    expect(windowOf('turn-a')).toBe(1_000_000)
+    // The user moved to a 200k model; the 1M entry stays in the cumulative usage.
+    t.handle(userFrame('turn-b', 4_000))
+    t.handle(assistantFrame('reply-b', 5_000, 20_000, undefined, 'claude-sonnet-5'))
+    t.handle(
+      resultFrame(6_000, {
+        'claude-fable-5-1[1m]': entry(1_000_000, 18_600),
+        'claude-sonnet-5': entry(200_000, 20_000)
+      })
+    )
+    expect(windowOf('turn-b')).toBe(200_000)
+    // Same model without `[1m]`: the entry this result moved is the main thread's.
+    t.handle(userFrame('turn-c', 7_000))
+    t.handle(assistantFrame('reply-c', 8_000, 21_000))
+    t.handle(
+      resultFrame(9_000, {
+        'claude-fable-5-1[1m]': entry(1_000_000, 18_600),
+        'claude-sonnet-5': entry(200_000, 20_000),
+        'claude-fable-5-1': entry(200_000, 21_000)
+      })
+    )
+    expect(windowOf('turn-c')).toBe(200_000)
+    // A subagent on a larger-window model leaves the main thread's window alone.
+    t.handle(userFrame('turn-d', 10_000))
+    t.handle(assistantFrame('reply-d', 11_000, 22_000, undefined, 'claude-sonnet-5'))
+    t.handle(assistantFrame('child-d', 11_500, 9_000, 'toolu_task', 'claude-fable-5-1'))
+    t.handle(
+      resultFrame(12_000, {
+        'claude-fable-5-1[1m]': entry(1_000_000, 27_600),
+        'claude-sonnet-5': entry(200_000, 42_000),
+        'claude-fable-5-1': entry(200_000, 21_000)
+      })
+    )
+    expect(windowOf('turn-d')).toBe(200_000)
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
+      usedTokens: 22_000,
+      windowTokens: 200_000
     })
     t.translator.dispose()
   })

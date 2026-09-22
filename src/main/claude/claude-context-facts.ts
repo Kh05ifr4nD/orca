@@ -1,10 +1,16 @@
 // Where the Claude CLI's context facts land in the journal, and when a fresh
 // `/context` breakdown is worth asking for. The facts live on turn rows; this
-// holds only the activity count that tells a late answer it is stale.
+// holds only what tells a late answer it is stale and whose window a result reports.
 
 import type { AgentSessionContextUsage } from '../../shared/agent-session-context-usage'
-import { claudeContextResetKind, claudeContextWindowFromResult } from './claude-context-usage'
+import {
+  claudeContextResetKind,
+  claudeContextWindowFromResult,
+  claudeModelUsageTotals,
+  claudeTokenUsage
+} from './claude-context-usage'
 import type { ClaudeOpenTurn } from './claude-open-turn'
+import { claudeRecord, claudeText } from './claude-structured-item-translation'
 import type { ClaudeTurnEnd } from './claude-turn-lifecycle-item'
 import { isRootClaudeFrame } from './claude-turn-opening'
 
@@ -12,6 +18,10 @@ const CONVERSATION_FRAME_TYPES = new Set(['assistant', 'user', 'stream_event'])
 
 export class ClaudeContextFacts {
   private activity = 0
+  /** Model that served the newest main-thread response: whose window the result's usage should report. */
+  private mainModel: string | null = null
+  /** The previous result's cumulative per-model totals, to see which models a result moved. */
+  private modelTotals: ReadonlyMap<string, number> = new Map()
   private readonly requestListeners = new Set<(turnId: string) => void>()
 
   constructor(private readonly turn: ClaudeOpenTurn) {}
@@ -30,6 +40,7 @@ export class ClaudeContextFacts {
   observe(message: Record<string, unknown>, observedAt: number): void {
     if (CONVERSATION_FRAME_TYPES.has(String(message.type)) && isRootClaudeFrame(message)) {
       this.markActivity()
+      this.observeMainModel(message)
     }
     const reset = claudeContextResetKind(message)
     if (!reset) {
@@ -45,7 +56,11 @@ export class ClaudeContextFacts {
   /** End the turn a root result settles, with the window its per-model usage
    *  reports, then ask for the breakdown. */
   settle(message: Record<string, unknown>, end: ClaudeTurnEnd): void {
-    const tokens = claudeContextWindowFromResult(message)
+    const tokens = claudeContextWindowFromResult(message, {
+      model: this.mainModel,
+      previousTotals: this.modelTotals
+    })
+    this.modelTotals = claudeModelUsageTotals(message)
     const facts = tokens === null ? undefined : { window: { tokens, capturedAt: end.completedAt } }
     const wasOpen = this.turn.isOpen
     this.turn.settle(end, facts)
@@ -66,6 +81,15 @@ export class ClaudeContextFacts {
 
   dispose(): void {
     this.requestListeners.clear()
+  }
+
+  private observeMainModel(message: Record<string, unknown>): void {
+    const response = message.type === 'assistant' ? claudeRecord(message.message) : null
+    const model = claudeText(response?.model)
+    // Synthetic rows carry no usage and a placeholder model; neither names a window.
+    if (model && claudeTokenUsage(response?.usage)) {
+      this.mainModel = model
+    }
   }
 
   private annotateLatest(contextUsage: AgentSessionContextUsage): void {
