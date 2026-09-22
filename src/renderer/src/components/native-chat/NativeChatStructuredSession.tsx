@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { encodeAgentSessionQuestionAnswers } from '../../../../shared/agent-session-question-answer'
 import { dispatchStructuredAgentSessionComposerCommand } from '../../../../shared/structured-agent-session-composer'
 import { structuredAgentSessionPaneKey } from '../../../../shared/structured-agent-session-projection'
+import { selectStructuredAgentContextUsage } from '../../../../shared/structured-agent-session-context-usage'
 import type { NativeChatLiveSession } from './use-native-chat-live-session'
 import { NativeChatApprovalCard } from './NativeChatApprovalCard'
 import { NativeChatComposer, type NativeChatComposerHandle } from './NativeChatComposer'
@@ -153,6 +154,10 @@ export function NativeChatStructuredSession(
           }
         ]
       : [])
+  const contextUsage = useMemo(
+    () => selectStructuredAgentContextUsage(controller.journalItems),
+    [controller.journalItems]
+  )
   const structuredTransport = useMemo(() => {
     const threadGoal = controller.threadGoal
     const setThreadGoalObjective = threadGoal
@@ -186,6 +191,7 @@ export function NativeChatStructuredSession(
       optionSnapshot: controller.optionSnapshot,
       optionPickerRequest,
       sessionCommands: controller.sessionCommands,
+      contextUsage,
       worktreeId: fileLinkContext?.worktreeId,
       onError: setComposerError,
       runtime: (props.target.kind === 'local' ? 'local' : 'remote') as 'local' | 'remote',
@@ -194,6 +200,7 @@ export function NativeChatStructuredSession(
         props.target.kind === 'local' ? null : (props.target.environmentId ?? null)
     }
   }, [
+    contextUsage,
     controller,
     fileLinkContext?.worktreeId,
     optionPickerRequest,
