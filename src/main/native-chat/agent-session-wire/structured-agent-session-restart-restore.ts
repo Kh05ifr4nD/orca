@@ -47,7 +47,9 @@ export type StructuredAgentSessionReadRestoreDeps = {
  */
 export async function restoreStructuredAgentSessionReadPhase(
   input: StructuredAgentSessionReadRestoreDeps,
-  sessionId: string
+  sessionId: string,
+  /** Re-asked inside the queue: a close that queued first must not see its chat reopened. */
+  stillWanted: () => boolean = () => true
 ): Promise<void> {
   const unreconciled = await input.reconcile(sessionId)
   if (!unreconciled) {
@@ -61,6 +63,9 @@ export async function restoreStructuredAgentSessionReadPhase(
   await input.serialize(sessionId, async () => {
     if (input.hasSession(sessionId)) {
       // A surface that took a hold, or read it, mid-restore already opened this one.
+      return
+    }
+    if (!stillWanted()) {
       return
     }
     const restored = await restoreStructuredAgentSessionRead(

@@ -63,7 +63,8 @@ export class StructuredAgentSessionReadableRestorer {
    * PTY census it depends on exists.
    *
    * Only for a chat the user still has a tab for, when the store keeps that index: a read retry
-   * landing after a close must not reopen the chat it just closed.
+   * landing after a close must not reopen the chat it just closed. Asked again inside the task
+   * queue, because a read already past this check can still queue behind that close.
    */
   async ensureReadable(sessionId: string): Promise<boolean> {
     if (this.input.hasSession(sessionId)) {
@@ -73,11 +74,14 @@ export class StructuredAgentSessionReadableRestorer {
     if (!record || !this.input.supportsRecord(record)) {
       return false
     }
-    const visible = this.input.store.getVisibleSessionTabIndex()
-    if (visible.present && !visible.sessionIds.includes(sessionId)) {
+    const tabVisible = (): boolean => {
+      const visible = this.input.store.getVisibleSessionTabIndex()
+      return !visible.present || visible.sessionIds.includes(sessionId)
+    }
+    if (!tabVisible()) {
       return false
     }
-    await restoreStructuredAgentSessionReadPhase(this.input, sessionId)
+    await restoreStructuredAgentSessionReadPhase(this.input, sessionId, tabVisible)
     return this.input.hasSession(sessionId)
   }
 

@@ -141,6 +141,27 @@ describe('an on-demand read of a persisted chat', () => {
     expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
   })
 
+  it('does not reopen a chat closed while the read was already past its visibility check', async () => {
+    // Close hides the tab, then queues its eviction; a read held up in reconcile queues after it.
+    const visible = { present: true, sessionIds: ['session-1'] }
+    const reconciled = Promise.withResolvers<null>()
+    const { restorer, live, tasks } = harness({
+      records: [record('session-1')],
+      visible,
+      reconcile: () => reconciled.promise
+    })
+
+    const read = restorer.ensureReadable('session-1')
+    visible.sessionIds = []
+    const close = tasks.serialize('session-1', async () => undefined)
+    reconciled.resolve(null)
+
+    await expect(read).resolves.toBe(false)
+    await close
+    expect(live.size).toBe(0)
+    expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
+  })
+
   it('reads any supported record when the store keeps no visible-tab index', async () => {
     const { restorer } = harness({
       records: [record('session-1')],
