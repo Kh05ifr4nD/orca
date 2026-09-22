@@ -22,6 +22,7 @@ function harness(options: {
   records: AgentSessionRecord[]
   visible?: { present: boolean; sessionIds: string[] }
   supports?: (record: AgentSessionRecord) => boolean
+  reconcile?: (live: Map<string, unknown>) => Promise<null>
 }) {
   const live = new Map<string, unknown>()
   const tasks = new StructuredAgentSessionTaskQueue()
@@ -41,7 +42,7 @@ function harness(options: {
     } as unknown as AgentSessionRecordStore,
     journalRoot: '/journals',
     supportsRecord: options.supports ?? (() => true),
-    reconcile: async () => null,
+    reconcile: async () => (options.reconcile ? options.reconcile(live) : null),
     resolveRecovery: async () => undefined,
     serialize: (sessionId, task) => tasks.serialize(sessionId, task),
     hasSession: (sessionId) => live.has(sessionId),
@@ -49,7 +50,7 @@ function harness(options: {
     retrySettlement: async () => true,
     restoreHandoff
   })
-  return { restorer, live, onReadable, restoreHandoff }
+  return { restorer, live, tasks, onReadable, restoreHandoff }
 }
 
 function record(sessionId: string): AgentSessionRecord {
@@ -102,6 +103,28 @@ describe('an on-demand read of a persisted chat', () => {
     expect(readRestore.restoreStructuredAgentSessionRead).toHaveBeenCalledOnce()
     expect(onReadable).toHaveBeenCalledOnce()
     expect(restoreHandoff).toHaveBeenCalledOnce()
+  })
+
+  it('does not queue behind a provider start once another surface made the chat readable', async () => {
+    // A hold opens the chat, then keeps the task queue for its whole provider start. A read that
+    // saw the chat closed at its first check must not then wait that start out.
+    const providerStart = Promise.withResolvers<void>()
+    const { restorer, live, tasks } = harness({
+      records: [record('session-1')],
+      reconcile: async (sessions) => {
+        sessions.set('session-1', readable)
+        void tasks.serialize('session-1', () => providerStart.promise)
+        return null
+      }
+    })
+
+    try {
+      await expect(restorer.ensureReadable('session-1')).resolves.toBe(true)
+      expect(live.has('session-1')).toBe(true)
+      expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
+    } finally {
+      providerStart.resolve()
+    }
   })
 
   it('does not reopen a chat the user closed', async () => {
