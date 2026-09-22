@@ -25,16 +25,22 @@ const REPORT: AgentSessionContextReport = {
   capturedAt: 5_000
 }
 
+/** A turn row whose newest main-thread response read `usedTokens`, at `sequence` seconds. */
 function assistant(itemId: string, sequence: number, usedTokens: number): AgentJournalRenderItem {
   return item(itemId, sequence, {
-    kind: 'message',
-    role: 'assistant',
-    blocks: [{ type: 'text', text: itemId }],
-    usage: {
-      inputTokens: usedTokens,
-      cacheCreationInputTokens: 0,
-      cacheReadInputTokens: 0,
-      outputTokens: 4
+    kind: 'turn',
+    turnId: itemId,
+    state: 'running',
+    contextUsage: {
+      response: {
+        usage: {
+          inputTokens: usedTokens,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          outputTokens: 4
+        },
+        capturedAt: sequence * 1_000
+      }
     }
   })
 }

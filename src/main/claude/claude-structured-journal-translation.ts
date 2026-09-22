@@ -282,6 +282,7 @@ export function createClaudeJournalTranslator(
             corrections.stampFor(claudeFrameParentRef(event.message))
           )
         }
+        context.observeResponse(event.message, event.observedAt ?? Date.now())
         publishActivity(kind, event.message)
         // The CLI's own turn-over signal, and the only end a turn stopped by a
         // fault with no result frame ever gets. Reopen stays allowed: output

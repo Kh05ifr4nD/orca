@@ -1,9 +1,9 @@
-// The context window a structured session reads from its own journal. The used
-// count is the newest of three facts: the provider's `/context` report, the
-// usage on the newest main-thread response (an estimate, the arithmetic the
-// provider's statusline uses), or a compaction/reset that makes it unknown. The
-// window is the newest one the provider reported. Nothing is held outside the
-// journal, so a restart replays the same answer.
+// The context window a structured session reads from its own journal's turn
+// rows. The used count is the newest of three facts: the provider's `/context`
+// report, the usage on the newest main-thread response (an estimate, the
+// arithmetic the provider's statusline uses), or a compaction/reset that makes it
+// unknown. The window is the newest one the provider reported. Nothing is held
+// outside the journal, so a restart replays the same answer.
 
 import {
   contextTokensFromUsage,
@@ -37,16 +37,7 @@ export function selectStructuredAgentContextUsage(
   const newer = (at: number, current: { at: number } | null): boolean =>
     current === null || at >= current.at
   for (const item of items) {
-    const body = item.body
-    if (body.kind === 'message') {
-      const tokens =
-        body.role === 'assistant' && body.usage ? contextTokensFromUsage(body.usage) : 0
-      if (tokens > 0 && newer(item.observedAt, used)) {
-        used = { at: item.observedAt, estimatedTokens: tokens }
-      }
-      continue
-    }
-    const facts = readAgentJournalTurn(body)?.contextUsage
+    const facts = readAgentJournalTurn(item.body)?.contextUsage
     if (!facts) {
       continue
     }
@@ -70,6 +61,11 @@ export function selectStructuredAgentContextUsage(
           }
         }
       }
+    }
+    const response = facts.response
+    const responseTokens = response ? contextTokensFromUsage(response.usage) : 0
+    if (response && responseTokens > 0 && newer(response.capturedAt, used)) {
+      used = { at: response.capturedAt, estimatedTokens: responseTokens }
     }
     if (facts.resetAt !== undefined && newer(facts.resetAt, used)) {
       used = { at: facts.resetAt, unknown: true }

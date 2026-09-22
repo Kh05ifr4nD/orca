@@ -3,7 +3,7 @@
 // take the newest: a revised row keeps its place in the transcript, so journal
 // order alone cannot say which fact is current.
 
-/** The API's accounting on one main-thread assistant response. */
+/** The API's accounting on one assistant response. */
 export type AgentSessionTokenUsage = {
   inputTokens: number
   cacheCreationInputTokens: number
@@ -45,6 +45,9 @@ export type AgentSessionContextUsage = {
   /** The largest window the provider reported for the session's models. */
   window?: { tokens: number; capturedAt: number }
   report?: AgentSessionContextReport
+  /** The newest main-thread response in the turn, whatever its blocks: its
+   *  input is the live context size. A subagent's measures its own window. */
+  response?: { usage: AgentSessionTokenUsage; model?: string; capturedAt: number }
   /** Compaction or a conversation reset: the used count is unknown from here
    *  until the next response or report. */
   resetAt?: number

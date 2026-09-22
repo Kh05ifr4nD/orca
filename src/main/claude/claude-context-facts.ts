@@ -20,6 +20,8 @@ export class ClaudeContextFacts {
   private activity = 0
   /** Model that served the newest main-thread response: whose window the result's usage should report. */
   private mainModel: string | null = null
+  /** The last response fact written, so a response's per-block frames revise its row once. */
+  private lastResponse: string | null = null
   /** The previous result's cumulative per-model totals, to see which models a result moved. */
   private modelTotals: ReadonlyMap<string, number> = new Map()
   private readonly requestListeners = new Set<(turnId: string) => void>()
@@ -40,17 +42,43 @@ export class ClaudeContextFacts {
   observe(message: Record<string, unknown>, observedAt: number): void {
     if (CONVERSATION_FRAME_TYPES.has(String(message.type)) && isRootClaudeFrame(message)) {
       this.markActivity()
-      this.observeMainModel(message)
     }
     const reset = claudeContextResetKind(message)
     if (!reset) {
       return
     }
     // The pre-reset size must not outlive the reset; the next response or report restates it.
+    this.lastResponse = null
     this.annotateLatest({ resetAt: observedAt })
     if (reset === 'compaction') {
       this.requestReport()
     }
+  }
+
+  /** A frame after it is journaled, so a response lands on the turn it opened.
+   *  Every main-thread response counts, text or not: tool-only ones are where
+   *  the context grows fastest. */
+  observeResponse(message: Record<string, unknown>, observedAt: number): void {
+    if (message.type !== 'assistant' || !isRootClaudeFrame(message)) {
+      return
+    }
+    const response = claudeRecord(message.message)
+    // Synthetic rows carry no usage and a placeholder model; neither says anything about the window.
+    const usage = claudeTokenUsage(response?.usage)
+    if (!usage) {
+      return
+    }
+    const model = claudeText(response?.model)
+    this.mainModel = model ?? this.mainModel
+    const turnId = this.turn.latestId
+    const key = JSON.stringify([turnId, usage, model])
+    if (turnId === null || key === this.lastResponse) {
+      return
+    }
+    this.lastResponse = key
+    this.turn.annotate(turnId, {
+      response: { usage, ...(model ? { model } : {}), capturedAt: observedAt }
+    })
   }
 
   /** End the turn a root result settles, with the window its per-model usage
@@ -81,15 +109,6 @@ export class ClaudeContextFacts {
 
   dispose(): void {
     this.requestListeners.clear()
-  }
-
-  private observeMainModel(message: Record<string, unknown>): void {
-    const response = message.type === 'assistant' ? claudeRecord(message.message) : null
-    const model = claudeText(response?.model)
-    // Synthetic rows carry no usage and a placeholder model; neither names a window.
-    if (model && claudeTokenUsage(response?.usage)) {
-      this.mainModel = model
-    }
   }
 
   private annotateLatest(contextUsage: AgentSessionContextUsage): void {

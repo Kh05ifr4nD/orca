@@ -192,6 +192,13 @@ const ContextUsage = z.object({
       capturedAt: z.number().finite()
     })
     .optional(),
+  response: z
+    .object({
+      usage: TokenUsage,
+      model: z.string().min(1).optional(),
+      capturedAt: z.number().finite()
+    })
+    .optional(),
   resetAt: z.number().finite().optional()
 })
 
@@ -200,8 +207,7 @@ const MessageBody = z.object({
   role: z.string().min(1),
   blocks: z.array(Block),
   // Open like roles: a send mode a newer build writes must not turn the row malformed.
-  sentAs: z.string().min(1).optional(),
-  usage: TokenUsage.optional()
+  sentAs: z.string().min(1).optional()
 })
 
 const ThreadGoal = z.object({

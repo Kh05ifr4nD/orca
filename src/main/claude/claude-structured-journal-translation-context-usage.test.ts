@@ -63,7 +63,8 @@ function assistantFrame(
   at: number,
   input: number,
   parentToolUseId?: string,
-  model = 'claude-fable-5-1'
+  model = 'claude-fable-5-1',
+  content: unknown[] = [{ type: 'text', text: uuid }]
 ) {
   return frame(
     {
@@ -73,7 +74,7 @@ function assistantFrame(
       message: {
         role: 'assistant',
         model,
-        content: [{ type: 'text', text: uuid }],
+        content,
         usage: {
           input_tokens: input,
           cache_creation_input_tokens: 0,
@@ -133,11 +134,16 @@ describe('context usage on journal rows', () => {
     const t = setup()
     t.handle(userFrame('turn-a', 1_000))
     t.handle(assistantFrame('reply-a', 2_000, 18_600))
-    const reply = t.appends.find(
-      (entry) => entry.body.kind === 'message' && entry.body.role === 'assistant'
-    )
-    expect(reply?.body).toMatchObject({ usage: { inputTokens: 18_600, outputTokens: 4 } })
-    expect(reply?.body).not.toHaveProperty('model')
+    expect(t.turnRow('turn-a')?.body).toMatchObject({
+      state: 'running',
+      contextUsage: {
+        response: {
+          usage: { inputTokens: 18_600, outputTokens: 4 },
+          model: 'claude-fable-5-1',
+          capturedAt: 2_000
+        }
+      }
+    })
     const before = t.appends.length
     t.handle(resultFrame(3_000, MODEL_USAGE))
     const turnRevisions = t.appends
@@ -212,11 +218,43 @@ describe('context usage on journal rows', () => {
     const t = setup()
     t.handle(userFrame('turn-a', 1_000))
     t.handle(assistantFrame('child-reply', 2_000, 9_000, 'toolu_task'))
-    const row = t.appends.find(
-      (entry) => entry.body.kind === 'message' && entry.body.role === 'assistant'
-    )
-    expect(row?.body).toMatchObject({ kind: 'message' })
-    expect(row?.body).not.toHaveProperty('usage')
+    expect(t.appends.some((entry) => entry.body.kind === 'message')).toBe(true)
+    expect(t.turnRow('turn-a')?.body).not.toHaveProperty('contextUsage')
+    t.translator.dispose()
+  })
+
+  it('moves the meter on a tool-only response, once per response', () => {
+    const t = setup()
+    const toolOnly = (uuid: string, at: number, input: number, toolId: string) =>
+      assistantFrame(uuid, at, input, undefined, 'claude-fable-5-1', [
+        { type: 'tool_use', id: toolId, name: 'Read', input: { file_path: '/a' } }
+      ])
+    t.handle(userFrame('turn-a', 1_000))
+    t.handle(assistantFrame('reply-a', 2_000, 18_600))
+    t.handle(resultFrame(3_000, MODEL_USAGE))
+    t.handle(userFrame('turn-b', 4_000))
+    const replies = () =>
+      t.appends.filter((entry) => entry.body.kind === 'message' && entry.body.role === 'assistant')
+    const repliesBefore = replies().length
+    t.handle(toolOnly('call-b1', 5_000, 60_000, 'toolu_1'))
+    // No message row: the usage has to live somewhere a text-less response writes.
+    expect(replies()).toHaveLength(repliesBefore)
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
+      usedTokens: 60_000,
+      windowTokens: 1_000_000
+    })
+    // The CLI sends one frame per block of a response; the row is revised once.
+    const revisions = t.turnRow('turn-b')?.revision
+    t.handle(toolOnly('call-b1', 5_100, 60_000, 'toolu_2'))
+    expect(t.turnRow('turn-b')?.revision).toBe(revisions)
+    // An auto-compaction mid-turn hides the size until the next response restates it.
+    t.handle(compactBoundary(6_000))
+    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
+    t.handle(toolOnly('call-b2', 7_000, 30_000, 'toolu_3'))
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
+      usedTokens: 30_000,
+      estimated: true
+    })
     t.translator.dispose()
   })
 
