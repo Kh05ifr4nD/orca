@@ -1,4 +1,5 @@
 import type { AgentSessionDeltaCoalescerDeps } from '../native-chat/agent-session-wire/agent-session-delta-coalescer'
+import type { AgentSessionContextUsage } from '../../shared/agent-session-context-usage'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
@@ -31,6 +32,7 @@ import {
 } from './claude-turn-opening'
 import { claudeTurnEndForResult } from './claude-turn-lifecycle-item'
 import { ClaudeOpenTurn } from './claude-open-turn'
+import { ClaudeContextFacts } from './claude-context-facts'
 import { claudeSessionStateEndsTurn } from './claude-session-state-turn-over'
 import { ClaudeJournalPrompts } from './claude-structured-journal-prompts'
 import { journalClaudeMessage, type ClaudeMessageJournalContext } from './claude-message-journaling'
@@ -54,6 +56,14 @@ export type ClaudeJournalTranslator = {
   retryPendingTaskRows?: () => StructuredAgentSessionSinkAdmission
   /** Streamed blocks still awaiting a final frame. A settled turn leaves none. */
   readonly pendingStreamedBlocks: number
+  /** Moves with the main conversation and each accepted send; a context report
+   *  asked for before it moved may no longer describe the context. */
+  readonly contextActivity: number
+  markContextActivity: () => void
+  /** Fires with the turn a fresh `/context` breakdown should be recorded on. */
+  subscribeContextUsageRequests: (listener: (turnId: string) => void) => () => void
+  /** Revise a turn's row with context facts. False when the turn is unknown or too old. */
+  annotateTurnContextUsage: (turnId: string, contextUsage: AgentSessionContextUsage) => boolean
   dispose: () => void
 }
 
@@ -84,6 +94,7 @@ export function createClaudeJournalTranslator(
     sink: deps.sink,
     settleChildren: (groupKey) => subagents.settleTurn(groupKey)
   })
+  const context = new ClaudeContextFacts(turn)
   const providerFallback = createClaudeProviderFrameFallback(
     deps.sink,
     deps.fallbackIdPrefix ?? 'acquisition'
@@ -192,6 +203,9 @@ export function createClaudeJournalTranslator(
         turn.suppressReopen()
         return
       }
+      if (event.type === 'message') {
+        context.observe(event.message, event.observedAt ?? Date.now())
+      }
       if (event.type === 'message' && handleStream(event.message, event.observedAt ?? Date.now())) {
         return
       }
@@ -221,7 +235,10 @@ export function createClaudeJournalTranslator(
           // The turn is over however it ended, so a foreground child still
           // reported as working will never be settled by an event.
           subagents.settleTurn(turn.groupKey)
-          turn.settle(claudeTurnEndForResult(event.message, event.observedAt ?? Date.now()))
+          context.settle(
+            event.message,
+            claudeTurnEndForResult(event.message, event.observedAt ?? Date.now())
+          )
           // The turn is over. A block still awaiting its final keeps the text the
           // flush above journaled, but its live state goes: an interrupted turn
           // would otherwise retain that text for the life of the session.
@@ -289,8 +306,15 @@ export function createClaudeJournalTranslator(
     get pendingStreamedBlocks() {
       return streamedText.pending
     },
+    get contextActivity() {
+      return context.activityRevision
+    },
+    markContextActivity: () => context.markActivity(),
+    subscribeContextUsageRequests: (listener) => context.subscribeReportRequests(listener),
+    annotateTurnContextUsage: (turnId, contextUsage) => context.annotate(turnId, contextUsage),
     dispose: () => {
       streamedText.flush()
+      context.dispose()
       streamedText.dispose()
       tools.clear()
       prompts.clear()

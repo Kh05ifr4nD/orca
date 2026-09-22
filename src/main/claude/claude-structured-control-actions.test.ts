@@ -200,6 +200,10 @@ describe('answerClaudePrompt', () => {
       },
       currentTurnId: null,
       flush: vi.fn(),
+      contextActivity: 0,
+      markContextActivity: vi.fn(),
+      subscribeContextUsageRequests: () => () => {},
+      annotateTurnContextUsage: () => false,
       pendingStreamedBlocks: 0,
       dispose: vi.fn()
     }

@@ -162,12 +162,46 @@ const ApprovalSubject = z.object({
   filePath: z.string().optional()
 })
 
+const TokenCount = z.number().finite().nonnegative()
+
+const TokenUsage = z.object({
+  inputTokens: TokenCount,
+  cacheCreationInputTokens: TokenCount,
+  cacheReadInputTokens: TokenCount,
+  outputTokens: TokenCount
+})
+
+const ContextUsage = z.object({
+  window: z
+    .object({ tokens: z.number().finite().positive(), capturedAt: z.number().finite() })
+    .optional(),
+  report: z
+    .object({
+      model: z.string().min(1),
+      usedTokens: TokenCount,
+      windowTokens: z.number().finite().positive(),
+      percentage: z.number().finite(),
+      autoCompactAtTokens: TokenCount.optional(),
+      categories: z.array(
+        z.object({
+          name: z.string().min(1),
+          tokens: TokenCount,
+          deferred: z.literal(true).optional()
+        })
+      ),
+      capturedAt: z.number().finite()
+    })
+    .optional(),
+  resetAt: z.number().finite().optional()
+})
+
 const MessageBody = z.object({
   kind: z.literal('message'),
   role: z.string().min(1),
   blocks: z.array(Block),
   // Open like roles: a send mode a newer build writes must not turn the row malformed.
-  sentAs: z.string().min(1).optional()
+  sentAs: z.string().min(1).optional(),
+  usage: TokenUsage.optional()
 })
 
 const ThreadGoal = z.object({
@@ -255,7 +289,8 @@ export const AgentJournalItemBodySchema = z.discriminatedUnion('kind', [
     startedAt: z.number().finite().positive().optional(),
     requestedAt: z.number().finite().positive().optional(),
     completedAt: z.number().finite().positive().optional(),
-    durationMs: z.number().finite().nonnegative().optional()
+    durationMs: z.number().finite().nonnegative().optional(),
+    contextUsage: ContextUsage.optional()
   })
 ])
 

@@ -72,6 +72,7 @@ function fakeClaude() {
   /** A child that dies during start, with the close verdict its ladder observed. */
   let selfExit: { message: string; exitVerdict: ClaudeStreamJsonConnection['exitVerdict'] } | null =
     null
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the fake answers every control request the session issues; the real opener's signature is what the runtime under test calls.
   const openConnection = (async (launch, handlers = {}) => {
     const connection: FakeClaudeConnection = {
       launch,
@@ -102,6 +103,10 @@ function fakeClaude() {
       getSettings: async () => {
         connection.calls.push({ subtype: 'get_settings' })
         return { env: {} }
+      },
+      getContextUsage: async () => {
+        connection.calls.push({ subtype: 'get_context_usage' })
+        return {}
       },
       supportedModels: async () => {
         connection.calls.push({ subtype: 'list_models' })

@@ -3,6 +3,7 @@ import type {
   AgentJournalTurnItem,
   AgentJournalTurnOutcome
 } from '../../shared/agent-session-journal-types'
+import type { AgentSessionContextUsage } from '../../shared/agent-session-context-usage'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { agentJournalTurnBody } from '../../shared/agent-session-turn-record'
 import type { StructuredAgentSessionAppendOptions } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
@@ -72,7 +73,8 @@ export function claudeProviderResumedTurnTimingAnchor(sessionId: string, turnId:
  *  turn's host-clock endpoints outlive the turn. */
 export function claudeTurnLifecycleItem(
   turn: ClaudeCurrentTurn,
-  end?: ClaudeTurnEnd
+  end?: ClaudeTurnEnd,
+  contextUsage?: AgentSessionContextUsage
 ): {
   identity: AgentJournalItemIdentity
   body: AgentJournalTurnItem
@@ -83,6 +85,7 @@ export function claudeTurnLifecycleItem(
   // Write-once: the terminal revision republishes the value the running row
   // already carried, because both are built from the same open turn.
   const requested = requestedAt === undefined ? {} : { requestedAt }
+  const context = contextUsage === undefined ? {} : { contextUsage }
   return {
     identity: claudeTurnLifecycleIdentity(sessionId, turnId),
     body: agentJournalTurnBody(
@@ -95,9 +98,10 @@ export function claudeTurnLifecycleItem(
             ...requested,
             completedAt: end.completedAt,
             userItemId,
-            ...(end.durationMs === undefined ? {} : { durationMs: end.durationMs })
+            ...(end.durationMs === undefined ? {} : { durationMs: end.durationMs }),
+            ...context
           }
-        : { turnId, state: 'running', startedAt, ...requested, userItemId }
+        : { turnId, state: 'running', startedAt, ...requested, userItemId, ...context }
     ),
     // The running row's ts is the turn start itself, so clients read no append lag.
     options: end ? {} : { observedAt: startedAt },

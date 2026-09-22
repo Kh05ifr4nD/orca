@@ -99,6 +99,10 @@ function sessionHoldingTurn(turnId: string | null): ReturnType<typeof sessionFor
     journalPrompts: { cancel: vi.fn(), resolve: vi.fn() },
     currentTurnId: turnId,
     flush: vi.fn(),
+    contextActivity: 0,
+    markContextActivity: vi.fn(),
+    subscribeContextUsageRequests: () => () => {},
+    annotateTurnContextUsage: () => false,
     pendingStreamedBlocks: 0,
     dispose: vi.fn()
   }
@@ -274,6 +278,10 @@ describe('Claude turn ownership', () => {
         journalPrompts: { cancel: vi.fn(), resolve: vi.fn() },
         currentTurnId: 'turn-1',
         flush: vi.fn(),
+        contextActivity: 0,
+        markContextActivity: vi.fn(),
+        subscribeContextUsageRequests: () => () => {},
+        annotateTurnContextUsage: () => false,
         pendingStreamedBlocks: 0,
         dispose: vi.fn()
       }

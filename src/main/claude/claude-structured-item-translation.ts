@@ -3,13 +3,17 @@ import type {
   AgentJournalItemIdentity,
   AgentJournalMessageItem
 } from '../../shared/agent-session-journal-types'
+import type { AgentSessionTokenUsage } from '../../shared/agent-session-context-usage'
 import type { NativeChatBlock } from '../../shared/native-chat-types'
+import { claudeTokenUsage } from './claude-context-usage'
 import {
   boundInlineText,
   DEFAULT_JOURNAL_PAYLOAD_LIMITS
 } from '../native-chat/agent-session-journal/journal-payload-bounds'
 
 export type ClaudeMessageEnvelope = {
+  /** The API's accounting on an assistant frame; null when it carries none. */
+  usage: AgentSessionTokenUsage | null
   sessionId: string
   uuid: string
   role: 'assistant' | 'user'
@@ -54,7 +58,8 @@ export function readClaudeMessageEnvelope(
         content: messageContent(message?.content),
         isInjectedUserTurn,
         messageId: claudeText(message?.id),
-        parentToolUseId: claudeText(frame.parent_tool_use_id)
+        parentToolUseId: claudeText(frame.parent_tool_use_id),
+        usage: role === 'assistant' ? claudeTokenUsage(message?.usage) : null
       }
     : null
 }
@@ -106,7 +111,15 @@ function messageBlocks(envelope: ClaudeMessageEnvelope): NativeChatBlock[] {
 
 export function claudeMessageBody(envelope: ClaudeMessageEnvelope): AgentJournalMessageItem | null {
   const blocks = messageBlocks(envelope)
-  return blocks.length > 0 ? { kind: 'message', role: envelope.role, blocks } : null
+  return blocks.length > 0
+    ? {
+        kind: 'message',
+        role: envelope.role,
+        blocks,
+        // A subagent's usage measures its own window, not the session's.
+        ...(envelope.usage && !envelope.parentToolUseId ? { usage: envelope.usage } : {})
+      }
+    : null
 }
 
 export function claudeHasReplayContent(envelope: ClaudeMessageEnvelope): boolean {

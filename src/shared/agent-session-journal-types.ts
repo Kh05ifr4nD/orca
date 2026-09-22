@@ -10,6 +10,10 @@
 import type { AgentType } from './agent-status-types'
 import type { AgentJournalTurnOutcome } from './agent-turn-outcome'
 import type { NativeChatToolMetadata } from './native-chat-tool-identity'
+import type {
+  AgentSessionContextUsage,
+  AgentSessionTokenUsage
+} from './agent-session-context-usage'
 import type { NativeChatBlock, NativeChatRole } from './native-chat-types'
 
 export { type AgentType }
@@ -99,6 +103,9 @@ export type AgentJournalMessageItem = {
   /** Absent ⇒ an ordinary turn input. `goal` ⇒ the text was set as the thread
    *  goal's objective, and the provider pursues it without a turn of its own. */
   sentAs?: AgentJournalMessageSendMode
+  /** The API's accounting on a main-thread assistant response; the newest one
+   *  is the session's live context size. A subagent's measures its own window. */
+  usage?: AgentSessionTokenUsage
 }
 
 export type AgentJournalToolCallState = 'running' | 'completed' | 'failed'
@@ -218,6 +225,9 @@ export type AgentJournalTurnLifecycle = {
   completedAt?: number
   /** The provider's own measured turn duration, preferred over the host interval. */
   durationMs?: number
+  /** What the provider said about its context window during or after this turn.
+   *  Usually written by a later revision, since the provider answers after the end. */
+  contextUsage?: AgentSessionContextUsage
 }
 
 /** Provider thread-goal lifecycle. Open like other persisted vocabularies: a

@@ -4,6 +4,7 @@
 // and that row's id is what a client's Stop names. Readers ask here rather than
 // keeping a copy, so there is nothing to disagree with.
 
+import type { AgentSessionContextUsage } from '../../shared/agent-session-context-usage'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
   claudeTurnLifecycleItem,
@@ -18,8 +19,19 @@ export type ClaudeOpenTurnDeps = {
   settleChildren: (groupKey: string | null) => void
 }
 
+/** Ended turns kept for a late annotation; a provider report that lands
+ *  after this many newer turns describes a window nobody is looking at. */
+const RETAINED_ENDED_TURNS = 4
+
+type ClaudeTurnRow = {
+  turn: ClaudeCurrentTurn
+  end?: ClaudeTurnEnd
+  contextUsage?: AgentSessionContextUsage
+}
+
 export class ClaudeOpenTurn {
-  private current: ClaudeCurrentTurn | null = null
+  private current: ClaudeTurnRow | null = null
+  private readonly ended = new Map<string, ClaudeTurnRow>()
   /** Provider output may not reopen a turn after the session ended or a turn
    *  failed: nothing would ever close the turn it opened, and the row would read
    *  working for the life of the session. Only an accepted send lifts it. */
@@ -39,11 +51,16 @@ export class ClaudeOpenTurn {
   }
 
   get id(): string | null {
-    return this.current?.turnId ?? null
+    return this.current?.turn.turnId ?? null
+  }
+
+  /** The open turn, else the one that ended last: where a session-wide fact lands. */
+  get latestId(): string | null {
+    return this.id ?? [...this.ended.keys()].at(-1) ?? null
   }
 
   get groupKey(): string | null {
-    return this.current ? `${this.current.sessionId}:${this.current.turnId}` : null
+    return this.current ? `${this.current.turn.sessionId}:${this.current.turn.turnId}` : null
   }
 
   get isOpen(): boolean {
@@ -56,10 +73,10 @@ export class ClaudeOpenTurn {
   open(turn: ClaudeCurrentTurn, observedAt: number): void {
     if (this.current) {
       this.deps.settleChildren(this.groupKey)
-      this.publish(this.current, { state: 'interrupted', completedAt: observedAt })
+      this.end({ state: 'interrupted', completedAt: observedAt })
     }
-    this.current = turn
-    this.publish(turn)
+    this.current = { turn }
+    this.publish(this.current)
     this.deps.sink.setActivity?.(null)
   }
 
@@ -74,13 +91,41 @@ export class ClaudeOpenTurn {
     this.opener(frame, source, observedAt)
   }
 
-  /** End the open turn, if one is open, and clear the live activity line. */
-  settle(end: ClaudeTurnEnd): void {
-    if (this.current) {
-      this.publish(this.current, end)
-      this.current = null
-    }
+  /** End the open turn, if one is open, and clear the live activity line. The
+   *  context facts the end brings ride the same revision. */
+  settle(end: ClaudeTurnEnd, contextUsage?: AgentSessionContextUsage): void {
+    this.end(end, contextUsage)
     this.deps.sink.setActivity?.(null)
+  }
+
+  /** Revise a turn's row with context facts, each part replacing its namesake.
+   *  False when the turn is unknown or too old to still be worth a row. */
+  annotate(turnId: string, contextUsage: AgentSessionContextUsage): boolean {
+    const row = this.current?.turn.turnId === turnId ? this.current : this.ended.get(turnId)
+    if (!row) {
+      return false
+    }
+    row.contextUsage = { ...row.contextUsage, ...contextUsage }
+    this.publish(row)
+    return true
+  }
+
+  private end(end: ClaudeTurnEnd, contextUsage?: AgentSessionContextUsage): void {
+    const row = this.current
+    if (!row) {
+      return
+    }
+    row.end = end
+    row.contextUsage = contextUsage ? { ...row.contextUsage, ...contextUsage } : row.contextUsage
+    this.publish(row)
+    this.current = null
+    this.ended.set(row.turn.turnId, row)
+    for (const key of this.ended.keys()) {
+      if (this.ended.size <= RETAINED_ENDED_TURNS) {
+        break
+      }
+      this.ended.delete(key)
+    }
   }
 
   /** An accepted send is the only thing that lifts the latch. */
@@ -100,8 +145,8 @@ export class ClaudeOpenTurn {
 
   /** Deliberately root: a turn is the SESSION'S unit of work, and this lane only
    *  ever opens turns for the session's own agent. A child runs inside one. */
-  private publish(turn: ClaudeCurrentTurn, end?: ClaudeTurnEnd): void {
-    const item = claudeTurnLifecycleItem(turn, end)
+  private publish(row: ClaudeTurnRow): void {
+    const item = claudeTurnLifecycleItem(row.turn, row.end, row.contextUsage)
     this.deps.sink.appendItem(item.identity, item.body, item.options)
     // Preserve first-work evidence when completion arrives before the journal drains.
     this.deps.sink.publish({ coalescingKey: item.publishCoalescingKey })
