@@ -24,6 +24,7 @@ export function useNativeChatRailHistoryJump({
   items,
   messages,
   hasMore,
+  loadingEarlier,
   loadEarlier,
   jumpToLoaded
 }: {
@@ -31,6 +32,8 @@ export function useNativeChatRailHistoryJump({
   /** The lane's message list, compared by identity to detect a page that added nothing. */
   messages: unknown
   hasMore: boolean
+  /** Whether an older page is already in flight, e.g. from scrolling to the top. */
+  loadingEarlier: boolean
   loadEarlier: () => void | Promise<void>
   jumpToLoaded: (item: NativeChatRailItem) => void
 }): { pendingId: string | null; jump: (item: NativeChatRailItem) => void } {
@@ -55,6 +58,11 @@ export function useNativeChatRailHistoryJump({
       jumpToLoaded(target)
       return
     }
+    // The lane ignores a second request while one is in flight; asking now would read
+    // as a page that brought no progress. Its landing re-runs this.
+    if (loadingEarlier) {
+      return
+    }
     if (
       !target ||
       !hasMore ||
@@ -73,7 +81,7 @@ export function useNativeChatRailHistoryJump({
     void Promise.resolve(loadEarlierRef.current()).then(settle, () =>
       setPending((current) => (current === next ? null : current))
     )
-  }, [hasMore, items, jumpToLoaded, messages, pending])
+  }, [hasMore, items, jumpToLoaded, loadingEarlier, messages, pending])
 
   return { pendingId: pending?.messageId ?? null, jump }
 }

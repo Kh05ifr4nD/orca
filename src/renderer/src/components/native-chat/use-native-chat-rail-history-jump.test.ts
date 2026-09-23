@@ -6,10 +6,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { NativeChatRailItem } from './native-chat-message-rail-items'
 import { useNativeChatRailHistoryJump } from './use-native-chat-rail-history-jump'
 
-type LaneSnapshot = { loaded: number; messages: readonly string[] }
+type LaneSnapshot = { loaded: number; messages: readonly string[]; loading: boolean }
 
 /** A lane shaped like the structured read owner: a page lands in the store, and
- *  only then does the returned promise settle. */
+ *  only then does the returned promise settle. A request made while a page is in
+ *  flight returns at once, as the owner's does. */
 function createLane({
   total,
   pageSize,
@@ -27,23 +28,31 @@ function createLane({
   const ids = Array.from({ length: total }, (_, index) => `m${index}`)
   let snapshot: LaneSnapshot = {
     loaded: initiallyLoaded,
-    messages: ids.slice(total - initiallyLoaded)
+    messages: ids.slice(total - initiallyLoaded),
+    loading: false
   }
   const listeners = new Set<() => void>()
   const pageGate: { release: (() => void) | null } = { release: null }
   let holdPages = false
   const loadEarlier = vi.fn(async () => {
+    if (snapshot.loading) {
+      return
+    }
+    snapshot = { ...snapshot, loading: true }
+    listeners.forEach((listener) => listener())
     if (holdPages) {
       await new Promise<void>((resolve) => {
         pageGate.release = resolve
       })
     }
     await Promise.resolve()
-    if (!pagesAddNothing) {
+    if (pagesAddNothing) {
+      snapshot = { ...snapshot, loading: false }
+    } else {
       const loaded = Math.min(total, snapshot.loaded + pageSize)
-      snapshot = { loaded, messages: ids.slice(total - loaded) }
-      listeners.forEach((listener) => listener())
+      snapshot = { loaded, messages: ids.slice(total - loaded), loading: false }
     }
+    listeners.forEach((listener) => listener())
   })
   const lane = {
     loadEarlier,
@@ -75,6 +84,7 @@ function createLane({
       items,
       messages: current.messages,
       hasMore: current.loaded < total,
+      loadingEarlier: current.loading,
       loadEarlier: lane.loadEarlier,
       jumpToLoaded
     })
@@ -132,6 +142,28 @@ describe('rail jump through unloaded history', () => {
     await waitFor(() => expect(result.current.pendingId).toBeNull())
     expect(lane.loadEarlier).toHaveBeenCalledTimes(1)
     expect(jumpToLoaded).not.toHaveBeenCalled()
+  })
+
+  it('waits out a page already in flight instead of reading it as no progress', async () => {
+    const { lane, useLaneRailJump } = createLane({ total: 40, pageSize: 10, initiallyLoaded: 10 })
+    lane.holdPages()
+    const jumpToLoaded = vi.fn()
+    const { result } = renderHook(() => useLaneRailJump(jumpToLoaded))
+    // Scrolling to the top already asked for the next page.
+    act(() => void lane.loadEarlier())
+
+    act(() => result.current.jump(outlineItem('m25')))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(result.current.pendingId).toBe('m25')
+    await act(async () => {
+      lane.releasePage()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(jumpToLoaded).toHaveBeenCalledTimes(1))
+    expect(jumpToLoaded).toHaveBeenCalledWith(expect.objectContaining({ id: 'm25' }))
   })
 
   it('runs one jump at a time', async () => {

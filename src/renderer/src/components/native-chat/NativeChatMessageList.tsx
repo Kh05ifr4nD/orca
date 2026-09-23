@@ -260,6 +260,7 @@ export function NativeChatMessageList({
     items: rail.items,
     messages: session.messages,
     hasMore,
+    loadingEarlier,
     loadEarlier,
     jumpToLoaded: jumpToLoadedRailItem
   })
