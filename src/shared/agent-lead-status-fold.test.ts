@@ -98,6 +98,9 @@ describe('isAgentStatusHeldOpenByChildWork', () => {
 describe('isAgentExecutionOwed', () => {
   it('is owed while the main agent itself works, whatever the row shows', () => {
     expect(isAgentExecutionOwed({ state: 'working', mainAgent: { state: 'working' } })).toBe(true)
+    // Codex: a child's approval prompt turns the combined row `waiting` while the root's own
+    // turn keeps running; the main agent fact wins over the row it is folded into.
+    expect(isAgentExecutionOwed({ state: 'waiting', mainAgent: { state: 'working' } })).toBe(true)
   })
 
   it('is owed while a settled main agent is held working by live agent child work', () => {

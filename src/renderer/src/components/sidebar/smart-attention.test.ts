@@ -65,7 +65,7 @@ function makeEntry(overrides: Partial<AgentStatusEntry> & { paneKey: string }): 
     sessionBoundary: overrides.sessionBoundary,
     restoredUnconfirmed: overrides.restoredUnconfirmed,
     workingMode: overrides.workingMode,
-    lead: overrides.lead
+    mainAgent: overrides.mainAgent
   }
 }
 
@@ -786,9 +786,9 @@ describe('buildAttentionByWorktree', () => {
   })
 })
 
-describe('resolveAttention reads the combined state, not the lead fact', () => {
+describe('resolveAttention reads the combined state, not the main agent fact', () => {
   // The classes name what the sidebar row shows (Needs you / Done / Working), so the sort must
-  // rank by the same combined state the row displays. A settled lead whose subagent still runs
+  // rank by the same combined state the row displays. A settled main agent whose subagent still runs
   // shows Working; ranking it as Done would file a working row among the finished ones.
   const key = paneKey('tab-1', LEAF_1)
 
@@ -797,7 +797,7 @@ describe('resolveAttention reads the combined state, not the lead fact', () => {
       paneKey: key,
       state: 'working',
       stateStartedAt: NOW - 60_000,
-      lead: { state: 'done', stateStartedAt: NOW - 30_000 }
+      mainAgent: { state: 'done', stateStartedAt: NOW - 30_000 }
     })
     expect(resolveAttention(hookPanes([entry]), NOW)).toEqual({
       cls: 3,
@@ -805,23 +805,23 @@ describe('resolveAttention reads the combined state, not the lead fact', () => {
     })
   })
 
-  it('ranks a settled lead with a background watch loop as Working, like the row it shows', () => {
+  it('ranks a settled main agent with a background watch loop as Working, like the row it shows', () => {
     const entry = makeEntry({
       paneKey: key,
       state: 'working',
       workingMode: 'monitoring',
       stateStartedAt: NOW - 60_000,
-      lead: { state: 'done', stateStartedAt: NOW - 30_000 }
+      mainAgent: { state: 'done', stateStartedAt: NOW - 30_000 }
     })
     expect(resolveAttention(hookPanes([entry]), NOW).cls).toBe(3)
   })
 
-  it('never treats a restored row as live, whatever its lead says', () => {
+  it('never treats a restored row as live, whatever its main agent says', () => {
     const entry = makeEntry({
       paneKey: key,
       state: 'working',
       restoredUnconfirmed: true,
-      lead: { state: 'working', stateStartedAt: NOW - 30_000 }
+      mainAgent: { state: 'working', stateStartedAt: NOW - 30_000 }
     })
     // Even with a live PTY behind it: a hydrated row has no "how long since we heard" to report.
     expect(resolveAttention([hookPane(entry, true)], NOW)).toEqual(IDLE)

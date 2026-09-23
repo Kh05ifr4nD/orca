@@ -28,16 +28,16 @@ export const worktreeRemovedPayloadSchema = z.object({
 export const agentStatusChangedPayloadSchema = z.object({
   worktreeId: z.string().min(1).max(2048).nullable(),
   paneKey: z.string().min(1).max(2048),
-  /** The combined status the user sees: `working` while the lead or any live child works. */
+  /** The combined status the user sees: `working` while the main agent or any live child works. */
   state: z.string().min(1).max(256),
   receivedAt: z.number().finite().positive(),
-  /** The lead agent's own state beside the combined one, so a plugin can tell "the lead is still
-   *  working" from "a subagent still runs after the lead finished". Absent from hosts that
-   *  predate it and from rows with no lead fact; `state` keeps its meaning either way. */
-  lead: z
+  /** The main agent's own state beside the combined one, so a plugin can tell "the main agent is
+   *  still working" from "a subagent still runs after the main agent finished". Absent from hosts that
+   *  predate it and from rows with no main agent fact; `state` keeps its meaning either way. */
+  mainAgent: z
     .object({
       state: z.string().min(1).max(256),
-      /** The provider's verdict on the lead's last finished turn; present only while `state` is done. */
+      /** The provider's verdict on the main agent's last finished turn; present only while `state` is done. */
       outcome: z.string().min(1).max(256).optional(),
       // Why: the same bound the row normalizer applies; a stricter one here would reject the whole event.
       stateStartedAt: z.number().finite()

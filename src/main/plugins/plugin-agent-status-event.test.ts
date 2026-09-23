@@ -17,14 +17,14 @@ function row(
 }
 
 describe('projectPluginAgentStatusChangedPayload', () => {
-  it('publishes the lead fact beside the combined state, and the schema admits it', () => {
+  it('publishes the main agent fact beside the combined state, and the schema admits it', () => {
     const projected = projectPluginAgentStatusChangedPayload(
       row({
         payload: {
           state: 'working',
           prompt: 'ship it',
           agentType: 'claude',
-          lead: { state: 'done', outcome: 'cancellation', stateStartedAt: 1_700_000_000_500 }
+          mainAgent: { state: 'done', outcome: 'cancellation', stateStartedAt: 1_700_000_000_500 }
         }
       })
     )
@@ -33,13 +33,13 @@ describe('projectPluginAgentStatusChangedPayload', () => {
       paneKey: PANE,
       state: 'working',
       receivedAt: 1_700_000_000_000,
-      lead: { state: 'done', outcome: 'cancellation', stateStartedAt: 1_700_000_000_500 }
+      mainAgent: { state: 'done', outcome: 'cancellation', stateStartedAt: 1_700_000_000_500 }
     })
     // The bus validates before delivery; a field the schema strips never reaches a plugin.
     expect(agentStatusChangedPayloadSchema.parse(projected)).toEqual(projected)
   })
 
-  it("leaves `lead` absent for a row that carries none, so an old host's rows look as they did", () => {
+  it("leaves `mainAgent` absent for a row that carries none, so an old host's rows look as they did", () => {
     const projected = projectPluginAgentStatusChangedPayload(row())
     expect(projected).toEqual({
       worktreeId: 'wt-1',
@@ -47,10 +47,10 @@ describe('projectPluginAgentStatusChangedPayload', () => {
       state: 'working',
       receivedAt: 1_700_000_000_000
     })
-    expect(projected).not.toHaveProperty('lead')
+    expect(projected).not.toHaveProperty('mainAgent')
   })
 
-  it('projects a restored row to nothing, even when its lead reads working', () => {
+  it('projects a restored row to nothing, even when its main agent reads working', () => {
     expect(
       projectPluginAgentStatusChangedPayload(
         row({
@@ -59,14 +59,14 @@ describe('projectPluginAgentStatusChangedPayload', () => {
             state: 'working',
             prompt: 'ship it',
             agentType: 'claude',
-            lead: { state: 'working', stateStartedAt: 1 }
+            mainAgent: { state: 'working', stateStartedAt: 1 }
           }
         })
       )
     ).toBeNull()
   })
 
-  it('keeps a missing worktree as null and never invents a verdict on a live lead', () => {
+  it('keeps a missing worktree as null and never invents a verdict on a live main agent', () => {
     const projected = projectPluginAgentStatusChangedPayload(
       row({
         worktreeId: undefined,
@@ -74,11 +74,11 @@ describe('projectPluginAgentStatusChangedPayload', () => {
           state: 'working',
           prompt: '',
           agentType: 'codex',
-          lead: { state: 'working', stateStartedAt: 7 }
+          mainAgent: { state: 'working', stateStartedAt: 7 }
         }
       })
     )
     expect(projected?.worktreeId).toBeNull()
-    expect(projected?.lead).toEqual({ state: 'working', stateStartedAt: 7 })
+    expect(projected?.mainAgent).toEqual({ state: 'working', stateStartedAt: 7 })
   })
 })

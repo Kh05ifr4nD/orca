@@ -24,10 +24,10 @@ export type AgentSessionStatusEvent = {
   receivedAt: number
   /** When this evidence was first observed; survives a replay. Absent means `receivedAt`. */
   evidenceObservedAt?: number
-  /** The combined row state, its watch-loop mode, and the lead's own state when the host is new
+  /** The combined row state, its watch-loop mode, and the main agent's own state when the host is new
    *  enough to publish one. The stats ask "was an agent executing", which the combined `state`
-   *  alone stopped answering once a settled lead's background shell could hold it `working`. */
-  payload: Pick<AgentStatusPayload, 'state' | 'workingMode' | 'lead'>
+   *  alone stopped answering once a settled main agent's background shell could hold it `working`. */
+  payload: Pick<AgentStatusPayload, 'state' | 'workingMode' | 'mainAgent'>
 }
 
 /** Ordinary pane teardown, or a stamped batch clear for one dropped connection. */
@@ -50,7 +50,7 @@ export type AgentSessionTransition = 'start' | 'stop' | 'none'
 export const AGENT_SESSION_MIRROR_LIMIT = 1000
 
 type MirroredSession = {
-  /** Whether the row last said an agent was executing (the lead or live agent child work). */
+  /** Whether the row last said an agent was executing (the main agent or live agent child work). */
   executing: boolean
   connectionId: string | null
   /** True while this recorder has an unmatched onAgentStart out to the sink. */
@@ -68,7 +68,7 @@ type MirroredSession = {
  *   describes work that began in some earlier runtime, so crediting it would
  *   mint a phantom spawn (see #14610: replays carrying an unchanged state used
  *   to re-arm live timing, and cached replays re-fire completion side effects).
- *   A restored row's `lead` is as historical as its `state`; neither opens.
+ *   A restored row's `mainAgent` is as historical as its `state`; neither opens.
  * - Any event may CLOSE a session this recorder opened. A replayed `done` is how
  *   a client learns about a completion it missed while disconnected; refusing it
  *   would strand the session open until the quit flush.
@@ -94,20 +94,20 @@ export function classifyAgentSessionTransition(
 /**
  * The instant an execution edge happened. Each clock on the row dates one fact, and the edge
  * belongs to whichever fact moved:
- * - the lead's own turn started or ended: the lead's clock;
- * - the row settled or paused with the lead: the row's clock, which moved with it;
- * - a settled lead's child work moved the row: the row's clock when the row changed state, and
+ * - the main agent's own turn started or ended: the main agent's clock;
+ * - the row settled or paused with the main agent: the row's clock, which moved with it;
+ * - a settled main agent's child work moved the row: the row's clock when the row changed state, and
  *   the evidence clock when only the watch-loop mode changed (a shell outliving the last
  *   subagent moves neither state clock).
- * A host that publishes no `lead` has only the row's clock, as before.
+ * A host that publishes no `mainAgent` has only the row's clock, as before.
  */
 export function agentExecutionEdgeAt(event: AgentSessionStatusEvent): number {
-  const { lead, state } = event.payload
-  if (!lead) {
+  const { mainAgent, state } = event.payload
+  if (!mainAgent) {
     return event.stateStartedAt
   }
-  if (lead.state === 'working') {
-    return lead.stateStartedAt
+  if (mainAgent.state === 'working') {
+    return mainAgent.stateStartedAt
   }
   if (state !== 'working') {
     return event.stateStartedAt
