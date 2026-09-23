@@ -16,7 +16,6 @@ import type {
   StructuredAgentSessionHostSession
 } from './structured-agent-session-host-types'
 import { nativeSessionOptionsFromReport } from './structured-agent-session-option-restoration'
-import type { StructuredAgentSessionStartupWatch } from './structured-agent-session-startup-watch'
 
 export type StructuredAgentSessionProviderStartedContext = {
   deps: StructuredAgentSessionHostDeps
@@ -24,8 +23,6 @@ export type StructuredAgentSessionProviderStartedContext = {
   serialize: <T>(sessionId: string, task: () => Promise<T>) => Promise<T>
   now: () => number
   publishStatus?: (sessionId: string) => void
-  /** Told the child proved its start, for a send waiting to be admitted against it. */
-  startup?: Pick<StructuredAgentSessionStartupWatch, 'proven'>
   onBarrierError: (sessionId: string, error: unknown) => void
 }
 
@@ -44,7 +41,6 @@ export function settleStructuredAgentSessionProviderStarted(
       return
     }
     session.providerChildPhase = 'ready'
-    context.startup?.proven(event.sessionId, event)
     try {
       await persistStartedOptions(context, event)
     } catch (error) {

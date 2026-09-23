@@ -43,7 +43,6 @@ export async function forgetStructuredAgentSession(
   await context.sessions.get(sessionId)?.journal.close()
   context.sessions.delete(sessionId)
   context.forgetStatus(sessionId)
-  context.runtimeState.startup.dropped(sessionId)
 }
 
 function hasProviderChild(

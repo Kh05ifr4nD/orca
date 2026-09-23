@@ -60,9 +60,6 @@ export function structuredAgentSessionHostTeardownPhases(collaborators: {
   runtimeState: {
     stopLeaseRenewal: () => void
     flushAllEventSinks: () => Promise<void>
-    /** Sends still waiting on a child's start: those of an evicted session were answered by its
-     *  eviction; a session retained on failure keeps its child, and its senders are told here. */
-    startup: { dispose: () => void }
   }
   handoffs: { stopTuiHistoryCatchup: () => void; drain: () => Promise<void> }
   tasks: { drainAttaches: () => Promise<void> }
@@ -93,7 +90,6 @@ export function structuredAgentSessionHostTeardownPhases(collaborators: {
       name: 'evict-owned-sessions',
       run: () => withPhaseTimeout(collaborators.evictOwnedSessions, CHILD_EVICTION_TIMEOUT_MS)
     },
-    { name: 'release-startup-waits', run: () => collaborators.runtimeState.startup.dispose() },
     {
       name: 'record-resume-markers',
       run: () =>

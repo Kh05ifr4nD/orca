@@ -153,11 +153,7 @@ describe('structured agent-session host teardown', () => {
     const noop = async (): Promise<void> => undefined
     const phases = structuredAgentSessionHostTeardownPhases({
       holds: { dispose: noop },
-      runtimeState: {
-        stopLeaseRenewal: () => undefined,
-        flushAllEventSinks: noop,
-        startup: { dispose: () => undefined }
-      },
+      runtimeState: { stopLeaseRenewal: () => undefined, flushAllEventSinks: noop },
       handoffs: { stopTuiHistoryCatchup: () => undefined, drain: noop },
       tasks: { drainAttaches: noop },
       evictOwnedSessions: noop,
@@ -172,7 +168,6 @@ describe('structured agent-session host teardown', () => {
       'drain-handoffs',
       'drain-attaches',
       'evict-owned-sessions',
-      'release-startup-waits',
       'record-resume-markers',
       'flush-event-sinks'
     ])
@@ -186,11 +181,7 @@ describe('structured agent-session host teardown', () => {
     const flush = vi.fn(async () => cleaned())
     const phases = structuredAgentSessionHostTeardownPhases({
       holds: { dispose: cleaned },
-      runtimeState: {
-        stopLeaseRenewal: () => {},
-        flushAllEventSinks: flush,
-        startup: { dispose: () => undefined }
-      },
+      runtimeState: { stopLeaseRenewal: () => {}, flushAllEventSinks: flush },
       handoffs: { stopTuiHistoryCatchup: () => {}, drain: cleaned },
       tasks: { drainAttaches: cleaned },
       evictOwnedSessions: cleaned,

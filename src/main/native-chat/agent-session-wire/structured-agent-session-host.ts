@@ -149,8 +149,7 @@ export class StructuredAgentSessionHost {
       serialize: (sessionId, task) => this.tasks.trackAttach(this.serialize(sessionId, task)),
       now: () => this.now(),
       ensureProviderChild: (id, options) => this.holds.ensureProviderChild(id, options),
-      onBarrierError: (sessionId, error) => deps.onEventSinkError?.({ sessionId, error }),
-      startup: this.runtimeState.startup
+      onBarrierError: (sessionId, error) => deps.onEventSinkError?.({ sessionId, error })
     })
     this.restartResume = createStructuredAgentSessionRestartResume(deps, this.sessions, {
       ...structuredAgentSessionRestartResumeSurfaces(this, this.now),
@@ -270,7 +269,8 @@ export class StructuredAgentSessionHost {
 
   private mutationContext(): StructuredAgentSessionMutationContext {
     return {
-      ...this.lifetimeContext(),
+      deps: this.deps,
+      sessions: this.sessions,
       publish: (sessionId, journal) => this.subscribers.publish(sessionId, journal),
       flushStreamedEvents: this.flushStreamedEvents,
       hasPendingStreamedEvents: (id) => this.runtimeState.hasPendingStreamedEvents(id),
@@ -278,7 +278,7 @@ export class StructuredAgentSessionHost {
       serialize: (sessionId, task) => this.serialize(sessionId, task),
       holds: this.holds,
       restoreReadable: (sessionId) => this.restore.restoreReadableUnderSerialize(sessionId),
-      startup: this.runtimeState.startup
+      now: () => this.now()
     }
   }
 

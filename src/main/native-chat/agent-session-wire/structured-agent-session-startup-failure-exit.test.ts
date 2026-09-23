@@ -104,12 +104,8 @@ describe('a provider that ends before it finished starting', () => {
 
   it("reads a start that failed off the host's own phase when the provider omits the flag", async () => {
     const session = { ...startedSession(), providerChildPhase: 'starting' as const }
-    const exited = vi.fn()
 
-    const ticket = await settleUnexpectedStructuredAgentSessionExit(
-      { ...contextFor(session), startup: { exited } },
-      ended
-    )
+    const ticket = await settleUnexpectedStructuredAgentSessionExit(contextFor(session), ended)
 
     expect(ticket).toBeNull()
     expect(session.journal.appendLifecycleBatch).toHaveBeenCalledWith(
@@ -121,7 +117,5 @@ describe('a provider that ends before it finished starting', () => {
         ]
       })
     )
-    // A send waiting on this child learns it exited, with the child's own reason.
-    expect(exited).toHaveBeenCalledWith(SESSION, expect.objectContaining(ended), REASON)
   })
 })

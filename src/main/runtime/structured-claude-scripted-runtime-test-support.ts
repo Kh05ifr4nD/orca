@@ -125,7 +125,9 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
         interrupt: async () => undefined,
         cancelAsyncMessage: async () => {},
         stopTask: async () => {},
-        send: async () => {},
+        send: async () => {
+          child.calls.push('send')
+        },
         close: async () => {
           child.connection.closed = true
           return !behavior.closeUnproven

@@ -8,12 +8,9 @@ import {
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host'
 import { StructuredAgentSessionLeaseRenewer } from './structured-agent-session-lease-renewer'
 import { resolveStructuredSessionRecovery } from './structured-agent-session-recovery-resolution'
-import { StructuredAgentSessionStartupWatch } from './structured-agent-session-startup-watch'
 
 export class StructuredAgentSessionHostRuntimeState {
   private readonly eventSinks = new Map<string, DeferredStructuredAgentSessionEventSink>()
-  /** Where a caller that must not act on an unproven child waits for its start to be settled. */
-  readonly startup = new StructuredAgentSessionStartupWatch()
   private readonly leaseRenewer: StructuredAgentSessionLeaseRenewer
   private readonly onEventSinkFailure?: (sessionId: string, error: unknown) => void
 

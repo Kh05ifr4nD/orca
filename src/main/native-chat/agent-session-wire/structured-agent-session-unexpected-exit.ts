@@ -16,7 +16,6 @@ import {
   unfinishedStructuredAgentSessionWorkWasInterrupted
 } from './structured-agent-session-dead-generation-settlement'
 import type { StructuredAgentSessionTurnVerdict } from './structured-agent-session-stale-turn-verdict'
-import type { StructuredAgentSessionStartupWatch } from './structured-agent-session-startup-watch'
 
 type UnexpectedExitLifecycleEvent = StructuredAgentSessionEndedEvent & {
   cause: 'unexpected-exit'
@@ -49,8 +48,6 @@ export type StructuredAgentSessionUnexpectedExitContext<
   serialize: <T>(sessionId: string, task: () => Promise<T>) => Promise<T>
   now: () => number
   onBarrierError?: (sessionId: string, error: unknown) => void
-  /** Told the child exited, with its reason, for a send waiting to be admitted against it. */
-  startup?: Pick<StructuredAgentSessionStartupWatch, 'exited'>
 }
 
 export async function settleUnexpectedStructuredAgentSessionExit<
@@ -78,7 +75,6 @@ export async function settleUnexpectedStructuredAgentSessionExit<
     if (!record || record.lease.handoffStage !== null) {
       // The handoff coordinator owns an already-started transition.
       session.hasProviderChild = false
-      context.startup?.exited(unexpectedEvent.sessionId, unexpectedEvent, unexpectedEvent.reason)
       context.publishStatus?.(unexpectedEvent.sessionId)
       return null
     }
@@ -144,7 +140,6 @@ export async function settleUnexpectedStructuredAgentSessionExit<
         context.onBarrierError?.(unexpectedEvent.sessionId, error)
       } finally {
         session.hasProviderChild = false
-        context.startup?.exited(unexpectedEvent.sessionId, unexpectedEvent, unexpectedEvent.reason)
         context.publishStatus?.(unexpectedEvent.sessionId)
         if (released) {
           session.fence = released.lease.runtimeFence

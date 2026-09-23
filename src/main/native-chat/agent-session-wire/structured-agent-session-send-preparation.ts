@@ -18,11 +18,9 @@
 // simple: the owner this send (or a hold just ahead of it) replaced is the one the client was
 // current as of, so the send is admitted at the fence the restart published.
 //
-// An owner is not an owner until it has proven its start. A publish-first attach answers before
-// the CLI has, so a send admitted right behind it would be dispatched into a child that may die
-// next and learn of that only as a delivery nobody can confirm. The serialized step therefore
-// admits nothing against a `starting` child: it registers for the verdict and returns, and
-// `structured-agent-session-send-startup-wait` waits off the queue and admits again.
+// A child that has not proven its start is still the owner: the send is admitted against it and
+// the adapter holds the message until startup lands, or rejects it with the child's own reason
+// when the child dies first. The exit settlement writes that reason into the chat.
 
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type {
@@ -36,7 +34,6 @@ import type { StructuredAgentSessionHostSession } from './structured-agent-sessi
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
 import type { AgentSessionMutationSessionPreparation } from './structured-agent-session-mutation-admission'
 import { isResumableStructuredAgentSessionRecord } from './structured-agent-session-resume-eligibility'
-import type { StructuredAgentSessionStartupVerdict } from './structured-agent-session-startup-watch'
 import { rewindRefusal } from './structured-rewind-refusal'
 
 /**
@@ -105,25 +102,17 @@ export function structuredAgentSessionSendNeedsOwner(
   )
 }
 
-export type SendPreparationContext = Pick<
+type SendPreparationContext = Pick<
   StructuredAgentSessionMutationContext,
-  'deps' | 'sessions' | 'holds' | 'restoreReadable' | 'publish' | 'startup'
+  'deps' | 'sessions' | 'holds' | 'restoreReadable' | 'publish'
 >
-
-/** The owner this send met has not proven its start. Nothing was placed; the send waits for the
- *  verdict off the queue and admits again. `restarted` when this send's own step spawned it. */
-export type StructuredAgentSessionSendStartupWait = {
-  startup: Promise<StructuredAgentSessionStartupVerdict>
-  restarted: boolean
-}
 
 export async function prepareStructuredAgentSessionSend(
   context: SendPreparationContext,
   envelope: AgentSessionMutationEnvelope,
   ledger: 'admit' | 'replay',
-  record: AgentSessionRecord,
-  mayRestart = true
-): Promise<AgentSessionMutationSessionPreparation | StructuredAgentSessionSendStartupWait> {
+  record: AgentSessionRecord
+): Promise<AgentSessionMutationSessionPreparation> {
   const { sessionId } = record
   if (ledger !== 'admit') {
     if (!context.sessions.has(sessionId)) {
@@ -131,30 +120,13 @@ export async function prepareStructuredAgentSessionSend(
     }
     return { ok: true, envelope }
   }
-  const needsOwner = structuredAgentSessionSendNeedsOwner(context.sessions.get(sessionId), record)
-  if (needsOwner && mayRestart) {
+  if (structuredAgentSessionSendNeedsOwner(context.sessions.get(sessionId), record)) {
     const refusal = await restartOwnerForSend(context, envelope)
     if (refusal) {
       return { ok: false, refusal }
     }
   }
-  const session = context.sessions.get(sessionId)
-  // A `starting` child with no acquisition generation is one no settlement can ever match.
-  if (
-    session?.hasProviderChild &&
-    session.providerChildPhase === 'starting' &&
-    session.acquisitionGeneration !== null
-  ) {
-    return {
-      startup: context.startup.awaitVerdict(sessionId, {
-        fence: session.fence,
-        acquisitionGeneration: session.acquisitionGeneration
-      }),
-      // No child at the check and one now: this step's ensure spawned it, inside the serialize.
-      restarted: needsOwner
-    }
-  }
-  return { ok: true, envelope: admitAtResumedFence(session, envelope) }
+  return { ok: true, envelope: admitAtResumedFence(context.sessions.get(sessionId), envelope) }
 }
 
 /** One restart attempt. Answers with the refusal that ends the send, or null when the send goes
@@ -186,7 +158,7 @@ async function restartOwnerForSend(
 
 /** The client stops on the code; the message says why, and the verdict — when the failed attach
  *  proved its child gone — tells a client that nothing is running for the session. */
-export function ownerUnrecoverableRefusal(cause: AgentSessionWireRefusal): AgentSessionWireRefusal {
+function ownerUnrecoverableRefusal(cause: AgentSessionWireRefusal): AgentSessionWireRefusal {
   return {
     code: 'agent_session_owner_unrecoverable',
     message: providerRestartFailureOutcome(cause.message),
