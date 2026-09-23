@@ -34,6 +34,7 @@ beforeEach(() => {
   document.body.appendChild(composer)
   composer.focus()
   root = createRoot(container)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
 
 afterEach(() => {
@@ -41,6 +42,7 @@ afterEach(() => {
   container.remove()
   document.body.innerHTML = ''
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 async function renderRing(usage = USAGE): Promise<HTMLButtonElement> {
@@ -63,9 +65,20 @@ async function dispatch(target: EventTarget, event: Event): Promise<void> {
   await act(async () => target.dispatchEvent(event))
 }
 
+async function advance(ms: number): Promise<void> {
+  await act(async () => vi.advanceTimersByTime(ms))
+}
+
 // Radix restores focus a task after the card unmounts.
 async function settleFocus(): Promise<void> {
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+  await advance(0)
+}
+
+async function pressEscape(): Promise<void> {
+  await dispatch(
+    document,
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  )
 }
 
 /** Returns the mousedown so a test can check the browser was told not to move focus. */
@@ -103,6 +116,9 @@ describe('NativeChatContextUsageRing', () => {
     const hoverTarget = trigger.parentElement!
 
     await dispatch(hoverTarget, pointer('pointerover', 'mouse'))
+    await advance(149)
+    expect(card()).toBeNull()
+    await advance(1)
     expect(card()?.textContent).toContain('System tools')
 
     await dispatch(hoverTarget, pointer('pointerout', 'mouse'))
@@ -116,10 +132,69 @@ describe('NativeChatContextUsageRing', () => {
     const trigger = await renderRing()
 
     await dispatch(trigger.parentElement!, pointer('pointerover', 'mouse'))
+    await advance(150)
     await click(trigger)
 
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
     expect(card()).not.toBeNull()
+  })
+
+  it('never opens for a pointer that crosses the ring faster than the hover delay', async () => {
+    const trigger = await renderRing()
+    const hoverTarget = trigger.parentElement!
+
+    await dispatch(hoverTarget, pointer('pointerover', 'mouse'))
+    expect(card()).toBeNull()
+    await advance(100)
+    await dispatch(hoverTarget, pointer('pointerout', 'mouse'))
+    await advance(500)
+
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(card()).toBeNull()
+  })
+
+  it('opens on click at once, even while a hover is still pending', async () => {
+    const trigger = await renderRing()
+
+    await dispatch(trigger.parentElement!, pointer('pointerover', 'mouse'))
+    await click(trigger)
+
+    expect(card()).not.toBeNull()
+  })
+
+  it('stays closed when Escape lands during a pending hover', async () => {
+    const trigger = await renderRing()
+
+    await dispatch(trigger.parentElement!, pointer('pointerover', 'mouse'))
+    await advance(100)
+    await pressEscape()
+    await advance(500)
+
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(card()).toBeNull()
+  })
+
+  it('does not reopen a card dismissed with Escape once a stale hover would have fired', async () => {
+    const trigger = await renderRing()
+
+    await dispatch(trigger.parentElement!, pointer('pointerover', 'mouse'))
+    await click(trigger)
+    await pressEscape()
+    await advance(500)
+
+    expect(card()).toBeNull()
+  })
+
+  it('drops a pending hover when the ring unmounts', async () => {
+    const removeListener = vi.spyOn(document, 'removeEventListener')
+    const trigger = await renderRing()
+
+    await dispatch(trigger.parentElement!, pointer('pointerover', 'mouse'))
+    expect(vi.getTimerCount()).toBe(1)
+    await act(async () => root.render(null))
+
+    expect(vi.getTimerCount()).toBe(0)
+    expect(removeListener).toHaveBeenCalledWith('keydown', expect.any(Function), true)
   })
 
   it('opens on a touch tap, whose pointer leaves before the click lands', async () => {
@@ -140,10 +215,7 @@ describe('NativeChatContextUsageRing', () => {
     await click(trigger)
     expect(card()).not.toBeNull()
 
-    await dispatch(
-      document,
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
-    )
+    await pressEscape()
 
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     expect(card()).toBeNull()
