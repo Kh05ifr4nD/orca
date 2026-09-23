@@ -246,6 +246,55 @@ describe('NativeChatContextUsageRing', () => {
     expect(document.activeElement).toBe(composer)
   })
 
+  it('spends an Escape typed in the composer on closing the card, not on stopping the agent', async () => {
+    const { NativeChatContextUsageRing } = await import('./NativeChatContextUsageRing')
+    const { useNativeChatComposerKeyDown } = await import('./use-native-chat-composer-keydown')
+    const { EMPTY_HISTORY } = await import('./native-chat-composer-state')
+    const interrupt = vi.fn()
+    function ComposerWithRing(): React.JSX.Element {
+      const onKeyDown = useNativeChatComposerKeyDown({
+        autocomplete: { mode: 'none' },
+        activeSuggestion: 0,
+        draft: '',
+        history: EMPTY_HISTORY,
+        isComposing: () => false,
+        completePickerItem: vi.fn(),
+        dispatchPickerCommand: vi.fn(),
+        dismissPicker: vi.fn(),
+        interrupt,
+        send: vi.fn(),
+        setActiveSuggestion: vi.fn(),
+        setDraft: vi.fn(),
+        setCaret: vi.fn(),
+        setHistory: vi.fn()
+      })
+      return (
+        <>
+          <textarea data-testid="composer" onKeyDown={onKeyDown} />
+          <NativeChatContextUsageRing usage={USAGE} />
+        </>
+      )
+    }
+    await act(async () => root.render(<ComposerWithRing />))
+    const field = document.querySelector<HTMLTextAreaElement>('[data-testid="composer"]')!
+    field.focus()
+    await click(
+      document.querySelector<HTMLButtonElement>('button[data-native-chat-context-usage]')!
+    )
+    const escape = () =>
+      dispatch(
+        field,
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      )
+
+    await escape()
+    expect(card()).toBeNull()
+    expect(interrupt).not.toHaveBeenCalled()
+
+    await escape()
+    expect(interrupt).toHaveBeenCalledOnce()
+  })
+
   it('renders every row when the provider repeats a category name', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const trigger = await renderRing({
