@@ -1,3 +1,5 @@
+import { createUuidV4 } from './uuid-v4'
+
 // ─── Observation provenance for agent status (STA-4293, step 1) ─────────────
 // An AgentStatusEntry today cannot say who observed it, on whose clock, or in what
 // order relative to the pane's other observations. Hook rows carry main's
@@ -195,5 +197,5 @@ export class AgentStatusObservationSequencer {
  *  authority's revision counter starts over, so its observations must not be comparable
  *  with the ones it emitted before (including any rehydrated from disk). */
 export function createAgentStatusAuthorityId(role: string): string {
-  return `${role}:${globalThis.crypto.randomUUID()}`
+  return `${role}:${createUuidV4()}`
 }
