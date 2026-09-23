@@ -93,7 +93,7 @@ export function NativeChatComposerActions({
       </div>
       <div className="ml-auto flex items-center gap-1.5">
         {/* Why: keep session controls beside the actions they affect; the
-        model trigger is ordered last so it sits directly next to dictation. */}
+        model trigger is ordered last so only the context ring separates it from dictation. */}
         <NativeChatSessionOptionPickers
           surface={sessionOptionsSurface}
           snapshot={sessionOptionsSnapshot}
