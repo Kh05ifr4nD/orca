@@ -215,7 +215,7 @@ it('keeps an unconfirmed failure whose continuation was never journaled while th
     throw new Error('expected only the original submission, accepted by the provider')
   }
   expect(latestStructuredAgentSessionUserItem(host.journalSnapshot(SESSION).items)?.itemId).toBe(
-    marker.latestUserItemId
+    marker?.latestUserItemId
   )
 
   events.appendItem(
