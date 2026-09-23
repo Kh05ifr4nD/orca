@@ -192,6 +192,8 @@ describe('searchQuickOpenFilePaths', () => {
     expect(wslAwareSpawnMock).toHaveBeenCalledTimes(2)
   })
 
+  // Why both events: a failed spawn emits 'error' and THEN 'close' with a negative code. Emitting
+  // only 'error' lets the async cwd check win a race it loses in production.
   it('reports the bundled-ripgrep error when rg genuinely cannot start', async () => {
     const child = createMockProcess(false)
     wslAwareSpawnMock.mockReturnValue(child)
@@ -205,9 +207,26 @@ describe('searchQuickOpenFilePaths', () => {
     await flushMicrotasks()
 
     child.emit('error', createSpawnError('ENOENT'))
+    child.emit('close', -2, null)
 
     await expect(promise).rejects.toThrow(BUNDLED_ERROR)
     expect(wslAwareSpawnMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('names the unreachable root when the workspace is gone, not the bundled binary', async () => {
+    const child = createMockProcess(false)
+    wslAwareSpawnMock.mockReturnValue(child)
+    resolveAuthorizedPathMock.mockImplementation(async () => '/definitely/not/here')
+    const promise = searchQuickOpenFilePaths('/repo', {} as Store, {
+      query: 'target',
+      limit: 32
+    })
+    await flushMicrotasks()
+
+    child.emit('error', createSpawnError('ENOENT'))
+    child.emit('close', -2, null)
+
+    await expect(promise).rejects.toThrow('Search root is not reachable: /definitely/not/here')
   })
 
   it('reports the bundled-ripgrep error when rg is unavailable on the retry', async () => {

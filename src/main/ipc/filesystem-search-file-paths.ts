@@ -194,13 +194,19 @@ function scanRipgrepPaths(args: {
         finish(new Error(`rg failed to start${error.code ? ` (${error.code})` : ''}`))
         return
       }
-      // Why the cwd check first: spawn reports a missing cwd as ENOENT too, and blaming the
-      // binary for it tells the user to reinstall Orca over a workspace that simply moved.
-      void isRipgrepSpawnCwdUsable(args.authorizedRootPath).then((usable) => {
-        finish(
-          usable ? new RipgrepUnavailableError() : ripgrepMissingCwdError(args.authorizedRootPath)
-        )
-      })
+      // Why the cwd check: spawn reports a missing cwd as ENOENT too, and blaming the binary
+      // for it tells the user to reinstall Orca over a workspace that simply moved.
+      // Why detach close first: a failed spawn emits error THEN close(code < 0), and close settles
+      // synchronously -- it would beat this threadpool round-trip every time.
+      child.off('close', handleClose)
+      // Why catch: a failed probe must not strand the search; fall back to the prior verdict.
+      void isRipgrepSpawnCwdUsable(args.authorizedRootPath)
+        .catch(() => true)
+        .then((usable) => {
+          finish(
+            usable ? new RipgrepUnavailableError() : ripgrepMissingCwdError(args.authorizedRootPath)
+          )
+        })
     }
     const handleClose = (code: number | null, signal: NodeJS.Signals | null): void => {
       // Why before the unavailable check: classifyNativeLauncherExit treats any code above 2 as a

@@ -131,7 +131,9 @@ describe('RuntimeFileCommands', () => {
       const { commands } = createRuntimeFileCommands({ resolveRuntimeFileTarget })
       const child = createRuntimeSearchChild()
       Object.defineProperty(child, 'pid', { value: undefined })
-      resolveAuthorizedPathMock.mockResolvedValue('/repo')
+      // Why a root that exists: an ENOENT spawn failure is also what a vanished workspace looks
+      // like, so this stays about the binary only while the search root is reachable.
+      resolveAuthorizedPathMock.mockResolvedValue(process.cwd())
       wslAwareSpawnMock.mockReturnValue(child)
 
       const resultPromise = commands.searchRuntimeFiles('id:wt-1', {

@@ -157,6 +157,9 @@ describe('filesystem rg search timeout', () => {
       wslAwareSpawnMock.mockReturnValue(child)
       registerFilesystemHandlers({} as never)
 
+      // Why a root that exists: an ENOENT spawn failure is also what a vanished workspace looks
+      // like, so this stays about the binary only while the search root is reachable.
+      resolveAuthorizedPathMock.mockImplementation(async () => process.cwd())
       const promise = handlers.get('fs:search')!(
         { sender: { id: 7 } },
         { rootPath: '/repo', query: 'ok' }

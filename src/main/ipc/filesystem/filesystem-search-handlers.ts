@@ -142,18 +142,24 @@ export function registerFilesystemSearchHandlers(context: FilesystemHandlerConte
           if (child && isRipgrepUnavailableExit(child, null, null)) {
             // Why the cwd check first: spawn reports a missing cwd as ENOENT too, and blaming the
             // binary for it tells the user to reinstall Orca over a workspace that simply moved.
-            void isRipgrepSpawnCwdUsable(rootPath).then((usable) => {
-              // Why re-check: finish() drops its argument once settled, so a rejected promise
-              // built after the close handler already won would go unhandled.
-              if (resolved) {
-                return
-              }
-              finish(
-                Promise.reject(
-                  usable ? bundledRipgrepUnavailableError() : ripgrepMissingCwdError(rootPath)
+            // Why detach close first: a failed spawn emits error THEN close(code < 0), and
+            // close settles synchronously -- it would beat this threadpool round-trip every time.
+            child.off('close', handleClose)
+            // Why catch: a failed probe must not strand the search; fall back to the prior verdict.
+            void isRipgrepSpawnCwdUsable(rootPath)
+              .catch(() => true)
+              .then((usable) => {
+                // Why re-check: finish() drops its argument once settled, so a rejected promise
+                // built after the close handler already won would go unhandled.
+                if (resolved) {
+                  return
+                }
+                finish(
+                  Promise.reject(
+                    usable ? bundledRipgrepUnavailableError() : ripgrepMissingCwdError(rootPath)
+                  )
                 )
-              )
-            })
+              })
             return
           }
           resolveOnce()
