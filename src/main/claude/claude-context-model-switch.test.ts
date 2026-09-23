@@ -215,6 +215,29 @@ describe('the context ring across a model change', () => {
     s.translator.dispose()
   })
 
+  it('lets a later turn result restate the window an earlier report stated', async () => {
+    const s = session(`${SONNET}[1m]`)
+    s.handle(userFrame('turn-a', 1_000))
+    s.handle(assistantFrame('reply-a', 2_000, 140_000, undefined, SONNET))
+    s.handle(resultFrame(3_000))
+    await s.reply(answer(`${SONNET}[1m]`, 141_000, 1_000_000))
+    expect(s.ring()).toMatchObject({ windowTokens: 1_000_000 })
+
+    // The CLI runs the 200k window next turn with no option write, and that turn's report fails.
+    s.handle(initFrame(SONNET, 3_900))
+    s.handle(userFrame('turn-b', 4_000))
+    s.handle(assistantFrame('reply-b', 5_000, 150_000, undefined, SONNET))
+    s.handle(
+      resultFrame(6_000, {
+        [`${SONNET}[1m]`]: { contextWindow: 1_000_000 },
+        [SONNET]: { contextWindow: 200_000 }
+      })
+    )
+    await s.reply(undefined)
+    expect(s.ring()).toMatchObject({ usedTokens: 150_000, windowTokens: 200_000, percentage: 75 })
+    s.translator.dispose()
+  })
+
   it('keeps the window of a switch the user sends straight after', async () => {
     const s = session(SONNET)
     s.handle(userFrame('turn-a', 1_000))
