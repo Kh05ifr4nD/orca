@@ -132,8 +132,6 @@ export function useTerminalPaneChatState(controller: TerminalPaneTitleController
         contentType: 'terminal',
         launchAgent: detectedAgent ? null : launchAgent,
         detectedAgent,
-        // A structured handoff keeps the durable provider identity even when the
-        // foreground hook has not republished agent status after returning to TUI.
         resolvedAgent: detectedAgent ? null : resolveTitleAgentForLeaf(leafId),
         nativeChatTranscriptIsLocalReadable
       })

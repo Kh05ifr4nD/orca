@@ -567,12 +567,25 @@ describe('parseWorkspaceSession', () => {
             worktreeId: 'wt',
             contentType: 'agent-session',
             agentSessionAgent: 'codex',
-            // Why: sessions saved by older builds still carry this key; they must keep loading.
-            structuredSessionId: 'codex-session-1',
             label: 'Codex Chat',
             customLabel: null,
             color: null,
             sortOrder: 0,
+            createdAt: 0
+          },
+          {
+            id: 'terminal-1',
+            entityId: 'terminal-1',
+            groupId: 'group1',
+            worktreeId: 'wt',
+            contentType: 'terminal',
+            viewMode: 'chat',
+            // Why: older builds could save this key on a chat-mode terminal; it must keep loading.
+            structuredSessionId: 'codex-session-1',
+            label: 'Terminal 1',
+            customLabel: null,
+            color: null,
+            sortOrder: 1,
             createdAt: 0
           }
         ]
@@ -586,7 +599,11 @@ describe('parseWorkspaceSession', () => {
         contentType: 'agent-session',
         agentSessionAgent: 'codex'
       })
-      expect(result.value.unifiedTabs?.wt[0]).not.toHaveProperty('structuredSessionId')
+      expect(result.value.unifiedTabs?.wt[1]).toMatchObject({
+        contentType: 'terminal',
+        viewMode: 'chat'
+      })
+      expect(result.value.unifiedTabs?.wt[1]).not.toHaveProperty('structuredSessionId')
       expect(result.value.activeTabTypeByWorktree?.wt).toBe('agent-session')
     }
   })
