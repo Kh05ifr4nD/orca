@@ -262,6 +262,7 @@ type ScenarioResult = {
   paintedAfterFlip: boolean
   paneGrid: { cols: number; rows: number } | null
   ptyGrid: { cols: number; rows: number } | null
+  rpcProbe: { accepted: boolean | null; hostReceivedInput: boolean; error: string | null } | null
   inputRoute: {
     activeTabId: string | null
     activeTabType: string | null
@@ -277,6 +278,7 @@ type ScenarioResult = {
  *  tab-flip workaround reveals it. */
 async function probeInteractivity(
   page: Page,
+  environmentId: string,
   worktreeId: string,
   target: HostTerminal,
   decoys: HostTerminal[],
@@ -312,6 +314,33 @@ async function probeInteractivity(
   )
   const paneGrid = await readActivePaneGrid(page, target.webTabId)
   const diagnostics = await readPaneDiagnostics(page, worktreeId, target.webTabId)
+  let rpcProbe: ScenarioResult['rpcProbe'] = null
+  if (!paintedLive) {
+    const rpcMarker = `rpc-${token}`
+    try {
+      const response = await callEnvironment<{ send: { accepted: boolean } }>(
+        page,
+        environmentId,
+        'terminal.send',
+        {
+          terminal: target.terminal,
+          text: `${rpcMarker}\r`,
+          client: { id: `e2e-${name}`, type: 'desktop' }
+        }
+      )
+      const deadline = Date.now() + 3_000
+      while (Date.now() < deadline && !readSink(target.sinkPath).includes(`LINE:${rpcMarker}`)) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      rpcProbe = {
+        accepted: response.send.accepted,
+        hostReceivedInput: readSink(target.sinkPath).includes(`LINE:${rpcMarker}`),
+        error: null
+      }
+    } catch (error) {
+      rpcProbe = { accepted: null, hostReceivedInput: false, error: String(error) }
+    }
+  }
   let paintedAfterFlip = paintedLive
   if (!paintedLive) {
     await openClientTab(page, worktreeId, decoys[1].webTabId)
@@ -333,6 +362,7 @@ async function probeInteractivity(
     paintedAfterFlip,
     paneGrid,
     ptyGrid: readPtyGridFromContent(sink),
+    rpcProbe,
     inputRoute,
     diagnostics
   }
@@ -445,7 +475,14 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
         logResult(
-          await probeInteractivity(client.page, worktreeId, target, decoys, 'hidden-mounted')
+          await probeInteractivity(
+            client.page,
+            client.environmentId,
+            worktreeId,
+            target,
+            decoys,
+            'hidden-mounted'
+          )
         )
       )
     }
@@ -460,7 +497,16 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await expectStillMounted(client.page, decoys[1].webTabId, 'cold-parked flip decoy')
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
-        logResult(await probeInteractivity(client.page, worktreeId, target, decoys, 'cold-parked'))
+        logResult(
+          await probeInteractivity(
+            client.page,
+            client.environmentId,
+            worktreeId,
+            target,
+            decoys,
+            'cold-parked'
+          )
+        )
       )
     }
 
@@ -489,7 +535,14 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
         logResult(
-          await probeInteractivity(client.page, worktreeId, target, decoys, 'reconnect-parked')
+          await probeInteractivity(
+            client.page,
+            client.environmentId,
+            worktreeId,
+            target,
+            decoys,
+            'reconnect-parked'
+          )
         )
       )
     }
