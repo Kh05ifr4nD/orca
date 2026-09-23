@@ -30,6 +30,7 @@ import { BrowserUseComputerUseNotice } from './BrowserUseComputerUseNotice'
 import { BrowserUseEnableSwitch } from './BrowserUseEnableSwitch'
 import { BrowserUseSkillStep } from './BrowserUseSkillStep'
 import { BrowserUseCliStep } from './BrowserUseCliStep'
+import { getBrowserUseCliUnavailableReason } from './browser-use-cli-unavailable-reason'
 import { BrowserUseCookieImportStep } from './BrowserUseCookieImportStep'
 import {
   buildSkillCommandForRuntime,
@@ -92,14 +93,11 @@ export function BrowserUseSetup({
   const cliPathNeedsAttention =
     cliStatus?.state === 'installed' && cliStatus.pathConfigured === false
   const cliSupported = cliStatus?.supported ?? false
-  const cliUnavailableReason = orcaCli.unverifiable
-    ? translate(
-        'auto.components.settings.BrowserUsePane.remoteManaged',
-        'CLI registration is managed on the Orca server that runs your agents.'
-      )
-    : !cliSupported
-      ? (cliStatus?.detail ?? null)
-      : null
+  const cliUnavailableReason = getBrowserUseCliUnavailableReason({
+    unverifiable: orcaCli.unverifiable,
+    installDisabledReason: activeSkillRuntime.installDisabledReason,
+    status: cliStatus
+  })
 
   const {
     installed: skillDetected,

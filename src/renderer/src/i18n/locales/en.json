@@ -6932,6 +6932,7 @@
           "96b91c6349": "Let coding agents drive this browser with your logins.",
           "2ea4617e3a": "Imported {{value0}} cookies from {{value1}}{{value2}}.",
           "721aee31b4": "Registered the Orca CLI in PATH.",
+          "180a9abf3a": "Failed to load CLI status.",
           "2ccfc9cff8": "Import",
           "0462565413": "Re-import",
           "de9b2f32f3": "Enable",

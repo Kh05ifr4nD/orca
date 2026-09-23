@@ -170,6 +170,20 @@ describe('LinearAgentSkillSetupPrompt update command', () => {
     )
   })
 
+  it('keeps the prerequisite reader stable across re-renders so the panel does not re-read', async () => {
+    await renderPrompt()
+    const firstReader = mocks.panelProps.at(-1)?.getPrerequisiteStatus
+    const renderCount = mocks.panelProps.length
+
+    await act(async () => {
+      root?.render(<LinearAgentSkillSetupPrompt linked={true} remote={false} surface="modal" />)
+    })
+
+    expect(mocks.panelProps.length).toBeGreaterThan(renderCount)
+    expect(firstReader).toEqual(expect.any(Function))
+    expect(mocks.panelProps.at(-1)?.getPrerequisiteStatus).toBe(firstReader)
+  })
+
   it('prefers the canonical update command when both Linear skill names are installed', async () => {
     mocks.skillState.skills = [discoveredSkill({ name: 'orca-linear' }), legacyLinearSkillPath()]
 

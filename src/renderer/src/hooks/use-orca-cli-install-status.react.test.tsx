@@ -9,6 +9,7 @@ import { notifyOrchestrationSetupStateChanged } from '@/lib/orchestration-setup-
 import type { OrcaCliSkillRuntime } from '@/lib/orca-cli-install-status'
 import { notifyOrcaCliInstallStateChanged } from '@/lib/orca-cli-install-state-event'
 import {
+  _orcaCliInstallStatusStoreForTests,
   useOrcaCliInstallStatus,
   type OrcaCliInstallStatusState
 } from './use-orca-cli-install-status'
@@ -26,6 +27,11 @@ const getWslInstallStatus =
   vi.fn<(args?: { distro?: string | null }) => Promise<CliInstallStatus>>()
 
 const HOST_RUNTIME: OrcaCliSkillRuntime = { installDisabledReason: null }
+let now = 1_000_000
+
+function advancePastFreshWindow(): void {
+  now += 5_000
+}
 
 function cliStatus(overrides: Partial<CliInstallStatus> = {}): CliInstallStatus {
   return {
@@ -58,6 +64,28 @@ function Probe(props: { runtime: OrcaCliSkillRuntime; enabled?: boolean }): null
   return null
 }
 
+const instanceStates: OrcaCliInstallStatusState[] = []
+
+function Instance(props: { index: number }): null {
+  instanceStates[props.index] = useOrcaCliInstallStatus(HOST_RUNTIME)
+  return null
+}
+
+async function renderInstances(count: number): Promise<void> {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+  await act(async () => {
+    root?.render(
+      <>
+        {Array.from({ length: count }, (_, index) => (
+          <Instance key={index} index={index} />
+        ))}
+      </>
+    )
+  })
+}
+
 async function render(runtime: OrcaCliSkillRuntime, enabled?: boolean): Promise<void> {
   if (!container) {
     container = document.createElement('div')
@@ -78,6 +106,8 @@ async function flush(): Promise<void> {
 }
 
 beforeEach(() => {
+  _orcaCliInstallStatusStoreForTests.reset()
+  vi.spyOn(Date, 'now').mockImplementation(() => now)
   mockRuntimeTarget = { kind: 'local' }
   getInstallStatus.mockReset()
   getWslInstallStatus.mockReset()
@@ -92,8 +122,10 @@ afterEach(async () => {
   container?.remove()
   container = null
   latestState = null
+  instanceStates.length = 0
   Reflect.deleteProperty(window, 'api')
   Reflect.deleteProperty(globalThis, '__ORCA_WEB_CLIENT__')
+  vi.restoreAllMocks()
 })
 
 describe('useOrcaCliInstallStatus', () => {
@@ -106,6 +138,7 @@ describe('useOrcaCliInstallStatus', () => {
     expect(latestState).toMatchObject({ checked: true, loading: false, registered: false })
 
     getInstallStatus.mockResolvedValue(cliStatus())
+    advancePastFreshWindow()
     await act(async () => {
       window.dispatchEvent(new Event('focus'))
     })
@@ -177,7 +210,56 @@ describe('useOrcaCliInstallStatus', () => {
     expect(latestState?.registered).toBe(true)
   })
 
-  it('does not present the previous result as settled when re-enabled', async () => {
+  it('shares one read across mounted instances for mount, focus, and install events', async () => {
+    getInstallStatus.mockResolvedValue(cliStatus({ state: 'not_installed' }))
+    await renderInstances(3)
+    await flush()
+    expect(getInstallStatus).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await flush()
+    expect(getInstallStatus).toHaveBeenCalledTimes(1)
+
+    advancePastFreshWindow()
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      window.dispatchEvent(new Event('focus'))
+    })
+    await flush()
+    expect(getInstallStatus).toHaveBeenCalledTimes(2)
+
+    getInstallStatus.mockResolvedValue(cliStatus())
+    await act(async () => {
+      notifyOrcaCliInstallStateChanged()
+    })
+    await flush()
+    expect(getInstallStatus).toHaveBeenCalledTimes(3)
+    expect(instanceStates.map((state) => state.registered)).toEqual([true, true, true])
+  })
+
+  it('does not let a state-change event join a read that started before it', async () => {
+    const stale = deferred<CliInstallStatus>()
+    getInstallStatus.mockReturnValueOnce(stale.promise)
+    getInstallStatus.mockResolvedValueOnce(cliStatus())
+    await renderInstances(2)
+    expect(getInstallStatus).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      notifyOrcaCliInstallStateChanged()
+    })
+    await flush()
+    expect(getInstallStatus).toHaveBeenCalledTimes(2)
+    expect(instanceStates.map((state) => state.registered)).toEqual([true, true])
+
+    stale.resolve(cliStatus({ state: 'not_installed' }))
+    await flush()
+    expect(instanceStates.map((state) => state.registered)).toEqual([true, true])
+  })
+
+  it('shows the last answer for the same target while it re-reads on re-enable', async () => {
     const second = deferred<CliInstallStatus>()
     getInstallStatus.mockResolvedValueOnce(cliStatus())
     getInstallStatus.mockReturnValueOnce(second.promise)
@@ -188,10 +270,31 @@ describe('useOrcaCliInstallStatus', () => {
     await render(HOST_RUNTIME, false)
     expect(latestState).toMatchObject({ checked: false, registered: false })
 
+    advancePastFreshWindow()
     await render(HOST_RUNTIME, true)
-    expect(latestState).toMatchObject({ checked: false, loading: true, registered: false })
+    expect(getInstallStatus).toHaveBeenCalledTimes(2)
+    expect(latestState).toMatchObject({ checked: true, loading: true, registered: true })
 
     second.resolve(cliStatus({ state: 'not_installed' }))
+    await flush()
+    expect(latestState).toMatchObject({ checked: true, loading: false, registered: false })
+  })
+
+  it('never shows another target answer when the install target changes', async () => {
+    const wslRead = deferred<CliInstallStatus>()
+    getInstallStatus.mockResolvedValue(cliStatus())
+    getWslInstallStatus.mockReturnValueOnce(wslRead.promise)
+    await render(HOST_RUNTIME)
+    await flush()
+    expect(latestState).toMatchObject({ checked: true, registered: true })
+
+    await render({
+      installDisabledReason: null,
+      agentRuntime: { runtime: 'wsl', wslDistro: 'Ubuntu', label: 'WSL' }
+    })
+    expect(latestState).toMatchObject({ status: null, checked: false, registered: false })
+
+    wslRead.resolve(cliStatus({ state: 'not_installed' }))
     await flush()
     expect(latestState).toMatchObject({ checked: true, registered: false })
   })

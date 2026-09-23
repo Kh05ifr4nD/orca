@@ -5811,6 +5811,7 @@
           "96b91c6349": "Deja que los coding agents controlen este navegador con tus logins.",
           "2ea4617e3a": "Se importaron {{value0}} cookies de {{value1}}{{value2}}.",
           "721aee31b4": "Se registró Orca CLI en PATH.",
+          "180a9abf3a": "No se pudo cargar el estado de CLI.",
           "remoteManaged": "El registro de la CLI se gestiona en el servidor de Orca que ejecuta tus agentes.",
           "2ccfc9cff8": "Importar",
           "0462565413": "Reimportar",

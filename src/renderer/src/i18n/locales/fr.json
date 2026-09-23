@@ -6526,6 +6526,7 @@
           "96b91c6349": "Permettez aux agents de code de piloter ce navigateur avec vos connexions.",
           "2ea4617e3a": "{{value0}} cookies importés depuis {{value1}}{{value2}}.",
           "721aee31b4": "Orca CLI enregistré dans PATH.",
+          "180a9abf3a": "Échec du chargement de l'état de la CLI.",
           "remoteManaged": "L'enregistrement de la CLI est géré sur le serveur Orca qui exécute vos agents.",
           "2ccfc9cff8": "Importer",
           "0462565413": "Réimporter",

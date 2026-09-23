@@ -5862,6 +5862,7 @@
           "96b91c6349": "让编码智能体通过您的登录来驱动此浏览器。",
           "2ea4617e3a": "从 {{value1}}{{value2}} 导入 {{value0}} cookie。",
           "721aee31b4": "在 PATH 中注册 Orca CLI。",
+          "180a9abf3a": "无法加载 CLI 状态。",
           "remoteManaged": "CLI 注册由运行你的代理的 Orca 服务器管理。",
           "2ccfc9cff8": "导入",
           "0462565413": "重新导入",
