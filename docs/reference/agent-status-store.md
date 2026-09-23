@@ -226,11 +226,12 @@ flag again. Hydration seeds the Claude main agent record straight from a saved
 `mainAgent` that is `done`, so the children's drain can still settle the row after
 a restart. `claudeRunningNonAgentTask` is persisted alongside because it is the one
 child-work fact `mainAgent` cannot express: a shell running beside the main agent,
-whose liveness hydration does not restore, so such a row is not seeded. Writers that
-restate a row without their own inventory (an OSC repaint, an inferred answer) carry
-it forward beside the `mainAgent` they keep. A child's sticky permission prompt
-still records the main agent's own progress in the held row's `mainAgent`, with the
-shell fact beside it, and pushes the held row to subscribers when `mainAgent` changes.
+whose liveness hydration does not restore. Hydration seeds only a row that says
+`false`; a row silent about it stays unseeded. The row builder pairs the two facts in
+one place: a listener event restates the shell fact, and any other write (an OSC
+repaint, an inferred answer) keeps it only while `mainAgent` is unchanged. A child's
+sticky permission prompt still records the main agent's own progress and background
+evidence in the held row, and pushes the held row to subscribers when `mainAgent` changes.
 
 Two combining rules remain outside the shared fold and are named so a reader
 does not mistake them for drift:
