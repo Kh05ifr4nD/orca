@@ -107,6 +107,8 @@ function setSidebarState(settings: GlobalSettings, statusBarVisible = true): voi
     activeModal: null,
     agentDashboardDrawerOpen: false,
     setAgentDashboardDrawerOpen: vi.fn(),
+    // Why: the real store always seeds this record, and the toolchain banner indexes it per repo.
+    detectedWorktreesByRepo: {},
     fetchAllWorktrees: vi.fn(),
     repos: [],
     setSidebarWidth: vi.fn(),
