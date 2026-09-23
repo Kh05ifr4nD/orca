@@ -8,6 +8,7 @@ import type {
 import { resetStructuredAgentSessionStatusFeedsForTests } from '@/runtime/structured-agent-session-status-feed'
 import {
   _resetNativeChatRestartOffer,
+  continueNativeChatRestartOffer,
   dismissNativeChatRestartOffer,
   getNativeChatRestartOffer,
   refreshNativeChatRestartOffer
@@ -156,5 +157,29 @@ it('never lets a re-read that was already in flight bring back a dismissed failu
   stale.resolve({ sessions: [], failed: [failure] })
   await vi.advanceTimersByTimeAsync(0)
 
+  expect(getNativeChatRestartOffer().failed).toEqual([])
+})
+
+// A retry changes the chat it acts on; its own answer follows, so a read mid-action would only
+// flash a half-finished list.
+it('waits for a resume in flight instead of re-reading under it', async () => {
+  await listFailure({ failed: [failure] })
+  const acting = Promise.withResolvers<unknown>()
+  mocks.rpc.mockImplementation((_target: unknown, method: string) =>
+    method === 'agentSession.restartContinue'
+      ? acting.promise
+      : Promise.resolve({ sessions: [], failed: [failure] })
+  )
+  const retry = continueNativeChatRestartOffer(['a'])
+  hostEmit()({ type: 'status', session: summary('working', 'Carry on please', Date.now() + 1) })
+  await vi.advanceTimersByTimeAsync(500)
+  expect(offerReads()).toBe(1)
+
+  acting.resolve({
+    sessions: [],
+    failed: [],
+    continued: [{ sessionId: 'a', outcome: 'continued' }]
+  })
+  await retry
   expect(getNativeChatRestartOffer().failed).toEqual([])
 })
