@@ -18,6 +18,11 @@ function createMockWebContents() {
 }
 
 const noHold = (): (() => void) => () => {}
+const PROBE = {
+  format: 'jpeg',
+  quality: 1,
+  clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 }
+}
 const TIMEOUT_MESSAGE = 'Screenshot timed out — the browser page did not draw a frame.'
 
 describe('captureScreenshot', () => {
@@ -63,44 +68,62 @@ describe('captureScreenshot', () => {
     expect(events.filter((event) => event === 'release')).toHaveLength(1)
   })
 
-  it('re-asks until the held page produces a frame', async () => {
+  it('sends the capture once and probes until the held page produces a frame', async () => {
     vi.useFakeTimers()
     const webContents = createMockWebContents()
-    // Undrawn: the first request never answers, the second returns nothing, the third a frame.
+    // Undrawn: the capture hangs until a later request makes the page draw a frame.
+    let drawFrame: (() => void) | null = null
     webContents.debugger.sendCommand
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            drawFrame = () => resolve({ data: 'drawn-png' })
+          })
+      )
       .mockImplementationOnce(() => new Promise(() => {}))
-      .mockResolvedValueOnce({ data: '' })
-      .mockResolvedValueOnce({ data: 'drawn-png' })
+      .mockImplementationOnce(() => {
+        drawFrame?.()
+        return Promise.resolve({ data: 'probe' })
+      })
 
     const capture = captureScreenshot(webContents.guest, { format: 'png' }, noHold)
-    await vi.advanceTimersByTimeAsync(250 + 500)
+    await vi.advanceTimersByTimeAsync(750)
 
     await expect(capture).resolves.toEqual({ data: 'drawn-png' })
-    expect(webContents.debugger.sendCommand).toHaveBeenCalledTimes(3)
+    expect(webContents.debugger.sendCommand.mock.calls).toEqual([
+      ['Page.captureScreenshot', { format: 'png' }],
+      ['Page.captureScreenshot', PROBE],
+      ['Page.captureScreenshot', PROBE]
+    ])
     expect(webContents.capturePage).not.toHaveBeenCalled()
   })
 
-  it('lets a slow earlier request win after a retry was sent', async () => {
+  it('never repeats the full capture while a slow one is in flight', async () => {
     vi.useFakeTimers()
-    let resolveFirst: ((value: unknown) => void) | null = null
+    let resolveCapture: ((value: unknown) => void) | null = null
     const webContents = createMockWebContents()
     webContents.debugger.sendCommand
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
-            resolveFirst = resolve
+            resolveCapture = resolve
           })
       )
       .mockImplementation(() => new Promise(() => {}))
+    const fullPage = { format: 'png', captureBeyondViewport: true }
 
-    const capture = captureScreenshot(webContents.guest, { format: 'png' }, noHold)
-    await vi.advanceTimersByTimeAsync(300)
-    resolveFirst!({ data: 'slow-png' })
+    const capture = captureScreenshot(webContents.guest, fullPage, noHold)
+    await vi.advanceTimersByTimeAsync(480)
+    resolveCapture!({ data: 'slow-png' })
 
     await expect(capture).resolves.toEqual({ data: 'slow-png' })
+    expect(webContents.debugger.sendCommand.mock.calls).toEqual([
+      ['Page.captureScreenshot', fullPage],
+      ['Page.captureScreenshot', PROBE]
+    ])
   })
 
-  it('stops retrying at the deadline', async () => {
+  it('stops probing at the deadline', async () => {
     vi.useFakeTimers()
     const webContents = createMockWebContents()
     webContents.debugger.sendCommand.mockImplementation(() => new Promise(() => {}))
@@ -110,11 +133,15 @@ describe('captureScreenshot', () => {
     const settled = expect(capture).rejects.toThrow(TIMEOUT_MESSAGE)
     await vi.advanceTimersByTimeAsync(8000)
     await settled
-    const attempts = webContents.debugger.sendCommand.mock.calls.length
 
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(webContents.debugger.sendCommand).toHaveBeenCalledTimes(attempts)
-    expect(attempts).toBe(5)
+    expect(webContents.debugger.sendCommand.mock.calls).toEqual([
+      ['Page.captureScreenshot', { format: 'png' }],
+      ['Page.captureScreenshot', PROBE],
+      ['Page.captureScreenshot', PROBE],
+      ['Page.captureScreenshot', PROBE],
+      ['Page.captureScreenshot', PROBE]
+    ])
   })
 
   it('fails at once on a CDP error, without retrying or falling back', async () => {
@@ -145,6 +172,19 @@ describe('captureScreenshot', () => {
     await settled
 
     expect(webContents.debugger.sendCommand).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a detached debugger as detached', async () => {
+    vi.useFakeTimers()
+    const webContents = createMockWebContents()
+    webContents.debugger.sendCommand.mockImplementation(() => new Promise(() => {}))
+
+    const capture = captureScreenshot(webContents.guest, { format: 'png' }, noHold)
+    const settled = expect(capture).rejects.toThrow('Debugger detached')
+    await vi.advanceTimersByTimeAsync(0)
+    webContents.debugger.isAttached.mockReturnValue(false)
+    await vi.advanceTimersByTimeAsync(250)
+    await settled
   })
 
   it('falls back to capturePage when Page.captureScreenshot stalls', async () => {
@@ -266,6 +306,23 @@ describe('captureScreenshot', () => {
 })
 
 describe('captureFullPageScreenshot', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('reports an unanswered layout request as unresponsive, not undrawn', async () => {
+    vi.useFakeTimers()
+    const webContents = createMockWebContents()
+    webContents.debugger.sendCommand.mockImplementation(() => new Promise(() => {}))
+
+    const capture = captureFullPageScreenshot(webContents.guest, 'png', noHold)
+    const settled = expect(capture).rejects.toThrow(
+      'Screenshot timed out — the browser page did not respond.'
+    )
+    await vi.advanceTimersByTimeAsync(8000)
+    await settled
+  })
+
   it('releases its paint hold when the page cannot be measured', async () => {
     const release = vi.fn()
     const webContents = createMockWebContents()

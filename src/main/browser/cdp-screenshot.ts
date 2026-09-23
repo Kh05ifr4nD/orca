@@ -5,7 +5,13 @@ export type CapturePaintHold = () => () => void
 
 const SCREENSHOT_TIMEOUT_MS = 8000
 // Why: offsets from the capture start; the last leaves a full-page capture (~0.5 s on a tall page) time before the deadline.
-const CAPTURE_ATTEMPT_OFFSETS_MS = [0, 250, 750, 1750, 3750]
+const FRAME_PROBE_OFFSETS_MS = [250, 750, 1750, 3750]
+// Why: a 1x1 request is cheap; the frame it makes the page produce also answers the pending capture.
+const FRAME_PROBE_PARAMS = {
+  format: 'jpeg',
+  quality: 1,
+  clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 }
+}
 const FALLBACK_CAPTURE_TIMEOUT_MS = 1000
 const SCREENSHOT_TIMEOUT_MESSAGE = 'Screenshot timed out — the browser page did not draw a frame.'
 
@@ -113,12 +119,12 @@ function getLayoutClip(metrics: {
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout | null = null
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(SCREENSHOT_TIMEOUT_MESSAGE)), timeoutMs)
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs)
     })
   ]).finally(() => {
     if (timer) {
@@ -128,9 +134,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 // Why: a request made before the held page is drawn never resolves, and an offscreen drawn page can
-// skip one, so re-ask until a frame arrives. Earlier requests stay live so a slow full-page capture
-// can still win. Resolves null when no frame arrives by the deadline; a CDP error is an answer.
-// Unanswered requests settle together on the page's next frame, or reject on detach.
+// skip one; a later request makes the page produce a frame, which answers every pending request.
+// So the capture is sent once and cheap probes follow until it answers. Resolves null when no frame
+// arrives by the deadline; a CDP error is an answer. Unanswered probes settle on the next frame or
+// reject on detach.
 function captureUntilDrawn(
   webContents: WebContents,
   params: Record<string, unknown>
@@ -143,36 +150,36 @@ function captureUntilDrawn(
       }
       settled = true
       clearTimeout(deadline)
-      attempts.forEach(clearTimeout)
+      probes.forEach(clearTimeout)
       settle()
     }
-    const attempt = (): void => {
-      if (webContents.isDestroyed() || !webContents.debugger.isAttached()) {
+    const send = (
+      requestParams: Record<string, unknown>
+    ): Promise<{ data?: string } | undefined> | null => {
+      if (webContents.isDestroyed()) {
         finish(() => reject(new Error('WebContents destroyed')))
-        return
+        return null
+      }
+      if (!webContents.debugger.isAttached()) {
+        finish(() => reject(new Error('Debugger detached')))
+        return null
       }
       try {
         webContents.invalidate()
       } catch {
         // Some guest teardown paths reject repaint requests. Fall through to CDP.
       }
-      const request: Promise<{ data?: string } | undefined> = webContents.debugger.sendCommand(
-        'Page.captureScreenshot',
-        params
-      )
-      request.then(
-        (result) => {
-          const data = result?.data
-          if (data) {
-            finish(() => resolve({ data }))
-          }
-        },
-        (error: unknown) =>
-          finish(() => reject(error instanceof Error ? error : new Error(String(error))))
-      )
+      return webContents.debugger.sendCommand('Page.captureScreenshot', requestParams)
     }
     const deadline = setTimeout(() => finish(() => resolve(null)), SCREENSHOT_TIMEOUT_MS)
-    const attempts = CAPTURE_ATTEMPT_OFFSETS_MS.map((offsetMs) => setTimeout(attempt, offsetMs))
+    const probes = FRAME_PROBE_OFFSETS_MS.map((offsetMs) =>
+      setTimeout(() => send(FRAME_PROBE_PARAMS)?.catch(() => {}), offsetMs)
+    )
+    send(params)?.then(
+      (result) => finish(() => resolve(result?.data ? { data: result.data } : null)),
+      (error: unknown) =>
+        finish(() => reject(error instanceof Error ? error : new Error(String(error))))
+    )
   })
 }
 
@@ -193,7 +200,11 @@ export async function captureFullPageScreenshot(
     // Why: layout works on an undrawn page, so only the pixel capture waits for a frame.
     const layoutMetrics: Promise<Parameters<typeof getLayoutClip>[0]> =
       webContents.debugger.sendCommand('Page.getLayoutMetrics', {})
-    const metrics = await withTimeout(layoutMetrics, SCREENSHOT_TIMEOUT_MS)
+    const metrics = await withTimeout(
+      layoutMetrics,
+      SCREENSHOT_TIMEOUT_MS,
+      'Screenshot timed out — the browser page did not respond.'
+    )
     const clip = getLayoutClip(metrics)
     if (!clip) {
       throw new Error('Unable to determine full-page screenshot bounds')
@@ -252,7 +263,8 @@ export async function captureScreenshot(
     // Why: capturePage is only a best-effort fallback for a page that never answered.
     const fallback = await withTimeout(
       Promise.resolve().then(() => webContents.capturePage()),
-      FALLBACK_CAPTURE_TIMEOUT_MS
+      FALLBACK_CAPTURE_TIMEOUT_MS,
+      SCREENSHOT_TIMEOUT_MESSAGE
     )
       .then((image) => encodeNativeImageScreenshot(image, params))
       .catch(() => null)
