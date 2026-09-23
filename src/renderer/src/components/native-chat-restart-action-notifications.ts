@@ -1,5 +1,6 @@
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
+import type { ResumeFailure } from './native-chat-resume-on-restart-grouping'
 
 /**
  * What Orca tells the user after acting on a restart offer.
@@ -53,44 +54,67 @@ export type RestartFailureActions = {
   dismiss: (sessionIds: readonly string[]) => void
 }
 
+function refusedCountText(count: number): string {
+  return count === 1
+    ? translate(
+        'auto.components.NativeChatResumeOnRestartModal.notContinuedOne',
+        '1 chat couldn’t be resumed'
+      )
+    : translate(
+        'auto.components.NativeChatResumeOnRestartModal.notContinuedMany',
+        '{{value0}} chats couldn’t be resumed',
+        { value0: count }
+      )
+}
+
+function unconfirmedCountText(count: number): string {
+  return count === 1
+    ? translate(
+        'auto.components.NativeChatResumeOnRestartModal.notConfirmedOne',
+        'Couldn’t confirm 1 chat was resumed'
+      )
+    : translate(
+        'auto.components.NativeChatResumeOnRestartModal.notConfirmedMany',
+        'Couldn’t confirm {{value0}} chats were resumed',
+        { value0: count }
+      )
+}
+
 /** The chats an action did not carry on. No names here: the modal has the list, and the count is
- *  the same shape whether it is one chat or ten. Dismiss forgets only the chats the host listed as
- *  failed — a chat that merely dropped out of the answer may still be a live offer. */
+ *  the same shape whether it is one chat or ten. Unconfirmed chats get their own count because the
+ *  agent may well be working; "couldn't be resumed" would invite a duplicate send. Dismiss forgets
+ *  only the chats the host listed as failed — a chat that merely dropped out of the answer may
+ *  still be a live offer. */
 function announceNotContinued(
-  sessionIds: readonly string[],
+  refused: readonly string[],
+  unconfirmed: readonly string[],
   hostFailed: ReadonlySet<string>,
   actions: RestartFailureActions
 ): void {
-  if (sessionIds.length === 0) {
+  const counted = [...refused, ...unconfirmed]
+  if (counted.length === 0) {
     return
   }
-  const dismissable = sessionIds.filter((sessionId) => hostFailed.has(sessionId))
-  toast(
-    sessionIds.length === 1
-      ? translate(
-          'auto.components.NativeChatResumeOnRestartModal.notContinuedOne',
-          '1 chat couldn’t be resumed'
-        )
-      : translate(
-          'auto.components.NativeChatResumeOnRestartModal.notContinuedMany',
-          '{{value0}} chats couldn’t be resumed',
-          { value0: sessionIds.length }
-        ),
-    {
-      action: {
-        label: translate('auto.components.NativeChatResumeOnRestartModal.show', 'Show'),
-        onClick: actions.show
-      },
-      ...(dismissable.length === 0
-        ? {}
-        : {
-            cancel: {
-              label: translate('auto.components.NativeChatResumeOnRestartModal.dismiss', 'Dismiss'),
-              onClick: () => actions.dismiss(dismissable)
-            }
-          })
-    }
-  )
+  const dismissable = counted.filter((sessionId) => hostFailed.has(sessionId))
+  const title =
+    refused.length > 0 ? refusedCountText(refused.length) : unconfirmedCountText(unconfirmed.length)
+  toast(title, {
+    ...(refused.length > 0 && unconfirmed.length > 0
+      ? { description: unconfirmedCountText(unconfirmed.length) }
+      : {}),
+    action: {
+      label: translate('auto.components.NativeChatResumeOnRestartModal.show', 'Show'),
+      onClick: actions.show
+    },
+    ...(dismissable.length === 0
+      ? {}
+      : {
+          cancel: {
+            label: translate('auto.components.NativeChatResumeOnRestartModal.dismiss', 'Dismiss'),
+            onClick: () => actions.dismiss(dismissable)
+          }
+        })
+  })
 }
 
 /** A dismissal Orca could not confirm. The offer belongs to the host, so say it may still be there. */
@@ -117,25 +141,34 @@ export function announceRestartResults(
   requested: readonly string[],
   results: readonly RestartContinuationOutcome[],
   /** The host's own failure list after the action; undefined from an older host. */
-  hostFailed: readonly string[] | undefined,
+  hostFailed: readonly Pick<ResumeFailure, 'sessionId' | 'outcome'>[] | undefined,
   actions: RestartFailureActions
 ): void {
   const notContinued = restartChatsNotContinued(requested, results)
-  const failed = new Set(hostFailed)
+  const failed = new Map(hostFailed?.map((failure) => [failure.sessionId, failure.outcome]))
   // A host that lists failures has already dropped chats that moved on by themselves or that the
   // user answered; counting those would report a failure nothing on screen can show.
   const reported =
     hostFailed === undefined
       ? notContinued
       : notContinued.filter((sessionId) => failed.has(sessionId))
+  const outcomes = new Map(results.map((result) => [result.sessionId, result.outcome]))
+  const sentUnconfirmed = (sessionId: string): boolean =>
+    outcomes.get(sessionId) === 'pending' || outcomes.get(sessionId) === 'unknown'
   // An unconfirmed send the host no longer lists was seen carrying on (or answered by the user), so
   // it was resumed and asked to continue; left out of both counts, the action would say nothing.
-  const outcomes = new Map(results.map((result) => [result.sessionId, result.outcome]))
   const seenCarryingOn = notContinued.filter(
-    (sessionId) =>
-      !reported.includes(sessionId) &&
-      (outcomes.get(sessionId) === 'pending' || outcomes.get(sessionId) === 'unknown')
+    (sessionId) => !reported.includes(sessionId) && sentUnconfirmed(sessionId)
   )
+  // The host's filed outcome is what the list shows, so the toast uses it too.
+  const unconfirmed = (sessionId: string): boolean =>
+    (failed.get(sessionId) ?? (sentUnconfirmed(sessionId) ? 'unconfirmed' : 'refused')) ===
+    'unconfirmed'
   announceContinued(new Set(requested).size - notContinued.length + seenCarryingOn.length)
-  announceNotContinued(reported, failed, actions)
+  announceNotContinued(
+    reported.filter((sessionId) => !unconfirmed(sessionId)),
+    reported.filter(unconfirmed),
+    new Set(failed.keys()),
+    actions
+  )
 }

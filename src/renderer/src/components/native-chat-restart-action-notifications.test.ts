@@ -15,7 +15,7 @@ beforeEach(() => vi.mocked(toast).mockClear())
 // `b` finished on its own, or the user already answered it: the host no longer lists it, so the
 // notice must not count a failure the list it opens cannot show.
 it('counts only the requested chats the host still lists as failed', () => {
-  announceRestartResults(['a', 'b'], refusedBoth, ['a'], actions)
+  announceRestartResults(['a', 'b'], refusedBoth, [{ sessionId: 'a', outcome: 'refused' }], actions)
   expect(vi.mocked(toast).mock.calls.map(([text]) => text)).toEqual(['1 chat couldn’t be resumed'])
 })
 
@@ -35,5 +35,43 @@ it('counts an unconfirmed chat the host no longer lists as resumed', () => {
   announceRestartResults(['a'], [{ sessionId: 'a', outcome: 'unknown' }], [], actions)
   expect(vi.mocked(toast).mock.calls.map(([text]) => text)).toEqual([
     'Resumed 1 chat and asked it to continue'
+  ])
+})
+
+// Unconfirmed means the agent may well be working; "couldn't be resumed" would invite a second send.
+// `b` reattached with no continuation row: only the host's filed outcome says it is unconfirmed.
+it('counts a chat the host filed as unconfirmed on its own line, as the list does', () => {
+  announceRestartResults(
+    ['a', 'b'],
+    [{ sessionId: 'a', outcome: 'refused' }],
+    [
+      { sessionId: 'a', outcome: 'refused' },
+      { sessionId: 'b', outcome: 'unconfirmed' }
+    ],
+    actions
+  )
+  expect(vi.mocked(toast).mock.calls).toEqual([
+    [
+      '1 chat couldn’t be resumed',
+      expect.objectContaining({ description: 'Couldn’t confirm 1 chat was resumed' })
+    ]
+  ])
+})
+
+it('leads with the unconfirmed count when nothing was refused', () => {
+  announceRestartResults(
+    ['a', 'b'],
+    [
+      { sessionId: 'a', outcome: 'unknown' },
+      { sessionId: 'b', outcome: 'pending' }
+    ],
+    undefined,
+    actions
+  )
+  expect(vi.mocked(toast).mock.calls).toEqual([
+    [
+      'Couldn’t confirm 2 chats were resumed',
+      expect.not.objectContaining({ description: expect.anything() })
+    ]
   ])
 })

@@ -1974,6 +1974,8 @@
         "dismissUnconfirmed": "Dismissing the resume offer was not confirmed — it may still be in the status bar.",
         "notContinuedOne": "1 chat couldn’t be resumed",
         "notContinuedMany": "{{value0}} chats couldn’t be resumed",
+        "notConfirmedOne": "Couldn’t confirm 1 chat was resumed",
+        "notConfirmedMany": "Couldn’t confirm {{value0}} chats were resumed",
         "show": "Show",
         "dismiss": "Dismiss"
       },

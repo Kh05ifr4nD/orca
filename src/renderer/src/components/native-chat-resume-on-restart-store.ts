@@ -260,7 +260,7 @@ export async function continueNativeChatRestartOffer(
     announceRestartResults(
       reported,
       result.continued,
-      Array.isArray(result.failed) ? failed.map((failure) => failure.sessionId) : undefined,
+      Array.isArray(result.failed) ? failed : undefined,
       failureToastActions
     )
     if (Array.isArray(result.sessions)) {

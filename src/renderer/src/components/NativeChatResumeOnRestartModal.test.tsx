@@ -384,7 +384,11 @@ it.each(['pending', 'unknown', 'refused', 'missing'])(
       .mocked(toast)
       .mock.calls.map(([text]) => text)
       .join(' ')
-    expect(notices).toContain('2 chats couldn’t be resumed')
+    expect(notices).toContain(
+      outcome === 'pending' || outcome === 'unknown'
+        ? 'Couldn’t confirm 2 chats were resumed'
+        : '2 chats couldn’t be resumed'
+    )
     expect(notices).not.toContain('asked them to continue')
     expect(rpc).toHaveBeenCalledTimes(2)
   }
@@ -422,7 +426,7 @@ it('reports a lost resume response without retrying the action', async () => {
   expect(document.querySelector('[role="dialog"]')).toBeNull()
 })
 
-it('counts an unconfirmed delivery and a refusal in one notice', async () => {
+it('counts an unconfirmed delivery apart from a refusal in one notice', async () => {
   rpc.mockImplementation(async (_target, method) =>
     method === 'agentSession.restartResumable'
       ? { sessions: offered }
@@ -436,7 +440,12 @@ it('counts an unconfirmed delivery and a refusal in one notice', async () => {
   )
   await mount(<NativeChatResumeOnRestartModal />)
   await act(async () => button('Resume 2 chats').click())
-  expect(vi.mocked(toast).mock.calls.map(([text]) => text)).toEqual(['2 chats couldn’t be resumed'])
+  expect(vi.mocked(toast).mock.calls).toEqual([
+    [
+      '1 chat couldn’t be resumed',
+      expect.objectContaining({ description: 'Couldn’t confirm 1 chat was resumed' })
+    ]
+  ])
 })
 
 // The toast is gone in seconds; what it can do has to land somewhere durable: the list, or the
