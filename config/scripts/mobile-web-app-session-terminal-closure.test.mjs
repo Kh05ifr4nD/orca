@@ -406,8 +406,27 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *
  *   modules        4212 -> 4213   (+1)
  *   local modules  1026 -> 1027   (+1)
+ *
+ * Muse then joined the mobile agent catalog with its bundled icon, one more local input to the
+ * shared agent picker.
+ *
+ *   modules        4213 -> 4214   (+1)
+ *   local modules  1027 -> 1028   (+1)
+ *
+ * Muse's worker launch preferences then added `src/shared/agent-session-option-catalog-muse.ts`,
+ * which the option catalog this route already reaches imports. One local module, measured.
+ *
+ *   modules        4214 -> 4215   (+1)
+ *   local modules  1028 -> 1029   (+1)
+ *
+ * The structured tool line then added `src/shared/structured-agent-session-tool-call-block.ts`,
+ * which the projection and live turn this route already reaches import. One local module,
+ * measured; the change was src/shared-only, so its own CI never ran this suite.
+ *
+ *   modules        4215 -> 4216   (+1)
+ *   local modules  1029 -> 1030   (+1)
  */
-const SESSION_ROUTE_MODULES = 4213
+const SESSION_ROUTE_MODULES = 4216
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [
