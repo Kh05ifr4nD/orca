@@ -98,6 +98,14 @@ function pointer(type: 'pointerover' | 'pointerout', pointerType: string): Point
 }
 
 describe('NativeChatContextUsageRing', () => {
+  it('writes a million-token window with a capital M, in the label and the card', async () => {
+    const trigger = await renderRing({ ...USAGE, usedTokens: 26_400, windowTokens: 1_000_000 })
+
+    expect(trigger.getAttribute('aria-label')).toBe('Context 26.4k of 1M tokens, 21% used')
+    await click(trigger)
+    expect(card()?.textContent).toContain('26.4k/1M')
+  })
+
   it('opens the breakdown on click without taking focus from the composer', async () => {
     const trigger = await renderRing()
 

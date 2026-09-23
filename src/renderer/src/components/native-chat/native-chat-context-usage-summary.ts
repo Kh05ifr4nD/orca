@@ -34,11 +34,12 @@ export function summarizeContextUsage(
   }
 }
 
-/** `18.6k`, `1m`, `981.4k`: the provider's own compact token notation. */
+/** `18.6k`, `981.4k`, `1M`: capital M, since a lowercase one reads as minutes. */
 export function formatContextTokenCount(tokens: number): string {
   const safe = Math.max(0, tokens)
-  if (safe >= 1_000_000) {
-    return `${trimZero((safe / 1_000_000).toFixed(1))}m`
+  // Compared after rounding, so 999,960 reads `1M` rather than `1000k`.
+  if (Math.round(safe / 100) >= 10_000) {
+    return `${trimZero((safe / 1_000_000).toFixed(1))}M`
   }
   if (safe >= 1_000) {
     return `${trimZero((safe / 1_000).toFixed(1))}k`
