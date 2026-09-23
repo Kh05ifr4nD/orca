@@ -28,7 +28,7 @@ const STALE: StructuredRailOutlineView = { kind: 'stale' }
 
 const views = new WeakMap<
   AgentSessionConversationOutline,
-  { edge: number; view: StructuredRailOutlineView }
+  { edge: number; count: number; view: StructuredRailOutlineView }
 >()
 
 export function selectStructuredRailOutline(
@@ -46,17 +46,32 @@ export function selectStructuredRailOutline(
   ) {
     return STALE
   }
-  // Cached on the latest window edge so the rail's merge sees one array until the edge moves.
+  // The rail's merge sees one array until the covered entries change. A trimmed live
+  // window moves its edge on every new row, and usually past no user message.
   const cached = views.get(outline)
   if (cached?.edge === oldestLoadedSequence) {
     return cached.view
   }
-  const view: StructuredRailOutlineView = {
-    kind: 'fresh',
-    entries: outline.entries
-      .filter((entry) => entry.sequence < oldestLoadedSequence)
-      .map((entry) => ({ id: entry.itemId, text: entry.preview, hasImages: entry.imageCount > 0 }))
+  let count = 0
+  for (const entry of outline.entries) {
+    if (entry.sequence < oldestLoadedSequence) {
+      count += 1
+    }
   }
-  views.set(outline, { edge: oldestLoadedSequence, view })
+  // "Older than the edge" only grows or shrinks with it, so an equal count is the same set.
+  const view: StructuredRailOutlineView =
+    cached?.count === count
+      ? cached.view
+      : {
+          kind: 'fresh',
+          entries: outline.entries
+            .filter((entry) => entry.sequence < oldestLoadedSequence)
+            .map((entry) => ({
+              id: entry.itemId,
+              text: entry.preview,
+              hasImages: entry.imageCount > 0
+            }))
+        }
+  views.set(outline, { edge: oldestLoadedSequence, count, view })
   return view
 }

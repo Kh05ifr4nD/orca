@@ -69,4 +69,15 @@ describe('structured rail outline selection', () => {
     expect(paged).not.toBe(first)
     expect(paged).toMatchObject({ kind: 'fresh', entries: [{ id: 'user-1' }] })
   })
+
+  it('keeps the same entries while a trimmed live window moves its edge past no user message', () => {
+    const value = outline(200, [1, 20, 49, 80])
+    const first = selectStructuredRailOutline(value, WINDOW)
+    // Each new live row head-trims the window by one; none of these edges uncovers an entry.
+    for (const oldestLoadedSequence of [51, 60, 80]) {
+      expect(selectStructuredRailOutline(value, { ...WINDOW, oldestLoadedSequence })).toBe(first)
+    }
+    const passed = selectStructuredRailOutline(value, { ...WINDOW, oldestLoadedSequence: 81 })
+    expect(passed).toMatchObject({ kind: 'fresh', entries: [{}, {}, {}, { id: 'user-80' }] })
+  })
 })
