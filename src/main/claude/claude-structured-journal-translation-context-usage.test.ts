@@ -454,6 +454,22 @@ describe('context usage on journal rows', () => {
     t.translator.dispose()
   })
 
+  it('keeps the size a turn reached when the child ends it without a result', () => {
+    const t = setup()
+    t.handle(userFrame('turn-a', 1_000))
+    t.handle(assistantFrame('reply-a', 2_000, 18_600))
+    t.handle(resultFrame(3_000, MODEL_USAGE))
+    t.handle(userFrame('turn-b', 4_000))
+    t.handle(assistantFrame('reply-b', 5_000, 42_000))
+    t.handle({ type: 'ended', sessionId: 'orca-session', reason: 'closed', observedAt: 6_000 })
+    expect(t.turnRow('turn-b')?.body).toMatchObject({
+      state: 'interrupted',
+      contextUsage: { used: { kind: 'estimate', usage: { inputTokens: 42_000 } } }
+    })
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({ usedTokens: 42_000 })
+    t.translator.dispose()
+  })
+
   it('counts a turn opening as activity, whatever frame opened it', () => {
     const onOpen = vi.fn()
     const turn = new ClaudeOpenTurn({ sink: journal().sink, settleChildren: () => {}, onOpen })
