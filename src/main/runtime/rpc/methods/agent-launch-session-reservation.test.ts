@@ -163,6 +163,25 @@ describe('the reservation at the wire', () => {
       AGENT_LAUNCH.params.safeParse({ ...EXISTING_LAUNCH, sessionId: SESSION_ID }).success
     ).toBe(true)
   })
+
+  it('accepts a session id named for an agent whose name has a hyphen', () => {
+    // Such an agent has no chat today, so the id is ignored on its terminal, as it is for any other.
+    const params = {
+      ...EXISTING_LAUNCH,
+      agent: 'mimo-code',
+      sessionId: 'mimo-code_9b1deb4d_3b7d_4bad_9bdd_2b0d7b3dcb6d'
+    }
+    expect(AGENT_LAUNCH.params.safeParse(params).success).toBe(true)
+  })
+
+  it('still refuses a hyphen after the agent name', () => {
+    const params = {
+      ...EXISTING_LAUNCH,
+      agent: 'mimo-code',
+      sessionId: 'mimo-code_9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
+    }
+    expect(AGENT_LAUNCH.params.safeParse(params).success).toBe(false)
+  })
 })
 
 describe('the reservation in the replay fingerprint', () => {

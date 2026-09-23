@@ -35,9 +35,11 @@ export function createStructuredAgentSessionId(
 }
 
 /** Whether a caller-minted id keeps the shape `createStructuredAgentSessionId` gives every id:
- *  named for the agent it launches, and one token. */
+ *  named for its agent, then one token. The token alone is checked, so a hyphenated agent name
+ *  is not refused at the wire. */
 export function isStructuredAgentSessionIdFor(agent: string, sessionId: string): boolean {
-  return sessionId.startsWith(`${agent}_`) && /^[A-Za-z0-9_]+$/.test(sessionId)
+  const prefix = `${agent}_`
+  return sessionId.startsWith(prefix) && /^[A-Za-z0-9_]+$/.test(sessionId.slice(prefix.length))
 }
 
 /**
