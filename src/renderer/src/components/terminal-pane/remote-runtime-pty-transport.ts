@@ -209,6 +209,18 @@ export function createRemoteRuntimePtyTransport(
   let sameHandleEndReuseAttachedAt: number | null = null
   let attachGeneration = 0
   let subscriptionGeneration = 0
+  const traceE2EInput = (stage: string, details: Record<string, unknown>): void => {
+    if (
+      String(import.meta.env.VITE_EXPOSE_STORE) !== 'true' ||
+      !tabId ||
+      !isWebTerminalSurfaceTabId(tabId)
+    ) {
+      return
+    }
+    console.info(
+      `[paired-input-client] ${JSON.stringify({ stage, tabId, handle, connected, attachmentReady, recovery: recovery.currentPhase, ...details })}`
+    )
+  }
 
   function setAttachmentReady(ready: boolean): void {
     attachmentReady = ready
@@ -1453,10 +1465,19 @@ export function createRemoteRuntimePtyTransport(
     const targetHandle = handle
     const targetLifecycleEpoch = lifecycleEpoch
     if (!connected || !targetHandle || recoveryBlocksIo()) {
+      traceE2EInput('flush-rejected', { length: text.length, queryReply })
       return false
     }
     const stream = getCurrentMultiplexedStream(targetHandle)
-    if (stream?.sendInput(text)) {
+    const sent = stream?.sendInput(text) === true
+    traceE2EInput('flush', {
+      length: text.length,
+      queryReply,
+      streamId: stream?.streamId ?? null,
+      sent,
+      pendingViewportClaim
+    })
+    if (sent) {
       return true
     }
     if (pendingViewportClaim) {
@@ -1471,6 +1492,7 @@ export function createRemoteRuntimePtyTransport(
       ...(desiredViewport ? { viewport: desiredViewport, claimViewport: true as const } : {})
     })
       .then((result) => {
+        traceE2EInput('rpc-fallback', { accepted: result.send.accepted })
         if (
           connected &&
           lifecycleEpoch === targetLifecycleEpoch &&
@@ -1481,6 +1503,7 @@ export function createRemoteRuntimePtyTransport(
         }
       })
       .catch((error) => {
+        traceE2EInput('rpc-fallback-error', { error: runtimeTerminalErrorMessage(error) })
         if (lifecycleEpoch !== targetLifecycleEpoch || handle !== targetHandle) {
           return
         }
@@ -2585,13 +2608,16 @@ export function createRemoteRuntimePtyTransport(
 
     sendInput(data: string): boolean {
       if (!connected || !handle || recoveryBlocksIo()) {
+        traceE2EInput('input-rejected', { length: data.length })
         return false
       }
       if (!data) {
         return true
       }
       // Why: literal LF bytes from paste/programmatic input must survive; callers use \r or the enter flag for semantic Enter.
-      return inputBatcher.push(data)
+      const queued = inputBatcher.push(data)
+      traceE2EInput('input-queued', { length: data.length, queued })
+      return queued
     },
 
     // Why: query replies (CPR/DSR/DA/OSC) are read in raw mode with a short timeout; the 8ms debounce would miss it and echo the reply onto the prompt (#7329).
