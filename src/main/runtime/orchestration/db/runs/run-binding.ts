@@ -133,10 +133,11 @@ export function bindRun(
           this.setLegacyCompatibilityPrincipalStatus(coordinatorPrincipal.id, 'revoked')
         }
       }
+      // The actor belongs to the coordinator being replaced; nothing here resolves the new one's.
       this.db
         .prepare(
           `UPDATE runs
-           SET coordinator_handle = ?, coordinator_pane_key = ?,
+           SET coordinator_handle = ?, coordinator_pane_key = ?, coordinator_actor = NULL,
                consumer_generation = consumer_generation + 1,
                updated_at = datetime('now')
            WHERE id = ?`

@@ -1,7 +1,8 @@
 import type { RunRow } from '../../../../orchestration/types'
 
 // Why: home_database and coordinator_pane_key are runtime routing state; no caller reads them.
-const INTERNAL_RUN_COLUMNS = ['home_database', 'coordinator_pane_key'] as const
+// coordinator_actor stays off the wire until a reader needs it; publishing it is a wire change.
+const INTERNAL_RUN_COLUMNS = ['home_database', 'coordinator_pane_key', 'coordinator_actor'] as const
 
 export type RunReceipt = Omit<RunRow, (typeof INTERNAL_RUN_COLUMNS)[number]>
 

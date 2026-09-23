@@ -12,11 +12,12 @@ export function rememberRunCoordinatorHandle(
     .run(runId, terminalHandle)
 }
 
+// A handle-less structured-session coordinator is remembered by its actor address (migrate-v42).
 export function rememberCurrentRunCoordinatorHandles(this: OrchestrationDb): void {
   this.db.exec(`
     INSERT OR IGNORE INTO run_coordinator_handles (run_id, terminal_handle)
-    SELECT id, coordinator_handle FROM runs
-    WHERE legacy = 0 AND coordinator_handle IS NOT NULL
+    SELECT id, COALESCE(coordinator_handle, coordinator_actor) FROM runs
+    WHERE legacy = 0 AND COALESCE(coordinator_handle, coordinator_actor) IS NOT NULL
   `)
 }
 
