@@ -1,7 +1,6 @@
 // What the provider has said about a session's context window, as facts on
-// journal rows. Each fact carries the host clock it was learned at, and readers
-// take the newest: a revised row keeps its place in the transcript, so journal
-// order alone cannot say which fact is current.
+// turn rows. Writes land only on the open or newest turn and each replaces its
+// namesake, so a reader takes the part from the newest row that carries it.
 
 /** The API's accounting on one assistant response. */
 export type AgentSessionTokenUsage = {
@@ -15,6 +14,11 @@ export type AgentSessionTokenUsage = {
 export function contextTokensFromUsage(usage: AgentSessionTokenUsage): number {
   return usage.inputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens
 }
+
+/** Longest model id a fact records; a longer one is not a model id. */
+export const MAX_CONTEXT_MODEL_ID_CHARS = 256
+export const MAX_CONTEXT_CATEGORIES = 64
+export const MAX_CONTEXT_CATEGORY_NAME_CHARS = 80
 
 /** One row of the provider's breakdown, as it names and counts it. */
 export type AgentSessionContextUsageCategory = {
@@ -39,16 +43,46 @@ export type AgentSessionContextReport = {
   capturedAt: number
 }
 
-/** Context facts on a turn row. Each part has its own clock and is revised
- *  independently; an absent part says nothing. */
+/** The window of the main thread's model, and the model it was measured for. */
+export type AgentSessionContextWindow = {
+  tokens: number
+  /** The provider's key for the model, e.g. `claude-opus-5[1m]`. */
+  model: string
+  /** The provider's canonical id when its key is provider-specific. */
+  canonicalModel?: string
+  capturedAt: number
+}
+
+/** How much of the window is in use, as last learned. */
+export type AgentSessionContextUsed =
+  | ({ kind: 'report' } & AgentSessionContextReport)
+  /** The newest main-thread response, whatever its blocks: its input is the
+   *  live context size. A subagent's measures its own window. */
+  | { kind: 'estimate'; usage: AgentSessionTokenUsage; model?: string; capturedAt: number }
+  /** Compaction or a conversation reset: unknown until a response or report restates it. */
+  | { kind: 'unknown'; capturedAt: number }
+
+/** Context facts on a turn row. An absent part says nothing. */
 export type AgentSessionContextUsage = {
-  /** The largest window the provider reported for the session's models. */
-  window?: { tokens: number; capturedAt: number }
-  report?: AgentSessionContextReport
-  /** The newest main-thread response in the turn, whatever its blocks: its
-   *  input is the live context size. A subagent's measures its own window. */
-  response?: { usage: AgentSessionTokenUsage; model?: string; capturedAt: number }
-  /** Compaction or a conversation reset: the used count is unknown from here
-   *  until the next response or report. */
-  resetAt?: number
+  window?: AgentSessionContextWindow
+  used?: AgentSessionContextUsed
+}
+
+/** `claude-opus-5[1m]` and `Claude-Opus-5` name the same model; the suffix picks a window, not a model. */
+export function contextBaseModelId(model: string): string {
+  return model
+    .replace(/\[[^\]]*\]$/u, '')
+    .trim()
+    .toLowerCase()
+}
+
+/** Whether a response's model is one the window was measured for. */
+export function contextWindowServesModel(
+  window: AgentSessionContextWindow,
+  model: string
+): boolean {
+  const base = contextBaseModelId(model)
+  return [window.model, window.canonicalModel].some(
+    (name) => name !== undefined && contextBaseModelId(name) === base
+  )
 }

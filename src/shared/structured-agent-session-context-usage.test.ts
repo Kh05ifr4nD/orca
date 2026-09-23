@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type {
   AgentSessionContextReport,
-  AgentSessionContextUsage
+  AgentSessionContextUsage,
+  AgentSessionContextWindow
 } from './agent-session-context-usage'
 import type { AgentJournalItemBody, AgentJournalRenderItem } from './agent-session-journal-types'
 import { selectStructuredAgentContextUsage } from './structured-agent-session-context-usage'
@@ -9,10 +10,9 @@ import { selectStructuredAgentContextUsage } from './structured-agent-session-co
 function item(
   itemId: string,
   sequence: number,
-  body: AgentJournalItemBody,
-  observedAt = sequence * 1_000
+  body: AgentJournalItemBody
 ): AgentJournalRenderItem {
-  return { itemId, revision: 1, sequence, observedAt, body }
+  return { itemId, revision: 1, sequence, observedAt: sequence * 1_000, body }
 }
 
 const REPORT: AgentSessionContextReport = {
@@ -25,24 +25,24 @@ const REPORT: AgentSessionContextReport = {
   capturedAt: 5_000
 }
 
-/** A turn row whose newest main-thread response read `usedTokens`, at `sequence` seconds. */
-function assistant(itemId: string, sequence: number, usedTokens: number): AgentJournalRenderItem {
-  return item(itemId, sequence, {
-    kind: 'turn',
-    turnId: itemId,
-    state: 'running',
-    contextUsage: {
-      response: {
-        usage: {
-          inputTokens: usedTokens,
-          cacheCreationInputTokens: 0,
-          cacheReadInputTokens: 0,
-          outputTokens: 4
-        },
-        capturedAt: sequence * 1_000
-      }
-    }
-  })
+const WINDOW: AgentSessionContextWindow = {
+  tokens: 1_000_000,
+  model: 'claude-fable-5-1[1m]',
+  capturedAt: 2_000
+}
+
+function estimate(usedTokens: number, model?: string): AgentSessionContextUsage['used'] {
+  return {
+    kind: 'estimate',
+    usage: {
+      inputTokens: usedTokens,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      outputTokens: 4
+    },
+    ...(model ? { model } : {}),
+    capturedAt: 1
+  }
 }
 
 function turn(sequence: number, contextUsage: AgentSessionContextUsage): AgentJournalRenderItem {
@@ -50,81 +50,93 @@ function turn(sequence: number, contextUsage: AgentSessionContextUsage): AgentJo
     kind: 'turn',
     turnId: `turn-${sequence}`,
     state: 'completed',
-    outcome: 'success',
     contextUsage
   })
 }
 
 describe('selectStructuredAgentContextUsage', () => {
-  it('reads the report when it is newer than every response, by clock not position', () => {
-    const expected = {
+  it('reads the report on the newest turn that carries a used count', () => {
+    expect(
+      selectStructuredAgentContextUsage([
+        turn(1, { used: estimate(20_000), window: WINDOW }),
+        turn(3, { used: { kind: 'report', ...REPORT } })
+      ])
+    ).toEqual({
       usedTokens: 29_400,
       windowTokens: 200_000,
       percentage: 15,
       estimated: false,
       categories: REPORT.categories
-    }
-    expect(
-      selectStructuredAgentContextUsage([assistant('a', 1, 20_000), turn(3, { report: REPORT })])
-    ).toEqual(expected)
-    // A revised turn row keeps its transcript position; only the clocks decide.
-    expect(
-      selectStructuredAgentContextUsage([turn(1, { report: REPORT }), assistant('a', 2, 20_000)])
-    ).toEqual(expected)
+    })
   })
 
-  it('estimates from a response that landed after the report, against the newest window', () => {
+  it('orders by journal position, not by the clock on the fact', () => {
+    const late = { ...REPORT, capturedAt: 99_000 }
     expect(
-      selectStructuredAgentContextUsage([turn(3, { report: REPORT }), assistant('b', 6, 54_617)])
+      selectStructuredAgentContextUsage([
+        turn(1, { used: { kind: 'report', ...late }, window: WINDOW }),
+        turn(2, { used: estimate(54_617) })
+      ])
+    ).toMatchObject({ usedTokens: 54_617, windowTokens: 1_000_000, estimated: true })
+  })
+
+  it('estimates against the newest window, which may sit on an older turn', () => {
+    expect(
+      selectStructuredAgentContextUsage([
+        turn(1, { used: estimate(10_000), window: WINDOW }),
+        turn(2, { used: estimate(18_600, 'claude-fable-5-1') })
+      ])
     ).toEqual({
-      usedTokens: 54_617,
-      windowTokens: 200_000,
-      percentage: 27,
+      usedTokens: 18_600,
+      windowTokens: 1_000_000,
+      percentage: 2,
       estimated: true,
       categories: []
     })
   })
 
+  it('keeps the last turn with a count while a new turn has none yet', () => {
+    expect(
+      selectStructuredAgentContextUsage([
+        turn(1, { used: estimate(18_600), window: WINDOW }),
+        item('turn-2', 2, { kind: 'turn', turnId: 'turn-2', state: 'running' })
+      ])
+    ).toMatchObject({ usedTokens: 18_600 })
+  })
+
   it('states nothing before the CLI has reported a window', () => {
-    expect(selectStructuredAgentContextUsage([assistant('a', 1, 18_600)])).toBeNull()
+    expect(selectStructuredAgentContextUsage([turn(1, { used: estimate(18_600) })])).toBeNull()
   })
 
-  it('estimates against the window a result reported, so a 1M session reads 1M', () => {
+  it('states nothing when the newest response ran on a model the window was not measured for', () => {
+    const items = (model: string) => [
+      turn(1, { window: WINDOW }),
+      turn(2, { used: estimate(150_000, model) })
+    ]
+    expect(selectStructuredAgentContextUsage(items('claude-sonnet-5'))).toBeNull()
+    // Responses drop the `[1m]` the window's key carries; the model is still the same.
+    expect(selectStructuredAgentContextUsage(items('claude-fable-5-1'))).toMatchObject({
+      windowTokens: 1_000_000
+    })
+    // A provider-specific key names its model through the canonical id.
+    const bedrock = { tokens: 200_000, model: 'us.anthropic.claude-sonnet-5-v1', capturedAt: 1 }
     expect(
       selectStructuredAgentContextUsage([
-        assistant('a', 1, 18_600),
-        turn(2, { window: { tokens: 1_000_000, capturedAt: 2_000 } })
+        turn(1, { window: { ...bedrock, canonicalModel: 'claude-sonnet-5' } }),
+        turn(2, { used: estimate(50_000, 'claude-sonnet-5') })
       ])
-    ).toMatchObject({ usedTokens: 18_600, windowTokens: 1_000_000, percentage: 2, estimated: true })
-  })
-
-  it('takes the newest window when the CLI reports another', () => {
-    expect(
-      selectStructuredAgentContextUsage([
-        turn(1, { window: { tokens: 1_000_000, capturedAt: 1_000 }, report: REPORT }),
-        assistant('a', 6, 20_000)
-      ])
-    ).toMatchObject({ windowTokens: 200_000 })
+    ).toMatchObject({ windowTokens: 200_000, percentage: 25 })
   })
 
   it('hides the pre-compaction size until the next response or report restates it', () => {
-    const window = { tokens: 200_000, capturedAt: 2_000 }
-    const before = assistant('a', 1, 150_000)
-    expect(selectStructuredAgentContextUsage([before, turn(2, { window, resetAt: 3_000 })])).toBe(
-      null
-    )
+    const before = turn(1, { used: estimate(150_000), window: WINDOW })
+    const compacted = turn(2, { used: { kind: 'unknown', capturedAt: 3_000 } })
+    expect(selectStructuredAgentContextUsage([before, compacted])).toBeNull()
     expect(
-      selectStructuredAgentContextUsage([
-        before,
-        turn(2, { window, resetAt: 3_000 }),
-        assistant('b', 4, 12_000)
-      ])
+      selectStructuredAgentContextUsage([before, compacted, turn(3, { used: estimate(12_000) })])
     ).toMatchObject({ usedTokens: 12_000, estimated: true })
     expect(
-      selectStructuredAgentContextUsage([
-        before,
-        turn(2, { window, resetAt: 3_000, report: { ...REPORT, capturedAt: 3_500 } })
-      ])
+      selectStructuredAgentContextUsage([before, turn(2, { used: { kind: 'report', ...REPORT } })])
     ).toMatchObject({ usedTokens: 29_400, estimated: false })
   })
 

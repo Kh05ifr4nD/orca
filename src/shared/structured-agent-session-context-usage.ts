@@ -1,13 +1,14 @@
 // The context window a structured session reads from its own journal's turn
-// rows. The used count is the newest of three facts: the provider's `/context`
-// report, the usage on the newest main-thread response (an estimate, the
-// arithmetic the provider's statusline uses), or a compaction/reset that makes it
-// unknown. The window is the newest one the provider reported. Nothing is held
-// outside the journal, so a restart replays the same answer.
+// rows. Facts are written only to the open or newest turn and each write
+// replaces its namesake, so the newest row carrying a part holds its current
+// value. Nothing is held outside the journal, so a restart replays the same answer.
 
 import {
   contextTokensFromUsage,
-  type AgentSessionContextUsageCategory
+  contextWindowServesModel,
+  type AgentSessionContextUsageCategory,
+  type AgentSessionContextUsed,
+  type AgentSessionContextWindow
 } from './agent-session-context-usage'
 import type { AgentJournalRenderItem } from './agent-session-journal-types'
 import { readAgentJournalTurn } from './agent-session-turn-record'
@@ -23,67 +24,43 @@ export type StructuredAgentContextUsage = {
   categories: readonly AgentSessionContextUsageCategory[]
 }
 
-type UsedFact =
-  | { at: number; usage: StructuredAgentContextUsage }
-  | { at: number; estimatedTokens: number }
-  | { at: number; unknown: true }
-
 export function selectStructuredAgentContextUsage(
   items: readonly AgentJournalRenderItem[]
 ): StructuredAgentContextUsage | null {
-  let used: UsedFact | null = null
-  let window: { at: number; tokens: number } | null = null
-  // Later journal position breaks a clock tie.
-  const newer = (at: number, current: { at: number } | null): boolean =>
-    current === null || at >= current.at
+  let used: { sequence: number; fact: AgentSessionContextUsed } | null = null
+  let window: { sequence: number; fact: AgentSessionContextWindow } | null = null
   for (const item of items) {
     const facts = readAgentJournalTurn(item.body)?.contextUsage
-    if (!facts) {
-      continue
+    if (facts?.used && (used === null || item.sequence >= used.sequence)) {
+      used = { sequence: item.sequence, fact: facts.used }
     }
-    if (facts.window && newer(facts.window.capturedAt, window)) {
-      window = { at: facts.window.capturedAt, tokens: facts.window.tokens }
-    }
-    const report = facts.report
-    if (report) {
-      if (newer(report.capturedAt, window)) {
-        window = { at: report.capturedAt, tokens: report.windowTokens }
-      }
-      if (newer(report.capturedAt, used)) {
-        used = {
-          at: report.capturedAt,
-          usage: {
-            usedTokens: report.usedTokens,
-            windowTokens: report.windowTokens,
-            percentage: report.percentage,
-            estimated: false,
-            categories: report.categories
-          }
-        }
-      }
-    }
-    const response = facts.response
-    const responseTokens = response ? contextTokensFromUsage(response.usage) : 0
-    if (response && responseTokens > 0 && newer(response.capturedAt, used)) {
-      used = { at: response.capturedAt, estimatedTokens: responseTokens }
-    }
-    if (facts.resetAt !== undefined && newer(facts.resetAt, used)) {
-      used = { at: facts.resetAt, unknown: true }
+    if (facts?.window && (window === null || item.sequence >= window.sequence)) {
+      window = { sequence: item.sequence, fact: facts.window }
     }
   }
-  if (!used || 'unknown' in used) {
+  const fact = used?.fact
+  if (!fact || fact.kind === 'unknown') {
     return null
   }
-  if ('usage' in used) {
-    return used.usage
+  if (fact.kind === 'report') {
+    return {
+      usedTokens: fact.usedTokens,
+      windowTokens: fact.windowTokens,
+      percentage: fact.percentage,
+      estimated: false,
+      categories: fact.categories
+    }
   }
-  return window
-    ? {
-        usedTokens: used.estimatedTokens,
-        windowTokens: window.tokens,
-        percentage: Math.round((used.estimatedTokens / window.tokens) * 100),
-        estimated: true,
-        categories: []
-      }
-    : null
+  const usedTokens = contextTokensFromUsage(fact.usage)
+  // Another model's window would state a wrong share; wait for this model's.
+  if (!window || (fact.model !== undefined && !contextWindowServesModel(window.fact, fact.model))) {
+    return null
+  }
+  return {
+    usedTokens,
+    windowTokens: window.fact.tokens,
+    percentage: Math.round((usedTokens / window.fact.tokens) * 100),
+    estimated: true,
+    categories: []
+  }
 }

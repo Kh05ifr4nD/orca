@@ -114,9 +114,10 @@ describe('running turn lifecycle revisions', () => {
     ])
   })
 
-  it('keeps the context facts a running row carried when the host settles it', () => {
+  it('keeps every field it does not own when the host settles a running row', () => {
     const contextUsage = {
-      response: {
+      used: {
+        kind: 'estimate' as const,
         usage: {
           inputTokens: 1,
           cacheCreationInputTokens: 0,
@@ -124,19 +125,37 @@ describe('running turn lifecycle revisions', () => {
           outputTokens: 5
         },
         capturedAt: 35
-      },
-      resetAt: 32
+      }
     }
     const running = lifecycleItem('turn-2', 'running', 2, { startedAt: 30 })
-    const items = [{ ...running, body: { ...running.body, contextUsage } }]
-    for (const verdict of [
-      { state: 'interrupted' as const, completedAt: 40 },
-      UNVERIFIABLE_TURN_VERDICT
-    ]) {
-      expect(runningTurnLifecycleRevisions(items, verdict)).toEqual([
-        expect.objectContaining({ body: expect.objectContaining({ contextUsage }) })
-      ])
+    const body = {
+      ...running.body,
+      requestedAt: 29,
+      userItemId: 'user-2',
+      contextUsage,
+      // A field a newer build wrote: the verdict does not own it, so it survives.
+      laterField: { kept: true },
+      outcome: 'success' as const,
+      durationMs: 7
     }
+    const items: AgentJournalRenderItem[] = [{ ...running, body }]
+    const kept = {
+      kind: 'turn',
+      turnId: 'turn-2',
+      startedAt: 30,
+      requestedAt: 29,
+      userItemId: 'user-2',
+      contextUsage,
+      laterField: { kept: true }
+    }
+    expect(
+      runningTurnLifecycleRevisions(items, { state: 'interrupted', completedAt: 40 })[0]
+    ).toMatchObject({ body: { ...kept, state: 'interrupted', completedAt: 40 } })
+    const unverifiable = runningTurnLifecycleRevisions(items, UNVERIFIABLE_TURN_VERDICT)[0]
+    expect(unverifiable?.kind === 'item' ? unverifiable.body : null).toEqual({
+      ...kept,
+      state: 'unverifiable'
+    })
   })
 
   it('revises a legacy status-form running row from an older host into a typed turn', () => {

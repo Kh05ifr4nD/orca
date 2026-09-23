@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentSessionContextUsage } from '../../shared/agent-session-context-usage'
+import type { AgentSessionContextReport } from '../../shared/agent-session-context-usage'
+import type { ClaudeContextReportTarget } from './claude-context-facts'
 import {
   bindClaudeContextUsageCapture,
   claudeContextReportFromControl,
@@ -74,10 +75,10 @@ describe('claudeContextWindowFromResult', () => {
     const side = { contextWindow: 200_000 }
     expect(
       claudeContextWindowFromResult({ modelUsage: { 'claude-fable-5-1[1m]': main, haiku: side } })
-    ).toBe(1_000_000)
+    ).toEqual({ tokens: 1_000_000, model: 'claude-fable-5-1[1m]' })
     expect(
       claudeContextWindowFromResult({ modelUsage: { haiku: side, 'claude-fable-5-1[1m]': main } })
-    ).toBe(1_000_000)
+    ).toEqual({ tokens: 1_000_000, model: 'claude-fable-5-1[1m]' })
   })
 
   it('reads the entry of the model that served the main thread, not a larger one', () => {
@@ -87,9 +88,12 @@ describe('claudeContextWindowFromResult', () => {
     }
     const byResponse = (responseModel: string) =>
       claudeContextWindowFromResult({ modelUsage }, { initModel: null, responseModel })
-    expect(byResponse('claude-sonnet-5')).toBe(200_000)
+    expect(byResponse('claude-sonnet-5')).toEqual({ tokens: 200_000, model: 'claude-sonnet-5' })
     // Responses drop the `[1m]` the usage is keyed with.
-    expect(byResponse('claude-fable-5-1')).toBe(1_000_000)
+    expect(byResponse('claude-fable-5-1')).toEqual({
+      tokens: 1_000_000,
+      model: 'claude-fable-5-1[1m]'
+    })
     // A provider-specific key is matched through the canonical id it reports.
     expect(
       claudeContextWindowFromResult(
@@ -104,7 +108,11 @@ describe('claudeContextWindowFromResult', () => {
         },
         { initModel: null, responseModel: 'claude-sonnet-5' }
       )
-    ).toBe(200_000)
+    ).toEqual({
+      tokens: 200_000,
+      model: 'us.anthropic.claude-sonnet-5-v1',
+      canonicalModel: 'claude-sonnet-5'
+    })
   })
 
   it('reads the exact entry the turn init names when the model runs with and without [1m]', () => {
@@ -118,20 +126,20 @@ describe('claudeContextWindowFromResult', () => {
         { modelUsage },
         { initModel: 'claude-fable-5-1', responseModel }
       )
-    ).toBe(200_000)
+    ).toEqual({ tokens: 200_000, model: 'claude-fable-5-1' })
     expect(
       claudeContextWindowFromResult(
         { modelUsage },
         { initModel: 'claude-fable-5-1[1m]', responseModel }
       )
-    ).toBe(1_000_000)
+    ).toEqual({ tokens: 1_000_000, model: 'claude-fable-5-1[1m]' })
     // An init the newest response contradicts names a model the session has left.
     expect(
       claudeContextWindowFromResult(
         { modelUsage: { ...modelUsage, 'claude-sonnet-5': { contextWindow: 300_000 } } },
         { initModel: 'claude-fable-5-1[1m]', responseModel: 'claude-sonnet-5' }
       )
-    ).toBe(300_000)
+    ).toEqual({ tokens: 300_000, model: 'claude-sonnet-5' })
   })
 
   it('is null when no entry reports a usable window', () => {
@@ -158,12 +166,12 @@ describe('claudeTokenUsage', () => {
 })
 
 function fakeTranslator() {
-  const listeners = new Set<(turnId: string) => void>()
-  const annotations: [string, AgentSessionContextUsage][] = []
+  const listeners = new Set<(target: ClaudeContextReportTarget) => void>()
+  const annotations: [ClaudeContextReportTarget, AgentSessionContextReport][] = []
   const state = { activity: 0 }
-  const request = (turnId: string): void => {
+  const request = (target: ClaudeContextReportTarget): void => {
     for (const listener of listeners) {
-      listener(turnId)
+      listener(target)
     }
   }
   return {
@@ -175,13 +183,15 @@ function fakeTranslator() {
       get contextActivity() {
         return state.activity
       },
-      subscribeContextUsageRequests: (listener: (turnId: string) => void) => {
+      subscribeContextUsageRequests: (listener: (target: ClaudeContextReportTarget) => void) => {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
-      annotateTurnContextUsage: (turnId: string, usage: AgentSessionContextUsage) => {
-        annotations.push([turnId, usage])
-        return true
+      recordContextReport: (
+        target: ClaudeContextReportTarget,
+        report: AgentSessionContextReport
+      ) => {
+        annotations.push([target, report])
       }
     }
   }
@@ -209,7 +219,7 @@ describe('bindClaudeContextUsageCapture', () => {
     expect(getContextUsage).toHaveBeenCalledWith({ timeoutMs: 5_000 })
     expect(fake.annotations[0]).toEqual([
       'turn-1',
-      { report: expect.objectContaining({ usedTokens: 18_600, capturedAt: 99 }) }
+      expect.objectContaining({ usedTokens: 18_600, capturedAt: 99 })
     ])
   })
 
@@ -238,9 +248,7 @@ describe('bindClaudeContextUsageCapture', () => {
     second.resolve({ ...CONTROL_REPORT, totalTokens: 9_000 })
     first.resolve(CONTROL_REPORT)
     await settle()
-    expect(fake.annotations).toEqual([
-      ['turn-1', { report: expect.objectContaining({ usedTokens: 9_000 }) }]
-    ])
+    expect(fake.annotations).toEqual([['turn-1', expect.objectContaining({ usedTokens: 9_000 })]])
   })
 
   it('leaves the row alone when the CLI cannot answer or the binding was released', async () => {

@@ -1,8 +1,15 @@
 // Where the Claude CLI's context facts land in the journal, and when a fresh
-// `/context` breakdown is worth asking for. The facts live on turn rows; this
-// holds only what tells a late answer it is stale and whose window a result reports.
+// `/context` breakdown is worth asking for. The facts live on turn rows and are
+// written to the open turn, else the newest turn the journal holds; this keeps
+// only what tells a late answer it is stale and whose window a result reports.
 
-import type { AgentSessionContextUsage } from '../../shared/agent-session-context-usage'
+import {
+  contextTokensFromUsage,
+  MAX_CONTEXT_MODEL_ID_CHARS,
+  type AgentSessionContextReport,
+  type AgentSessionContextUsage
+} from '../../shared/agent-session-context-usage'
+import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
   claudeContextResetKind,
   claudeContextWindowFromResult,
@@ -13,8 +20,12 @@ import type { ClaudeOpenTurn } from './claude-open-turn'
 import { claudeRecord, claudeText } from './claude-structured-item-translation'
 import type { ClaudeTurnEnd } from './claude-turn-lifecycle-item'
 import { isRootClaudeFrame } from './claude-turn-opening'
+import { writeClaudeTurnRow, type ClaudeTurnRowTarget } from './claude-turn-row-revision'
 
 const CONVERSATION_FRAME_TYPES = new Set(['assistant', 'user', 'stream_event'])
+
+/** The turn a requested report describes; null when no turn was open to name. */
+export type ClaudeContextReportTarget = string | null
 
 export class ClaudeContextFacts {
   private activity = 0
@@ -22,9 +33,12 @@ export class ClaudeContextFacts {
   private mainModel: ClaudeMainThreadModel = { initModel: null, responseModel: null }
   /** The last response fact written, so a response's per-block frames revise its row once. */
   private lastResponse: string | null = null
-  private readonly requestListeners = new Set<(turnId: string) => void>()
+  private readonly requestListeners = new Set<(target: ClaudeContextReportTarget) => void>()
 
-  constructor(private readonly turn: ClaudeOpenTurn) {}
+  constructor(
+    private readonly turn: ClaudeOpenTurn,
+    private readonly sink: StructuredAgentSessionEventSink
+  ) {}
 
   /** Bumped whenever the main conversation moves; a subagent's frames leave the
    *  session's own context as it was. */
@@ -53,11 +67,12 @@ export class ClaudeContextFacts {
     if (!reset) {
       return
     }
-    // The pre-reset size must not outlive the reset; the next response or report restates it.
+    // A report asked for before the reset describes the context it replaced.
+    this.markActivity()
     this.lastResponse = null
-    this.annotateLatest({ resetAt: observedAt })
+    this.write({ used: { kind: 'unknown', capturedAt: observedAt } })
     if (reset === 'compaction') {
-      this.requestReport()
+      this.requestReport(this.turn.id)
     }
   }
 
@@ -71,42 +86,54 @@ export class ClaudeContextFacts {
     const response = claudeRecord(message.message)
     // Synthetic rows carry no usage and a placeholder model; neither says anything about the window.
     const usage = claudeTokenUsage(response?.usage)
-    if (!usage) {
+    if (!usage || contextTokensFromUsage(usage) === 0) {
       return
     }
-    const model = claudeText(response?.model)
+    const named = claudeText(response?.model)
+    const model = named && named.length <= MAX_CONTEXT_MODEL_ID_CHARS ? named : null
     if (model) {
       this.mainModel = { ...this.mainModel, responseModel: model }
     }
-    const turnId = this.turn.latestId
-    const key = JSON.stringify([turnId, usage, model])
-    if (turnId === null || key === this.lastResponse) {
+    const key = JSON.stringify([this.turn.id, usage, model])
+    if (key === this.lastResponse) {
       return
     }
     this.lastResponse = key
-    this.turn.annotate(turnId, {
-      response: { usage, ...(model ? { model } : {}), capturedAt: observedAt }
+    this.write({
+      used: { kind: 'estimate', usage, ...(model ? { model } : {}), capturedAt: observedAt }
     })
   }
 
   /** End the turn a root result settles, with the window its per-model usage
    *  reports, then ask for the breakdown. */
   settle(message: Record<string, unknown>, end: ClaudeTurnEnd): void {
-    const tokens = claudeContextWindowFromResult(message, this.mainModel)
-    const facts = tokens === null ? undefined : { window: { tokens, capturedAt: end.completedAt } }
-    const wasOpen = this.turn.isOpen
-    this.turn.settle(end, facts)
-    if (!wasOpen && facts) {
-      this.annotateLatest(facts)
+    const window = claudeContextWindowFromResult(message, this.mainModel)
+    const facts = window ? { window: { ...window, capturedAt: end.completedAt } } : undefined
+    const settled = this.turn.id
+    if (settled === null) {
+      this.turn.settle(end)
+      if (facts) {
+        this.write(facts)
+      }
+    } else {
+      this.turn.settle(end, facts)
     }
-    this.requestReport()
+    this.requestReport(settled)
   }
 
-  annotate(turnId: string, contextUsage: AgentSessionContextUsage): boolean {
-    return this.turn.annotate(turnId, contextUsage)
+  /** Record a requested report on the turn it was asked for; its window serves later estimates. */
+  recordReport(target: ClaudeContextReportTarget, report: AgentSessionContextReport): void {
+    const window = {
+      tokens: report.windowTokens,
+      model: report.model,
+      capturedAt: report.capturedAt
+    }
+    writeClaudeTurnRow(this.sink, target === null ? { newest: true } : { turnId: target }, {
+      contextUsage: { used: { kind: 'report', ...report }, window }
+    })
   }
 
-  subscribeReportRequests(listener: (turnId: string) => void): () => void {
+  subscribeReportRequests(listener: (target: ClaudeContextReportTarget) => void): () => void {
     this.requestListeners.add(listener)
     return () => this.requestListeners.delete(listener)
   }
@@ -115,20 +142,16 @@ export class ClaudeContextFacts {
     this.requestListeners.clear()
   }
 
-  private annotateLatest(contextUsage: AgentSessionContextUsage): void {
-    const turnId = this.turn.latestId
-    if (turnId !== null) {
-      this.turn.annotate(turnId, contextUsage)
-    }
+  /** The open turn's row, else the newest turn the journal holds when the write runs. */
+  private write(contextUsage: AgentSessionContextUsage): void {
+    const identity = this.turn.identity
+    const target: ClaudeTurnRowTarget = identity ? { identity } : { newest: true }
+    writeClaudeTurnRow(this.sink, target, { contextUsage })
   }
 
-  private requestReport(): void {
-    const turnId = this.turn.latestId
-    if (turnId === null) {
-      return
-    }
+  private requestReport(target: ClaudeContextReportTarget): void {
     for (const listener of this.requestListeners) {
-      listener(turnId)
+      listener(target)
     }
   }
 }

@@ -45,6 +45,17 @@ export type StructuredAgentSessionIdentityResolver = (
   journal: StructuredAgentSessionLifecycleJournal
 ) => AgentJournalItemIdentity | null
 
+/** The row a revision rewrites and its whole new body, read from the journal at execution. */
+export type StructuredAgentSessionRevisionResolver = (
+  journal: StructuredAgentSessionLifecycleJournal
+) => { identity: AgentJournalItemIdentity; body: AgentJournalItemBody } | null
+
+/** A revision's body is derived from the row it revises, so coalescing one away would lose it. */
+export type StructuredAgentSessionRevisionOptions = Omit<
+  StructuredAgentSessionAppendOptions,
+  'coalescingKey'
+>
+
 /** Compatibility alias for lifecycle callers that already use this resolver. */
 export type StructuredAgentSessionLifecycleIdentityResolver = StructuredAgentSessionIdentityResolver
 
@@ -82,6 +93,12 @@ export type StructuredAgentSessionEventSink = {
     body: AgentJournalItemBody,
     resolveIdentity: StructuredAgentSessionIdentityResolver,
     options?: StructuredAgentSessionAppendOptions
+  ): StructuredAgentSessionSinkAdmission
+  /** Queues a read-modify-write of one row; `reservedBytes` must bound the resolved write. */
+  tryReviseResolvedItem?(
+    reservedBytes: number,
+    resolve: StructuredAgentSessionRevisionResolver,
+    options?: StructuredAgentSessionRevisionOptions
   ): StructuredAgentSessionSinkAdmission
   /** Queues one journal-derived lifecycle append; a null resolution is a no-op. */
   tryAppendLifecycleTransition?(

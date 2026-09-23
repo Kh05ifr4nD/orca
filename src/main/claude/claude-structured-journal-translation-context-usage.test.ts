@@ -7,30 +7,51 @@ import type {
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { isAdmissibleAgentJournalItemBody } from '../../shared/agent-session-journal-schemas'
 import { selectStructuredAgentContextUsage } from '../../shared/structured-agent-session-context-usage'
-import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import type {
+  StructuredAgentSessionEventSink,
+  StructuredAgentSessionLifecycleJournal
+} from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { claudeContextReportFromControl } from './claude-context-usage'
 import { createClaudeJournalTranslator } from './claude-structured-journal-translation'
 import { claudeTurnLifecycleIdentity } from './claude-turn-lifecycle-item'
+import { ClaudeOpenTurn } from './claude-open-turn'
 import { dispatchClaudeTurn } from './claude-structured-dispatch'
 import { childExited, sessionFor, userMessage } from './claude-structured-dispatch-test-support'
 
-/** A journal in miniature: the latest revision per row, its creation clock pinned. */
+/** A journal in miniature: the latest revision per row, its creation clock
+ *  pinned, and revisions resolved against it as a bound sink would. */
 function journal() {
   const clock = { now: 0 }
   const appends: { identity: AgentJournalItemIdentity; body: AgentJournalItemBody }[] = []
   const rows = new Map<string, AgentJournalRenderItem>()
+  const appendItem: StructuredAgentSessionEventSink['appendItem'] = (identity, body, options) => {
+    appends.push({ identity, body })
+    const itemId = agentJournalItemKey(identity)
+    const existing = rows.get(itemId)
+    rows.set(itemId, {
+      itemId,
+      revision: (existing?.revision ?? 0) + 1,
+      sequence: existing?.sequence ?? rows.size + 1,
+      observedAt: existing?.observedAt ?? options?.observedAt ?? clock.now,
+      body
+    })
+  }
+  const bound: StructuredAgentSessionLifecycleJournal = {
+    epoch: 'test',
+    visitItems: (visit) => {
+      for (const row of rows.values()) {
+        visit(row.itemId, row.sequence, row.body)
+      }
+    }
+  }
   const sink: StructuredAgentSessionEventSink = {
-    appendItem: (identity, body, options) => {
-      appends.push({ identity, body })
-      const itemId = agentJournalItemKey(identity)
-      const existing = rows.get(itemId)
-      rows.set(itemId, {
-        itemId,
-        revision: (existing?.revision ?? 0) + 1,
-        sequence: existing?.sequence ?? rows.size + 1,
-        observedAt: existing?.observedAt ?? options?.observedAt ?? clock.now,
-        body
-      })
+    appendItem,
+    tryReviseResolvedItem: (_reservedBytes, resolve, options) => {
+      const resolved = resolve(bound)
+      if (resolved) {
+        appendItem(resolved.identity, resolved.body, options)
+      }
+      return { accepted: true }
     },
     appendTombstone: () => {},
     publish: vi.fn()
@@ -123,8 +144,8 @@ const MODEL_USAGE = {
 function setup() {
   const state = journal()
   const translator = createClaudeJournalTranslator({ sink: state.sink, coalesceMs: 0 })
-  const requests: string[] = []
-  translator.subscribeContextUsageRequests((turnId) => requests.push(turnId))
+  const requests: (string | null)[] = []
+  translator.subscribeContextUsageRequests((target) => requests.push(target))
   const handle = (event: Parameters<typeof translator.handle>[0]): void => {
     state.clock.now = event.type === 'message' ? (event.observedAt ?? 0) : 0
     translator.handle(event)
@@ -140,7 +161,8 @@ describe('context usage on journal rows', () => {
     expect(t.turnRow('turn-a')?.body).toMatchObject({
       state: 'running',
       contextUsage: {
-        response: {
+        used: {
+          kind: 'estimate',
           usage: { inputTokens: 18_600, outputTokens: 4 },
           model: 'claude-fable-5-1',
           capturedAt: 2_000
@@ -155,7 +177,10 @@ describe('context usage on journal rows', () => {
     expect(turnRevisions).toHaveLength(1)
     expect(turnRevisions[0]?.body).toMatchObject({
       state: 'completed',
-      contextUsage: { window: { tokens: 1_000_000, capturedAt: 3_000 } }
+      contextUsage: {
+        window: { tokens: 1_000_000, model: 'claude-fable-5-1[1m]', capturedAt: 3_000 },
+        used: { kind: 'estimate' }
+      }
     })
     expect(t.requests).toEqual(['turn-a'])
     expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
@@ -289,16 +314,17 @@ describe('context usage on journal rows', () => {
     expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({ usedTokens: 150_000 })
     t.handle(compactBoundary(4_000))
     expect(t.turnRow('turn-a')?.body).toMatchObject({
-      contextUsage: { window: { tokens: 1_000_000 }, resetAt: 4_000 }
+      contextUsage: { window: { tokens: 1_000_000 }, used: { kind: 'unknown', capturedAt: 4_000 } }
     })
-    expect(t.requests).toEqual(['turn-a', 'turn-a'])
+    // No turn is open, so the report lands on the newest turn when it arrives.
+    expect(t.requests).toEqual(['turn-a', null])
     expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
     // Mid-turn compaction lands on the open turn, and its next response restates the size.
     t.handle(userFrame('turn-b', 5_000))
     t.handle(compactBoundary(6_000))
     expect(t.turnRow('turn-b')?.body).toMatchObject({
       state: 'running',
-      contextUsage: { resetAt: 6_000 }
+      contextUsage: { used: { kind: 'unknown', capturedAt: 6_000 } }
     })
     t.handle(assistantFrame('reply-b', 7_000, 12_000))
     expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
@@ -314,7 +340,9 @@ describe('context usage on journal rows', () => {
     t.handle(assistantFrame('reply-a', 2_000, 150_000))
     t.handle(resultFrame(3_000, MODEL_USAGE))
     t.handle(frame({ type: 'conversation_reset', new_conversation_id: 'next', uuid: 'r' }, 4_000))
-    expect(t.turnRow('turn-a')?.body).toMatchObject({ contextUsage: { resetAt: 4_000 } })
+    expect(t.turnRow('turn-a')?.body).toMatchObject({
+      contextUsage: { used: { kind: 'unknown', capturedAt: 4_000 } }
+    })
     expect(t.requests).toEqual(['turn-a'])
     expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
     t.translator.dispose()
@@ -378,8 +406,10 @@ describe('context usage on journal rows', () => {
       3_500
     )
     expect(report).not.toBeNull()
-    expect(t.translator.annotateTurnContextUsage('turn-a', { report: report! })).toBe(true)
-    expect(t.translator.annotateTurnContextUsage('never-a-turn', { report: report! })).toBe(false)
+    t.translator.recordContextReport('turn-a', report!)
+    const before = t.appends.length
+    t.translator.recordContextReport('never-a-turn', report!)
+    expect(t.appends).toHaveLength(before)
     t.handle(compactBoundary(4_000))
     for (const entry of t.appends) {
       expect(isAdmissibleAgentJournalItemBody(entry.body)).toBe(true)
@@ -387,7 +417,7 @@ describe('context usage on journal rows', () => {
     const replayed: AgentJournalRenderItem[] = JSON.parse(JSON.stringify(t.items()))
     expect(selectStructuredAgentContextUsage(replayed)).toBeNull()
     const reportAfterCompaction = { ...report!, usedTokens: 40_000, capturedAt: 4_500 }
-    t.translator.annotateTurnContextUsage('turn-a', { report: reportAfterCompaction })
+    t.translator.recordContextReport(null, reportAfterCompaction)
     const restarted: AgentJournalRenderItem[] = JSON.parse(JSON.stringify(t.items()))
     expect(restarted.every((row) => isAdmissibleAgentJournalItemBody(row.body))).toBe(true)
     expect(selectStructuredAgentContextUsage(restarted)).toMatchObject({
@@ -396,5 +426,41 @@ describe('context usage on journal rows', () => {
       estimated: false
     })
     t.translator.dispose()
+  })
+
+  it('hides the ring after a model switch until the window of the new model is known', () => {
+    const t = setup()
+    t.handle(initFrame('claude-fable-5-1[1m]', 900))
+    t.handle(userFrame('turn-a', 1_000))
+    t.handle(assistantFrame('reply-a', 2_000, 18_600))
+    t.handle(resultFrame(3_000, { 'claude-fable-5-1[1m]': { contextWindow: 1_000_000 } }))
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({ windowTokens: 1_000_000 })
+    t.handle(initFrame('claude-sonnet-5', 3_900))
+    t.handle(userFrame('turn-b', 4_000))
+    t.handle(assistantFrame('reply-b', 5_000, 150_000, undefined, 'claude-sonnet-5'))
+    // 150k of a 1M window would read 15% of a model whose window is 200k.
+    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
+    t.handle(
+      resultFrame(6_000, {
+        'claude-fable-5-1[1m]': { contextWindow: 1_000_000 },
+        'claude-sonnet-5': { contextWindow: 200_000 }
+      })
+    )
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
+      usedTokens: 150_000,
+      windowTokens: 200_000,
+      percentage: 75
+    })
+    t.translator.dispose()
+  })
+
+  it('counts a turn opening as activity, whatever frame opened it', () => {
+    const onOpen = vi.fn()
+    const turn = new ClaudeOpenTurn({ sink: journal().sink, settleChildren: () => {}, onOpen })
+    turn.open(
+      { sessionId: 'claude-session', turnId: 'turn-a', startedAt: 1_000, userItemId: 'turn-a' },
+      1_000
+    )
+    expect(onOpen).toHaveBeenCalledOnce()
   })
 })

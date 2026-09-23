@@ -203,7 +203,7 @@ describe('answerClaudePrompt', () => {
       contextActivity: 0,
       markContextActivity: vi.fn(),
       subscribeContextUsageRequests: () => () => {},
-      annotateTurnContextUsage: () => false,
+      recordContextReport: () => {},
       pendingStreamedBlocks: 0,
       dispose: vi.fn()
     }

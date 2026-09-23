@@ -1,5 +1,5 @@
 import type { AgentSessionDeltaCoalescerDeps } from '../native-chat/agent-session-wire/agent-session-delta-coalescer'
-import type { AgentSessionContextUsage } from '../../shared/agent-session-context-usage'
+import type { AgentSessionContextReport } from '../../shared/agent-session-context-usage'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
@@ -32,7 +32,7 @@ import {
 } from './claude-turn-opening'
 import { claudeTurnEndForResult } from './claude-turn-lifecycle-item'
 import { ClaudeOpenTurn } from './claude-open-turn'
-import { ClaudeContextFacts } from './claude-context-facts'
+import { ClaudeContextFacts, type ClaudeContextReportTarget } from './claude-context-facts'
 import { claudeSessionStateEndsTurn } from './claude-session-state-turn-over'
 import { ClaudeJournalPrompts } from './claude-structured-journal-prompts'
 import { journalClaudeMessage, type ClaudeMessageJournalContext } from './claude-message-journaling'
@@ -61,9 +61,14 @@ export type ClaudeJournalTranslator = {
   readonly contextActivity: number
   markContextActivity: () => void
   /** Fires with the turn a fresh `/context` breakdown should be recorded on. */
-  subscribeContextUsageRequests: (listener: (turnId: string) => void) => () => void
-  /** Revise a turn's row with context facts. False when the turn is unknown or too old. */
-  annotateTurnContextUsage: (turnId: string, contextUsage: AgentSessionContextUsage) => boolean
+  subscribeContextUsageRequests: (
+    listener: (target: ClaudeContextReportTarget) => void
+  ) => () => void
+  /** Record a requested breakdown on the turn its request named. */
+  recordContextReport: (
+    target: ClaudeContextReportTarget,
+    report: AgentSessionContextReport
+  ) => void
   dispose: () => void
 }
 
@@ -92,9 +97,10 @@ export function createClaudeJournalTranslator(
   const streamedBlocks = createClaudeStreamedBlockRegistry()
   const turn = new ClaudeOpenTurn({
     sink: deps.sink,
-    settleChildren: (groupKey) => subagents.settleTurn(groupKey)
+    settleChildren: (groupKey) => subagents.settleTurn(groupKey),
+    onOpen: () => context.markActivity()
   })
-  const context = new ClaudeContextFacts(turn)
+  const context = new ClaudeContextFacts(turn, deps.sink)
   const providerFallback = createClaudeProviderFrameFallback(
     deps.sink,
     deps.fallbackIdPrefix ?? 'acquisition'
@@ -312,7 +318,7 @@ export function createClaudeJournalTranslator(
     },
     markContextActivity: () => context.markActivity(),
     subscribeContextUsageRequests: (listener) => context.subscribeReportRequests(listener),
-    annotateTurnContextUsage: (turnId, contextUsage) => context.annotate(turnId, contextUsage),
+    recordContextReport: (target, report) => context.recordReport(target, report),
     dispose: () => {
       streamedText.flush()
       context.dispose()

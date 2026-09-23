@@ -1,16 +1,19 @@
 // What the Claude CLI says about its context window, in the journal's shape,
 // and the `get_context_usage` request that asks for the breakdown.
 
-import type {
-  AgentSessionContextReport,
-  AgentSessionContextUsageCategory,
-  AgentSessionTokenUsage
+import {
+  contextBaseModelId,
+  MAX_CONTEXT_CATEGORIES,
+  MAX_CONTEXT_CATEGORY_NAME_CHARS,
+  MAX_CONTEXT_MODEL_ID_CHARS,
+  type AgentSessionContextReport,
+  type AgentSessionContextUsageCategory,
+  type AgentSessionContextWindow,
+  type AgentSessionTokenUsage
 } from '../../shared/agent-session-context-usage'
 import type { ClaudeStreamJsonConnection } from './claude-stream-json-connection'
 import type { ClaudeJournalTranslator } from './claude-structured-journal-translation'
 
-const MAX_CATEGORIES = 64
-const MAX_CATEGORY_NAME_LENGTH = 80
 /** A report later than this describes a context the user has likely moved past. */
 export const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 5_000
 
@@ -46,43 +49,42 @@ export function claudeTokenUsage(value: unknown): AgentSessionTokenUsage | null 
   return total > 0 ? usage : null
 }
 
-/** `claude-opus-5[1m]` and `Claude-Opus-5` name the same model; the suffix picks a window, not a model. */
-function baseModelId(model: string): string {
-  return model
-    .replace(/\[[^\]]*\]$/u, '')
-    .trim()
-    .toLowerCase()
+function modelId(value: unknown): string | null {
+  const model = typeof value === 'string' ? value.trim() : ''
+  return model.length > 0 && model.length <= MAX_CONTEXT_MODEL_ID_CHARS ? model : null
 }
 
 /** What names the main loop's model: the turn's `system/init`, keyed exactly as
  *  `modelUsage` is, and the newest main-thread response, which drops `[1m]`. */
 export type ClaudeMainThreadModel = { initModel: string | null; responseModel: string | null }
 
-/** The main thread's window from a result's per-model usage, which also counts
- *  subagents, side calls and models the session used before a switch. */
+/** The main thread's window, and the model it was measured for, from a
+ *  result's per-model usage, which also counts subagents, side calls and models
+ *  the session used before a switch. */
 export function claudeContextWindowFromResult(
   message: Record<string, unknown>,
   main: ClaudeMainThreadModel = { initModel: null, responseModel: null }
-): number | null {
+): Omit<AgentSessionContextWindow, 'capturedAt'> | null {
   if (!isRecord(message.modelUsage)) {
     return null
   }
   const entries = Object.entries(message.modelUsage).flatMap(([key, usage]) => {
     const window = isRecord(usage) ? positiveCount(usage.contextWindow) : 0
-    if (!isRecord(usage) || window === 0) {
+    if (!isRecord(usage) || window === 0 || modelId(key) !== key) {
       return []
     }
-    const canonical = typeof usage.canonicalModel === 'string' ? [usage.canonicalModel] : []
-    return [{ key, window, bases: [key, ...canonical].map(baseModelId) }]
+    const canonicalModel = modelId(usage.canonicalModel)
+    const bases = [key, ...(canonicalModel ? [canonicalModel] : [])].map(contextBaseModelId)
+    return [{ key, window, canonicalModel, bases }]
   })
   const { initModel, responseModel } = main
   // An init older than the newest response names a model the session has left.
   const initIsCurrent =
     initModel !== null &&
-    (responseModel === null || baseModelId(initModel) === baseModelId(responseModel))
+    (responseModel === null || contextBaseModelId(initModel) === contextBaseModelId(responseModel))
   const exact = initIsCurrent ? entries.filter((entry) => entry.key === initModel) : []
   const names = [responseModel ?? (initIsCurrent ? initModel : null)].flatMap((model) =>
-    model ? [baseModelId(model)] : []
+    model ? [contextBaseModelId(model)] : []
   )
   const named =
     exact.length > 0
@@ -90,8 +92,18 @@ export function claudeContextWindowFromResult(
       : entries.filter((entry) => entry.bases.some((base) => names.includes(base)))
   // Nothing names the main thread's model: the largest window is usually the main loop's.
   const pool = named.length > 0 ? named : entries
-  const largest = Math.max(0, ...pool.map((entry) => entry.window))
-  return largest > 0 ? largest : null
+  const largest = pool.reduce<(typeof pool)[number] | null>(
+    (best, entry) => (best === null || entry.window > best.window ? entry : best),
+    null
+  )
+  if (!largest) {
+    return null
+  }
+  return {
+    tokens: largest.window,
+    model: largest.key,
+    ...(largest.canonicalModel ? { canonicalModel: largest.canonicalModel } : {})
+  }
 }
 
 /** A frame after which the CLI's context no longer holds what it held: a
@@ -107,7 +119,7 @@ export function claudeContextResetKind(
 
 function categoryName(value: unknown): string | null {
   const name = typeof value === 'string' ? value.replace(/\s+/gu, ' ').trim() : ''
-  return name.length > 0 && name.length <= MAX_CATEGORY_NAME_LENGTH ? name : null
+  return name.length > 0 && name.length <= MAX_CONTEXT_CATEGORY_NAME_CHARS ? name : null
 }
 
 /** The `get_context_usage` answer; null when it is unusable. */
@@ -118,7 +130,7 @@ export function claudeContextReportFromControl(
   if (!isRecord(value)) {
     return null
   }
-  const model = typeof value.model === 'string' ? value.model.trim() : ''
+  const model = modelId(value.model)
   const usedTokens = count(value.totalTokens)
   const windowTokens = count(value.rawMaxTokens) || count(value.maxTokens)
   if (!model || usedTokens === null || !windowTokens) {
@@ -126,7 +138,7 @@ export function claudeContextReportFromControl(
   }
   const categories: AgentSessionContextUsageCategory[] = []
   const rows = Array.isArray(value.categories) ? value.categories.filter(isRecord) : []
-  for (const entry of rows.slice(0, MAX_CATEGORIES)) {
+  for (const entry of rows.slice(0, MAX_CONTEXT_CATEGORIES)) {
     const name = categoryName(entry.name)
     const tokens = count(entry.tokens)
     if (name && tokens !== null) {
@@ -155,12 +167,12 @@ export type ClaudeContextUsageReader = Pick<ClaudeStreamJsonConnection, 'getCont
 
 export type ClaudeContextUsageTarget = Pick<
   ClaudeJournalTranslator,
-  'subscribeContextUsageRequests' | 'annotateTurnContextUsage' | 'contextActivity'
+  'subscribeContextUsageRequests' | 'recordContextReport' | 'contextActivity'
 >
 
 /**
  * Ask the CLI for its breakdown whenever the translator says one is due, and
- * record the answer on the turn the request named. An answer is dropped when
+ * record the answer on the turn the request named, or the newest when none was open. An answer is dropped when
  * conversation activity or a newer request followed the ask, since it may no
  * longer describe the context; a failure (an older CLI, a closed child, a
  * timeout) leaves the row as it was.
@@ -175,7 +187,7 @@ export function bindClaudeContextUsageCapture(
   }
   let bound = true
   let requests = 0
-  const unsubscribe = translator.subscribeContextUsageRequests((turnId) => {
+  const unsubscribe = translator.subscribeContextUsageRequests((target) => {
     const request = ++requests
     const activity = translator.contextActivity
     void connection
@@ -187,7 +199,7 @@ export function bindClaudeContextUsageCapture(
           }
           const report = claudeContextReportFromControl(answer, options.now?.() ?? Date.now())
           if (report) {
-            translator.annotateTurnContextUsage(turnId, { report })
+            translator.recordContextReport(target, report)
           }
         },
         () => {}
