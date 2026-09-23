@@ -2,6 +2,12 @@ import type { LegacyAdoptedMailboxOwner, OrchestrationDb } from '../../../../orc
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import type { DispatchContextRow, DispatchStatus } from '../../../../orchestration/types'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
+import { readAgentSessionRecordStore } from '../../../../orchestration/structured-session-mail-target'
+import {
+  readSessionRecipient,
+  refuseUndeliverableSessionRecipient,
+  type SessionRecipientRefusal
+} from './session-recipient'
 
 const ACTIVE_DISPATCH_STATUSES: readonly DispatchStatus[] = ['pending', 'dispatched']
 
@@ -42,7 +48,11 @@ export type BareRecipientResolution =
     }
   | {
       ok: false
-      code: 'terminal_not_found' | 'recipient_ambiguous' | 'recipient_run_mismatch'
+      code:
+        | 'terminal_not_found'
+        | 'recipient_ambiguous'
+        | 'recipient_run_mismatch'
+        | SessionRecipientRefusal['code']
       message: string
       warning: SendRecipientWarning
     }
@@ -55,8 +65,15 @@ export function resolveBareOrchestrationRecipient(params: {
   explicitRunId?: string
   legacyAdoptedMailboxOwner?: LegacyAdoptedMailboxOwner | null
 }): BareRecipientResolution {
-  const { runtime, db, handle } = params
-  const paneKey = runtime.getLiveTerminalPaneKey(handle) ?? undefined
+  const { runtime, db } = params
+  const sessionStore = readAgentSessionRecordStore()
+  const session = readSessionRecipient(params.handle, sessionStore)
+  if (session && 'code' in session) {
+    return refused(params.handle, session)
+  }
+  // A session is addressed by its actor, which Run and Dispatch ownership already match.
+  const handle = session?.address ?? params.handle
+  const paneKey = session ? undefined : (runtime.getLiveTerminalPaneKey(handle) ?? undefined)
   const boundRun = paneKey ? db.getCurrentRunForPane(paneKey) : undefined
   if (boundRun) {
     const mismatch = runMismatch(handle, boundRun.id, params.explicitRunId)
@@ -89,6 +106,13 @@ export function resolveBareOrchestrationRecipient(params: {
     return mismatch ?? { ok: true, to: `run:${selectedRunId}`, runId: selectedRunId }
   }
 
+  if (session) {
+    const refusal = refuseUndeliverableSessionRecipient(session, sessionStore)
+    return refusal
+      ? refused(params.handle, refusal)
+      : { ok: true, to: session.address, runId: params.senderRunId }
+  }
+
   if (paneKey) {
     return {
       ok: true,
@@ -108,6 +132,15 @@ export function resolveBareOrchestrationRecipient(params: {
     code: 'terminal_not_found',
     message,
     warning: { code: 'recipient_unreachable', recipient: handle, message }
+  }
+}
+
+function refused(recipient: string, refusal: SessionRecipientRefusal): BareRecipientResolution {
+  return {
+    ok: false,
+    code: refusal.code,
+    message: refusal.message,
+    warning: { code: 'recipient_unreachable', recipient, message: refusal.message }
   }
 }
 
