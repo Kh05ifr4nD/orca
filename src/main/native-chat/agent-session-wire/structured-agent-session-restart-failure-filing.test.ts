@@ -6,6 +6,7 @@ import {
 } from '../../../shared/agent-session-restart-continuation'
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
 import { AgentSessionJournal } from '../agent-session-journal/journal-store'
+import { latestStructuredAgentSessionUserItem } from '../../../shared/structured-agent-session-projection'
 import { StructuredAgentSessionResumeAdmission } from './structured-agent-session-restart-resume-runner'
 import {
   interruptedRestart,
@@ -182,6 +183,43 @@ it('keeps an unconfirmed failure while the newest turn is not the continuationâ€
   events.appendItem(
     { provider: 'codex', threadId: THREAD, turnId: 'provider-turn', ordinal: 1 },
     { kind: 'turn', turnId: 'provider-turn', state: 'running', userItemId: 'provider-turn-row' },
+    { lifecycle: true }
+  )
+  await host.flushStreamedEvents(SESSION)
+
+  expect(await host.restartResume.listFailures()).toMatchObject([{ outcome: 'unconfirmed' }])
+  host.release(SESSION, 'pane')
+})
+
+// Nothing journaled the continuation, so the newest user message is still the interrupted one and
+// the turn it opened is the interrupted work reporting in, not the agent carrying on.
+it('keeps an unconfirmed failure whose continuation was never journaled while the interrupted turn runs', async () => {
+  const { host, acquire, store, marker } = await interruptedRestart('submission', false)
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await host.restartResume.list()
+  await host.hold(SESSION, 'pane')
+  const events = providerEvents(acquire)
+  events.appendItem(
+    { provider: 'codex', threadId: THREAD, turnId: 'original-turn', ordinal: 1 },
+    hostTestMessage('Perform the original task')
+  )
+  await host.flushStreamedEvents(SESSION)
+  // A send that throws before recording anything cannot be proven undelivered.
+  vi.spyOn(store, 'admitMutationOperation').mockRejectedValueOnce(new Error('store unavailable'))
+  const result = await host.restartResume.continueAfterRestart([SESSION], 'modal')
+  expect(result.failed).toMatchObject([{ sessionId: SESSION, outcome: 'unconfirmed' }])
+  const submissions = host.journalSnapshot(SESSION).submissions
+  const original = submissions[0]?.providerItemId
+  if (submissions.length !== 1 || !original) {
+    throw new Error('expected only the original submission, accepted by the provider')
+  }
+  expect(latestStructuredAgentSessionUserItem(host.journalSnapshot(SESSION).items)?.itemId).toBe(
+    marker.latestUserItemId
+  )
+
+  events.appendItem(
+    { provider: 'codex', threadId: THREAD, turnId: 'original-turn', ordinal: 2 },
+    { kind: 'turn', turnId: 'original-turn', state: 'running', userItemId: original },
     { lifecycle: true }
   )
   await host.flushStreamedEvents(SESSION)
