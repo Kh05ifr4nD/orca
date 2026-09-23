@@ -141,7 +141,7 @@ describe('The main agent fact across a restart', () => {
     ['a drained row', 'done', ['SubagentStart', 'SubagentStop']]
   ] as const)(
     'settles a legacy flagged row holding %s once its child finishes',
-    async (_shape, state, childEvents) => {
+    async (_heldRow, state, childEvents) => {
       const receivedAt = recentTs()
       writeEntry({
         receivedAt,
