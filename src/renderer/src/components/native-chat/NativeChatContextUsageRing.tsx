@@ -16,6 +16,8 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
 const CRITICAL_PERCENTAGE = 90
 /** Long enough that a pointer crossing the ring toward dictation doesn't flash the card. */
 const HOVER_OPEN_DELAY_MS = 150
+/** Long enough for the pointer to cross the gap between the ring and the card. */
+const HOVER_CLOSE_DELAY_MS = 100
 
 type ContextUsageRow = NativeChatContextUsageSummary['rows'][number]
 
@@ -31,11 +33,11 @@ function keyRows(
   })
 }
 
-/** Card open state where only mouse hover waits; any explicit open or close drops a pending hover. */
+/** Card open state where only mouse hover waits, to open and to close; any explicit change drops a pending hover. */
 function useContextCardOpen(): {
   open: boolean
   setOpen: (next: boolean) => void
-  openAfterHover: () => void
+  setOpenAfterHover: (next: boolean) => void
 } {
   const [open, setOpenState] = useState(false)
   const cancelPendingHover = useRef<(() => void) | null>(null)
@@ -51,22 +53,28 @@ function useContextCardOpen(): {
     },
     [dropPendingHover]
   )
-  const openAfterHover = useCallback((): void => {
-    dropPendingHover()
-    // The card isn't mounted yet, so its own Escape handling can't cancel a pending open.
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        dropPendingHover()
+  const setOpenAfterHover = useCallback(
+    (next: boolean): void => {
+      dropPendingHover()
+      // The card isn't mounted yet, so its own Escape handling can't cancel a pending open.
+      const onKeyDown = (event: KeyboardEvent): void => {
+        if (event.key === 'Escape') {
+          dropPendingHover()
+        }
       }
-    }
-    const timer = setTimeout(() => setOpen(true), HOVER_OPEN_DELAY_MS)
-    document.addEventListener('keydown', onKeyDown, true)
-    cancelPendingHover.current = () => {
-      clearTimeout(timer)
-      document.removeEventListener('keydown', onKeyDown, true)
-    }
-  }, [dropPendingHover, setOpen])
-  return { open, setOpen, openAfterHover }
+      const timer = setTimeout(
+        () => setOpen(next),
+        next ? HOVER_OPEN_DELAY_MS : HOVER_CLOSE_DELAY_MS
+      )
+      document.addEventListener('keydown', onKeyDown, true)
+      cancelPendingHover.current = () => {
+        clearTimeout(timer)
+        document.removeEventListener('keydown', onKeyDown, true)
+      }
+    },
+    [dropPendingHover, setOpen]
+  )
+  return { open, setOpen, setOpenAfterHover }
 }
 
 /** Composer ring for context-window usage; hover, click, tap, or Enter shows the provider's breakdown. */
@@ -84,20 +92,21 @@ export function NativeChatContextUsageRing({
     'Context {{used}} of {{window}} tokens, {{percent}}% used',
     { used, window, percent: String(usage.percentage) }
   )
-  const { open, setOpen, openAfterHover } = useContextCardOpen()
+  const { open, setOpen, setOpenAfterHover } = useContextCardOpen()
   const rows = keyRows(usage.rows)
   return (
     <div
       className="flex"
       // Touch fires pointerleave before its click, so only a mouse drives hover.
+      // The portaled card is inside this element's React tree, so entering it cancels a pending close.
       onPointerEnter={(event) => {
         if (event.pointerType === 'mouse') {
-          openAfterHover()
+          setOpenAfterHover(true)
         }
       }}
       onPointerLeave={(event) => {
         if (event.pointerType === 'mouse') {
-          setOpen(false)
+          setOpenAfterHover(false)
         }
       }}
     >

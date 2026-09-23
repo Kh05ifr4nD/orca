@@ -130,10 +130,25 @@ describe('NativeChatContextUsageRing', () => {
     expect(card()?.textContent).toContain('System tools')
 
     await dispatch(hoverTarget, pointer('pointerout', 'mouse'))
+    await advance(100)
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     expect(card()).toBeNull()
     await settleFocus()
     expect(document.activeElement).toBe(composer)
+  })
+
+  it('stays open while the pointer crosses the gap from the ring into the card', async () => {
+    const trigger = await renderRing()
+    const hoverTarget = trigger.parentElement!
+    await dispatch(hoverTarget, pointer('pointerover', 'mouse'))
+    await advance(150)
+
+    await dispatch(hoverTarget, pointer('pointerout', 'mouse'))
+    await advance(50)
+    await dispatch(card()!, pointer('pointerover', 'mouse'))
+    await advance(500)
+
+    expect(card()?.textContent).toContain('Messages')
   })
 
   it('stays open when a click follows the hover that opened it', async () => {
