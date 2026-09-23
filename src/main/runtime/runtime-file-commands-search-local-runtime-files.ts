@@ -18,6 +18,7 @@ import { spawnBundledRipgrep } from '../ripgrep/bundled-ripgrep-spawn'
 import {
   absorbPendingRipgrepSpawnError,
   isRipgrepMissingCwdExit,
+  isRipgrepSpawnCwdUsable,
   isRipgrepUnavailableExit,
   isTransientRipgrepSpawnError,
   killSpawnedRipgrepProcess,
@@ -134,7 +135,22 @@ export class RuntimeFileCommandsWithSearchLocalRuntimeFiles extends RuntimeFileC
           return
         }
         if (child && isRipgrepUnavailableExit(child, null, null)) {
-          rejectUnavailable()
+          // Why the cwd check first: spawn reports a missing cwd as ENOENT too, and blaming the
+          // binary for it tells the user to reinstall Orca over a workspace that simply moved.
+          void isRipgrepSpawnCwdUsable(authorizedRootPath).then((usable) => {
+            // Why re-check: finish() drops its argument once settled, so a rejected promise
+            // built after the close handler already won would go unhandled.
+            if (resolved) {
+              return
+            }
+            finish(
+              Promise.reject(
+                usable
+                  ? bundledRipgrepUnavailableError()
+                  : ripgrepMissingCwdError(authorizedRootPath)
+              )
+            )
+          })
           return
         }
         resolveOnce()

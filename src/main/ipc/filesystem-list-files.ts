@@ -22,6 +22,7 @@ import {
   absorbPendingRipgrepSpawnError,
   isRipgrepUnavailableExit,
   isRipgrepMissingCwdExit,
+  isRipgrepSpawnCwdUsable,
   isTransientRipgrepSpawnError,
   killSpawnedRipgrepProcess,
   ripgrepMissingCwdError,
@@ -158,7 +159,13 @@ export async function listQuickOpenFiles(
           return
         }
         if (isRipgrepUnavailableExit(child, null, null)) {
-          finish(new RipgrepUnavailableError())
+          // Why the cwd check first: spawn reports a missing cwd as ENOENT too, and blaming the
+          // binary for it tells the user to reinstall Orca over a workspace that simply moved.
+          void isRipgrepSpawnCwdUsable(authorizedRootPath).then((usable) => {
+            finish(
+              usable ? new RipgrepUnavailableError() : ripgrepMissingCwdError(authorizedRootPath)
+            )
+          })
           return
         }
         finish(new Error('rg failed to start'))

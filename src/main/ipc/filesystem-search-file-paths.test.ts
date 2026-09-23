@@ -195,6 +195,9 @@ describe('searchQuickOpenFilePaths', () => {
   it('reports the bundled-ripgrep error when rg genuinely cannot start', async () => {
     const child = createMockProcess(false)
     wslAwareSpawnMock.mockReturnValue(child)
+    // Why a root that exists: an ENOENT spawn error is also what a vanished workspace looks like,
+    // so this stays about the binary only while the search root is actually reachable.
+    resolveAuthorizedPathMock.mockImplementation(async () => process.cwd())
     const promise = searchQuickOpenFilePaths('/repo', {} as Store, {
       query: 'target',
       limit: 32

@@ -11,7 +11,8 @@ export const BUNDLED_RIPGREP_RESOURCE_DIR = 'ripgrep'
 /** Package directory holding the same layout in development checkouts. */
 export const BUNDLED_RIPGREP_PACKAGE_BIN_DIR = 'node_modules/@vscode/ripgrep-universal/bin'
 
-export function bundledRipgrepBinaryName(platform: BundledRipgrepPlatform): string {
+/** Accepts any `<os>-<arch>` label, so an unbundled platform can still name where rg would live. */
+export function bundledRipgrepBinaryName(platform: string): string {
   return platform.startsWith('win32-') ? 'rg.exe' : 'rg'
 }
 

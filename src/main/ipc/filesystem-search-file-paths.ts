@@ -14,6 +14,7 @@ import {
   absorbPendingRipgrepSpawnError,
   isRipgrepUnavailableExit,
   isRipgrepMissingCwdExit,
+  isRipgrepSpawnCwdUsable,
   isTransientRipgrepSpawnError,
   killSpawnedRipgrepProcess,
   ripgrepMissingCwdError,
@@ -189,13 +190,26 @@ function scanRipgrepPaths(args: {
         finish(new RipgrepLaunchFailureError(`rg failed to start (${error.code})`))
         return
       }
-      finish(
-        isRipgrepUnavailableExit(child, null, null)
-          ? new RipgrepUnavailableError()
-          : new Error(`rg failed to start${error.code ? ` (${error.code})` : ''}`)
-      )
+      if (!isRipgrepUnavailableExit(child, null, null)) {
+        finish(new Error(`rg failed to start${error.code ? ` (${error.code})` : ''}`))
+        return
+      }
+      // Why the cwd check first: spawn reports a missing cwd as ENOENT too, and blaming the
+      // binary for it tells the user to reinstall Orca over a workspace that simply moved.
+      void isRipgrepSpawnCwdUsable(args.authorizedRootPath).then((usable) => {
+        finish(
+          usable ? new RipgrepUnavailableError() : ripgrepMissingCwdError(args.authorizedRootPath)
+        )
+      })
     }
     const handleClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+      // Why before the unavailable check: classifyNativeLauncherExit treats any code above 2 as a
+      // broken install, and this code is 97 -- so checking second makes this branch dead.
+      if (isRipgrepMissingCwdExit(code)) {
+        pathAccumulator.clear()
+        finish(ripgrepMissingCwdError(args.authorizedRootPath))
+        return
+      }
       if (
         isRipgrepUnavailableExit(child, code, signal, {
           classifyNativeLauncherExit: true
@@ -203,11 +217,6 @@ function scanRipgrepPaths(args: {
       ) {
         unavailableExitObserved = true
         finish(new RipgrepUnavailableError())
-        return
-      }
-      if (isRipgrepMissingCwdExit(code)) {
-        pathAccumulator.clear()
-        finish(ripgrepMissingCwdError(args.authorizedRootPath))
         return
       }
       if (signal) {

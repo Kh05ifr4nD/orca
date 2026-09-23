@@ -21,7 +21,8 @@ function isPackagedApp(): boolean {
   return hasAppEnvironment() && getAppEnvironment().isPackaged()
 }
 
-function candidatePaths(platform: BundledRipgrepPlatform): string[] {
+/** `platform` is a `<os>-<arch>` label; an unbundled one still names where rg would live. */
+function candidatePaths(platform: string): string[] {
   const binaryName = bundledRipgrepBinaryName(platform)
   const candidates: string[] = []
   if (process.resourcesPath) {
@@ -80,19 +81,20 @@ export function resolveBundledRipgrepPath(platform: BundledRipgrepPlatform): str
  * spawn is routed into WSL. Falls back to PATH `rg` only in unpackaged dev/test hosts.
  */
 export function bundledRipgrepCommand(options: { wsl?: boolean } = {}): string {
-  const platform = toBundledRipgrepPlatform(options.wsl ? 'linux' : process.platform, process.arch)
-  if (!platform) {
-    return PATH_RIPGREP_COMMAND
-  }
-  const resolved = resolveBundledRipgrepPath(platform)
+  const os = options.wsl ? 'linux' : process.platform
+  const platform = toBundledRipgrepPlatform(os, process.arch)
+  const resolved = platform ? resolveBundledRipgrepPath(platform) : null
   if (resolved) {
     return resolved
   }
+  if (!isPackagedApp()) {
+    return PATH_RIPGREP_COMMAND
+  }
   // Why the expected path, not bare 'rg': Windows resolves a bare name in the spawn cwd (the repo)
   // first, so a damaged packaged install must fail with ENOENT instead of running a planted rg.exe.
-  return isPackagedApp()
-    ? (candidatePaths(platform)[0] ?? PATH_RIPGREP_COMMAND)
-    : PATH_RIPGREP_COMMAND
+  // Why this covers an arch we do not bundle too: it has no candidate of its own, but naming where
+  // rg would have lived keeps a packaged app from ever handing a bare name to spawn.
+  return candidatePaths(platform ?? `${os}-${process.arch}`)[0] ?? PATH_RIPGREP_COMMAND
 }
 
 /**
