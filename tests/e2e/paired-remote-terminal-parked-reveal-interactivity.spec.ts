@@ -263,6 +263,7 @@ type ScenarioResult = {
   paneGrid: { cols: number; rows: number } | null
   ptyGrid: { cols: number; rows: number } | null
   rpcProbe: { accepted: boolean | null; hostReceivedInput: boolean; error: string | null } | null
+  postConnectProbe: { hostReceivedInput: boolean; paintedLive: boolean } | null
   inputRoute: {
     activeTabId: string | null
     activeTabType: string | null
@@ -315,6 +316,7 @@ async function probeInteractivity(
   const paneGrid = await readActivePaneGrid(page, target.webTabId)
   const diagnostics = await readPaneDiagnostics(page, worktreeId, target.webTabId)
   let rpcProbe: ScenarioResult['rpcProbe'] = null
+  let postConnectProbe: ScenarioResult['postConnectProbe'] = null
   if (!paintedLive) {
     const rpcMarker = `rpc-${token}`
     try {
@@ -340,6 +342,32 @@ async function probeInteractivity(
     } catch (error) {
       rpcProbe = { accepted: null, hostReceivedInput: false, error: String(error) }
     }
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            (id) =>
+              window.__paneManagers?.get(id)?.getActivePane?.()?.container.dataset
+                .ptyRecoveryState ?? null,
+            target.webTabId
+          ),
+        { timeout: 15_000 }
+      )
+      .toBe('connected')
+    const postConnectToken = `after-connect-${token}`
+    await focusActiveTerminalInput(page)
+    await page.keyboard.type(postConnectToken)
+    await page.keyboard.press('Enter')
+    const postConnectPaintedLive = await waitForPaneMarker(
+      page,
+      target.webTabId,
+      `LINE:${postConnectToken}`,
+      LIVE_PAINT_BUDGET_MS
+    )
+    postConnectProbe = {
+      hostReceivedInput: readSink(target.sinkPath).includes(`LINE:${postConnectToken}`),
+      paintedLive: postConnectPaintedLive
+    }
   }
   let paintedAfterFlip = paintedLive
   if (!paintedLive) {
@@ -363,6 +391,7 @@ async function probeInteractivity(
     paneGrid,
     ptyGrid: readPtyGridFromContent(sink),
     rpcProbe,
+    postConnectProbe,
     inputRoute,
     diagnostics
   }
