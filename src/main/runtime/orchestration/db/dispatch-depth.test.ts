@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  mintStructuredWorkerHandle,
+  mintStructuredWorkerPaneKey,
+  structuredWorkerProcessIncarnation
+} from '../../structured-worker-identity'
 import { OrchestrationDb } from '../db'
 import { AmbiguousDispatchParentError } from './dispatch-depth'
+import { backfillStructuredWorkerActors } from './schema/structured-worker-actor-backfill'
 
 /**
  * These pin the fence Orca documented but never enforced: before this feature a
@@ -282,5 +288,48 @@ describe('nested worker depth', () => {
     })
     expect(row.process_incarnation).toBeNull()
     expect(db.resolveCreatorDepth({ kind: 'terminal', handle: 'term_ctx' })).toBe(1)
+  })
+
+  // Pinned for the reader that switches self-dispatch detection to actor equality: equal creator
+  // and assignee actors must keep meaning bookkeeping, and different ones delegation.
+  it('records equal actors exactly when a structured session dispatches to itself', () => {
+    db = new OrchestrationDb(':memory:')
+    const sessionId = '5c7e9a1d-3f6b-4c8e-8d2a-4b6c8e0a2d36'
+    const self = {
+      kind: 'terminal',
+      handle: mintStructuredWorkerHandle(),
+      paneKey: mintStructuredWorkerPaneKey(sessionId)
+    } as const
+    const own = db.createDispatchContext({
+      taskId: db.createTask({ runId: 'run_legacy_local', spec: 'own bookkeeping' }).id,
+      assigneeHandle: self.handle,
+      assigneePaneKey: self.paneKey,
+      processIncarnation: structuredWorkerProcessIncarnation(sessionId),
+      creator: self,
+      maxDepth: UNCAPPED
+    })
+    const delegated = db.createDispatchContext({
+      taskId: db.createTask({ runId: 'run_legacy_local', spec: 'delegated' }).id,
+      assigneeHandle: 'term_delegate',
+      assigneePaneKey: 'tab_delegate:22222222-2222-4222-8222-222222222222',
+      creator: self,
+      maxDepth: UNCAPPED
+    })
+    backfillStructuredWorkerActors(db.db)
+
+    const ownRow = db.getDispatchContextById(own.id)
+    expect(ownRow?.creator_actor).toBe(`session:${sessionId}`)
+    expect(ownRow?.assignee_actor).toBe(ownRow?.creator_actor)
+    expect(db.resolveCreatorDepth(self)).toBe(0)
+    const delegatedRow = db.getDispatchContextById(delegated.id)
+    expect(delegatedRow?.creator_actor).toBe(`session:${sessionId}`)
+    expect(delegatedRow?.assignee_actor).toBeNull()
+    expect(
+      db.resolveCreatorDepth({
+        kind: 'terminal',
+        handle: 'term_delegate',
+        paneKey: 'tab_delegate:22222222-2222-4222-8222-222222222222'
+      })
+    ).toBe(1)
   })
 })
