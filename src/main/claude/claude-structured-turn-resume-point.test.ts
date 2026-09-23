@@ -60,17 +60,13 @@ async function liveOwner(
   const adapter = new ClaudeStructuredSessionAdapter({
     resolveLaunch: async () => ({
       pathToClaudeCodeExecutable: 'claude',
-      options: { resume: PROVIDER_SESSION_ID, resumeSessionAt: 'resumed-at' },
+      options: { resume: PROVIDER_SESSION_ID },
       cwd: '/work/repo',
       claudeConfigDir: '/accounts/claude',
       providerSessionId: PROVIDER_SESSION_ID,
       resumeLeafUuid: 'resumed-at',
       resumed: true
     }),
-    // The transcript cannot vouch for a point here, so only the durable record carries one.
-    readTranscriptLeaf: async () => {
-      throw new Error('transcript unreadable')
-    },
     onEvent: (event) => events.push(event),
     openConnection: claude.openConnection,
     readProcessStartTime: async () => 1_700_000_000_000,
@@ -130,7 +126,7 @@ describe('Claude durable resume point at turn end', () => {
     }
   })
 
-  it('resumes from the last completed turn after a crash that ran no close or exit', async () => {
+  it('keeps the last completed turn after a crash that ran no close or exit', async () => {
     const { store, frame, turn } = await liveOwner()
     await turn('u1', 'a1')
     await turn('u2', 'a2')
@@ -153,7 +149,9 @@ describe('Claude durable resume point at turn end', () => {
         providerHandle: { kind: 'claude', sessionId: PROVIDER_SESSION_ID, leafUuid: 'a2' }
       }
     })
-    expect(launch.options).toMatchObject({ resume: PROVIDER_SESSION_ID, resumeSessionAt: 'a2' })
+    // Bookkeeping only: Claude continues from the end of its own conversation.
+    expect(launch).toMatchObject({ resumeLeafUuid: 'a2', options: { resume: PROVIDER_SESSION_ID } })
+    expect(launch.options).not.toHaveProperty('resumeSessionAt')
   })
 
   it('lands the close cursor after, never under, an in-flight turn-end write', async () => {
@@ -222,8 +220,8 @@ describe('Claude durable resume point at turn end', () => {
     frame({ type: 'result', subtype: 'success', uuid: 'a2-result' })
     await adapter.drainObservedExits()
     await tick()
-    // Only the exit path writes now; a late turn-end write could land behind it.
+    // A result with no owner behind it is not a completed turn; the exit keeps the last one.
     expect(persist).toHaveBeenCalledTimes(1)
-    expect(persistedHandles).toEqual([expect.objectContaining({ leafUuid: 'a2' })])
+    expect(persistedHandles).toEqual([expect.objectContaining({ leafUuid: 'a1' })])
   })
 })

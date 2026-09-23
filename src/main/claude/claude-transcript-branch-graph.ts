@@ -17,8 +17,6 @@ type TranscriptNode = {
   lineIndex: number
   /** UUIDs from result/init/stream frames and sidechains are never leaves. */
   disallowedLeaf: boolean
-  /** A main-chain user or assistant message: the only rows `--resume-session-at` accepts. */
-  message: boolean
 }
 
 export type ClaudeTranscriptBranchProof = {
@@ -97,26 +95,9 @@ type BranchProofInput = {
 
 function createBranchProof(input: BranchProofInput) {
   const nodes = new Map<string, TranscriptNode>()
-  let markerUuid: string | null = null
+  let leafUuid: string | null = null
   let leafMarkerLineIndex = -1
   return { add, finish, ancestryChain }
-
-  /** The latest message at or above `uuid`. Claude's marker names the chain tip, which is often a
-   *  hook summary or attachment row that `--resume-session-at` rejects. */
-  function messageAtOrAbove(uuid: string): string | null {
-    let cursor: string | null = uuid
-    for (let depth = 0; cursor !== null && depth < MAX_CLAUDE_TRANSCRIPT_ANCESTRY; depth += 1) {
-      const node = nodes.get(cursor)
-      if (!node || node.disallowedLeaf) {
-        return null
-      }
-      if (node.message) {
-        return cursor
-      }
-      cursor = node.parentUuid
-    }
-    return null
-  }
 
   function add(line: string, index: number, terminated: boolean): void {
     if (!line.trim()) {
@@ -142,7 +123,7 @@ function createBranchProof(input: BranchProofInput) {
       if (markerSessionId !== input.providerSessionId || !markerLeaf) {
         throw transcriptError('invalid last-prompt marker')
       }
-      markerUuid = markerLeaf
+      leafUuid = markerLeaf
       leafMarkerLineIndex = index
     }
     const uuid = nonEmptyString(row.uuid)
@@ -161,7 +142,6 @@ function createBranchProof(input: BranchProofInput) {
       row.type === 'result' ||
       row.type === 'stream_event' ||
       (row.type === 'system' && row.subtype === 'init')
-    const message = !disallowedLeaf && (row.type === 'user' || row.type === 'assistant')
     if (
       existing &&
       (existing.parentUuid !== parentUuid ||
@@ -174,39 +154,29 @@ function createBranchProof(input: BranchProofInput) {
       parentUuid,
       sessionId,
       lineIndex: existing?.lineIndex ?? index,
-      disallowedLeaf,
-      message
+      disallowedLeaf
     })
   }
 
   function finish(): ClaudeTranscriptBranchProof {
-    if (!markerUuid) {
+    if (!leafUuid) {
       throw new ClaudeTranscriptMarkerMissingError()
     }
-    const marker = nodes.get(markerUuid)
-    if (!marker || marker.sessionId !== input.providerSessionId || marker.disallowedLeaf) {
+    const leaf = nodes.get(leafUuid)
+    if (!leaf || leaf.sessionId !== input.providerSessionId || leaf.disallowedLeaf) {
       throw transcriptError('marker leaf is missing from the session graph')
     }
-    if (marker.lineIndex > leafMarkerLineIndex) {
+    if (leaf.lineIndex > leafMarkerLineIndex) {
       throw transcriptError('marker precedes its leaf record')
     }
-    const leafUuid = messageAtOrAbove(markerUuid)
-    if (!leafUuid) {
-      throw transcriptError('marker leaf has no message on the main transcript')
-    }
-    // A cursor recorded before leaves were messages (a hook summary, an attachment) is compared
-    // as the message it trails.
-    const previousLeafUuid =
-      input.previousLeafUuid !== null && nodes.has(input.previousLeafUuid)
-        ? messageAtOrAbove(input.previousLeafUuid)
-        : input.previousLeafUuid
+    const previousLeafUuid = input.previousLeafUuid
     if (input.intentionalRewindUuid !== undefined) {
-      if (leafUuid !== input.intentionalRewindUuid || !previousLeafUuid) {
+      if (leafUuid !== input.intentionalRewindUuid || !input.previousLeafUuid) {
         throw transcriptError('rewind target does not match the observed leaf')
       }
-      proveMainLineAncestry(nodes, previousLeafUuid, input.providerSessionId)
+      proveMainLineAncestry(nodes, input.previousLeafUuid, input.providerSessionId)
       proveAppendOrder(nodes)
-      let ancestor = nodes.get(previousLeafUuid)?.parentUuid ?? null
+      let ancestor = nodes.get(input.previousLeafUuid)?.parentUuid ?? null
       for (let depth = 0; ancestor !== null && depth < MAX_CLAUDE_TRANSCRIPT_ANCESTRY; depth += 1) {
         if (ancestor === leafUuid) {
           return { leafUuid, relation: 'intentional-rewind' }
@@ -215,7 +185,7 @@ function createBranchProof(input: BranchProofInput) {
       }
       throw transcriptError('rewind target is not an ancestor of the previous cursor')
     }
-    if (input.previousLeafUuid === null) {
+    if (!previousLeafUuid) {
       proveMainLineAncestry(nodes, leafUuid, input.providerSessionId)
       // A branch proof is based on an append-only snapshot. A child that appears
       // before its claimed parent is not a post-snapshot descendant observation;
@@ -223,8 +193,8 @@ function createBranchProof(input: BranchProofInput) {
       proveAppendOrder(nodes)
       return { leafUuid, relation: 'initial' }
     }
-    const previous = previousLeafUuid === null ? undefined : nodes.get(previousLeafUuid)
-    if (!previousLeafUuid || !previous) {
+    const previous = nodes.get(previousLeafUuid)
+    if (!previous) {
       throw new ClaudeTranscriptPreviousCursorMissingError()
     }
     if (previous.sessionId !== input.providerSessionId || previous.disallowedLeaf) {
@@ -272,21 +242,16 @@ function createBranchProof(input: BranchProofInput) {
    *  empty is the caller's "nothing followed the anchor", and answering that for
    *  a broken walk would report non-delivery for records we never looked at. */
   function ancestryChain(leafUuid: string, anchorUuid: string): string[] {
-    // A non-message anchor (a legacy cursor) is also reached at the message it trails, which is
-    // where a leaf with nothing new after it now stops.
-    const anchorMessageUuid = messageAtOrAbove(anchorUuid) ?? anchorUuid
-    const reachesAnchor = (uuid: string | null): boolean =>
-      uuid === anchorUuid || uuid === anchorMessageUuid
     const chain: string[] = []
     let cursor: string | null = leafUuid
-    for (let depth = 0; cursor !== null && !reachesAnchor(cursor); depth += 1) {
+    for (let depth = 0; cursor !== null && cursor !== anchorUuid; depth += 1) {
       if (depth >= MAX_CLAUDE_TRANSCRIPT_ANCESTRY || !nodes.has(cursor)) {
         throw transcriptError(`ancestry chain does not reach anchor ${anchorUuid}`)
       }
       chain.push(cursor)
       cursor = nodes.get(cursor)?.parentUuid ?? null
     }
-    if (!reachesAnchor(cursor)) {
+    if (cursor !== anchorUuid) {
       throw transcriptError(`ancestry chain does not reach anchor ${anchorUuid}`)
     }
     return chain

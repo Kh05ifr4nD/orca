@@ -22,7 +22,6 @@ export async function releaseClaudeAcquisition(input: {
   exits: Map<string, ClaudeSessionExit>
   onExitProven?: (sessionId: string, exit: ClaudeSessionExit) => Promise<void>
   persistHandle?: ClaudeStructuredSessionAdapterDeps['persistHandle']
-  readTranscriptLeaf?: ClaudeStructuredSessionAdapterDeps['readTranscriptLeaf']
   onEvent?: ClaudeStructuredSessionAdapterDeps['onEvent']
   onBackgroundTasksChanged?: ClaudeStructuredSessionAdapterDeps['onBackgroundTasksChanged']
 }): Promise<boolean> {

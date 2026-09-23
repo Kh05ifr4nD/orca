@@ -103,14 +103,6 @@ export type ClaudeStructuredSessionAdapterDeps = {
     leafUuid: string
     fence: number
   }) => Promise<void>
-  /** Read the durable transcript branch after a child has flushed its final rows. */
-  readTranscriptLeaf?: (input: {
-    providerSessionId: string
-    previousLeafUuid: string | null
-    intentionalRewindUuid?: string
-    /** Account-scoped Claude config root that owns this provider session. */
-    claudeConfigDir: string
-  }) => Promise<string | null>
 }
 
 export type ClaudeDispatchWaiter = {
@@ -135,9 +127,10 @@ export type ClaudeDispatchWaiter = {
 export type ClaudeSession = {
   connection: ClaudeStreamJsonConnection
   providerSessionId: string
-  /** Durable transcript files live under this account's `projects` directory. */
-  claudeConfigDir: string
+  /** Latest main-chain message seen on the live stream, mid-turn included. */
   leafUuid: string | null
+  /** `leafUuid` at the last completed turn; the only leaf close and exit persist. */
+  turnEndLeafUuid: string | null
   fence: number
   acquisitionGeneration: string
   prompts: ClaudePromptRegistry

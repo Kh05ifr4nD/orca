@@ -1,8 +1,6 @@
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
-import { proveClaudeTranscriptBranch } from '../claude/claude-transcript-branch-proof'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
 import type { AgentSessionBackgroundTaskState } from '../../shared/agent-session-wire'
-import { join } from 'node:path'
 import { resolveClaudeCommand } from '../codex-cli/command'
 import type { ClaudeStructuredAuthPolicy } from '../claude-accounts/claude-structured-auth-policy'
 import { createClaudeStructuredLaunchResolver } from '../claude/claude-structured-launch-resolution'
@@ -12,10 +10,6 @@ import {
 } from '../claude/claude-structured-session-adapter'
 import { claudeProviderHandleLink } from '../claude/claude-structured-owner-identity'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import {
-  readClaudeTranscriptLeafUuid,
-  resolveSessionFilePath
-} from '../native-chat/session-file-resolver'
 import {
   recordAgentSessionProviderHandle,
   reviseAgentSessionClaudeResumePoint
@@ -90,29 +84,6 @@ export function createStructuredClaudeRuntimeAdapter(
           now: Date.now()
         })
       )
-    },
-    readTranscriptLeaf: async ({
-      providerSessionId,
-      previousLeafUuid,
-      intentionalRewindUuid,
-      claudeConfigDir
-    }) => {
-      const transcriptPath = await resolveSessionFilePath('claude', providerSessionId, {
-        claudeProjectsDir: join(claudeConfigDir, 'projects')
-      })
-      if (transcriptPath && intentionalRewindUuid !== undefined) {
-        return (
-          await proveClaudeTranscriptBranch({
-            transcriptPath,
-            providerSessionId,
-            previousLeafUuid,
-            intentionalRewindUuid
-          })
-        ).leafUuid
-      }
-      return transcriptPath
-        ? await readClaudeTranscriptLeafUuid(transcriptPath, providerSessionId, previousLeafUuid)
-        : null
     },
     onEvent: (event) => {
       if (

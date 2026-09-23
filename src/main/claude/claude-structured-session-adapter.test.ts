@@ -464,14 +464,10 @@ describe('ClaudeStructuredSessionAdapter.acquire', () => {
 
   it('resumes the same provider id and refuses an init proof for another session', async () => {
     const resumedClaude = fakeClaude()
-    const resumed = adapterFor(
-      resumedClaude,
-      { resumed: true, resumeLeafUuid: 'leaf-before' },
-      [],
-      [],
-      undefined,
-      async ({ previousLeafUuid }) => previousLeafUuid
-    )
+    const resumed = adapterFor(resumedClaude, {
+      resumed: true,
+      resumeLeafUuid: 'leaf-before'
+    })
     const acquisition = await resumed.acquire({
       identity: identityFor(),
       fence: 9,
