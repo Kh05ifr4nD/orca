@@ -38,7 +38,7 @@ Object.defineProperty(globalThis, 'window', {
 })
 
 const session = await import('./ipynb-kernel-session')
-const { getCellRun } = await import('./ipynb-kernel-store')
+const { getCellRun, getSession } = await import('./ipynb-kernel-store')
 
 function frame(value: KernelFrame): void {
   emitFrame({ filePath: FILE, frame: value })
@@ -145,5 +145,23 @@ describe('notebook kernel session', () => {
     }
     expect(notebookApi.shutdownKernel).toHaveBeenCalledWith({ filePath: FILE })
     expect(getCellRun(FILE, 'a')).toBeUndefined()
+  })
+
+  it('offers a restart when an interrupt gets no answer', async () => {
+    vi.useFakeTimers()
+    try {
+      await session.runCells(FILE, [{ key: 'a', code: 'while True: pass' }], null)
+      session.interruptKernel(FILE)
+      expect(notebookApi.interrupt).toHaveBeenCalledWith({ filePath: FILE })
+      vi.advanceTimersByTime(9_000)
+      expect(getSession(FILE).interruptStalled).toBe(false)
+      vi.advanceTimersByTime(1_000)
+      expect(getSession(FILE).interruptStalled).toBe(true)
+
+      frame({ type: 'done', status: 'error', execution_count: 1 })
+      expect(getSession(FILE).interruptStalled).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
