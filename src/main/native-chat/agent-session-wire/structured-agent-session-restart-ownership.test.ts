@@ -132,6 +132,8 @@ it('does not continue work that acquisition proves was never delivered', async (
   expect(host.isHeld(SESSION)).toBe(false)
 })
 
+// Newer work is the user's message or anything still live. A turn the provider opened and already
+// closed on its own is neither — Claude opens one on resume just to report what it lost.
 it.each(['turn', 'message'] as const)(
   'checks interrupted work at send admission after a newer %s supersedes it',
   async (newer) => {
@@ -155,7 +157,7 @@ it.each(['turn', 'message'] as const)(
     events.appendItem(
       { provider: 'codex', threadId: THREAD, turnId: 'newer-turn', ordinal: 1 },
       newer === 'turn'
-        ? { kind: 'turn', turnId: 'newer-turn', state: 'completed' }
+        ? { kind: 'turn', turnId: 'newer-turn', state: 'running' }
         : hostTestMessage('A newer task from another client')
     )
     await host.flushStreamedEvents(SESSION)

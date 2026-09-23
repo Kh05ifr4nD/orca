@@ -17,13 +17,13 @@ import {
 const clocks: StructuredAgentSessionReleaseClock[] = []
 
 function clock(deps: {
-  isTurnActive?: () => boolean
+  isWorking?: () => boolean
   isHeld?: () => boolean
   evict: (sessionId: string) => Promise<void>
   onError?: (input: { sessionId: string; error: unknown }) => void
 }): StructuredAgentSessionReleaseClock {
   const created = new StructuredAgentSessionReleaseClock({
-    isTurnActive: deps.isTurnActive ?? (() => false),
+    isWorking: deps.isWorking ?? (() => false),
     isHeld: deps.isHeld ?? (() => false),
     evict: deps.evict,
     ...(deps.onError ? { onError: deps.onError } : {}),
@@ -89,7 +89,7 @@ describe('the release clock', () => {
   it('waits out a running turn instead of evicting into it', async () => {
     const evict = vi.fn(async () => {})
     let turnRunning = true
-    const releasing = clock({ isTurnActive: () => turnRunning, evict })
+    const releasing = clock({ isWorking: () => turnRunning, evict })
 
     releasing.arm('session-1')
     await new Promise((resolve) => setTimeout(resolve, 30))
@@ -138,7 +138,7 @@ describe('holds', () => {
     const holds = new StructuredAgentSessionHolds({
       resume,
       hasProviderChild: () => child,
-      isTurnActive: () => false,
+      isWorking: () => false,
       evict: async () => {},
       graceMs: 1
     })
@@ -160,7 +160,7 @@ describe('holds', () => {
     const holds = new StructuredAgentSessionHolds({
       resume: async () => {},
       hasProviderChild: () => false,
-      isTurnActive: () => false,
+      isWorking: () => false,
       evict,
       graceMs: 1
     })
@@ -178,7 +178,7 @@ describe('holds', () => {
     const holds = new StructuredAgentSessionHolds({
       resume: async () => {},
       hasProviderChild: () => false,
-      isTurnActive: () => false,
+      isWorking: () => false,
       evict: async () => {},
       graceMs: 1
     })

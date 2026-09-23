@@ -37,7 +37,7 @@ it.each(['captureMarkers', 'recordMarkers'] as const)(
 )
 
 it.each(['approval', 'question', 'completed'])(
-  'does not offer work with an accepted %s event queued at quit',
+  'offers only unfinished work when an accepted %s event is queued at quit',
   async (event) => {
     await attach()
     const { host, root, acquire } = hostTestState()
@@ -66,12 +66,16 @@ it.each(['approval', 'question', 'completed'])(
       { lifecycle: true }
     )
     await host.flushAllStreamedEvents()
-    expect(await new AgentSessionRecoveryCapsule(root).list(NOW)).toEqual([])
+    const offered = await new AgentSessionRecoveryCapsule(root).list(NOW)
+    // A chat blocked on the user reads as needing attention, and teardown cancels its prompt.
+    expect(offered.map((entry) => entry.work)).toEqual(
+      event === 'completed' ? [] : [{ kind: 'turn', id: 'working' }]
+    )
   }
 )
 
 it.each(['approval', 'question', 'completed'] as const)(
-  'does not offer work superseded by a provider %s during close',
+  'offers work a provider %s interrupted during close only while it is unfinished',
   async (event) => {
     await attach()
     const { host, root, acquire } = hostTestState()
@@ -99,6 +103,33 @@ it.each(['approval', 'question', 'completed'] as const)(
       return true
     }
     await host.flushAllStreamedEvents()
-    expect(await new AgentSessionRecoveryCapsule(root).list(NOW)).toEqual([])
+    const offered = await new AgentSessionRecoveryCapsule(root).list(NOW)
+    expect(offered.map((entry) => entry.work)).toEqual(
+      event === 'completed' ? [] : [{ kind: 'turn', id: 'working' }]
+    )
   }
 )
+
+// The roster is read off the live adapter at teardown: eviction clears it moments later.
+it('marks a settled chat whose subagent was still running', async () => {
+  await attach()
+  const { host, root, acquire } = hostTestState()
+  const events = acquire.mock.calls[0]?.[0].events
+  if (!events) {
+    throw new Error('missing provider event sink')
+  }
+  events.appendItem(
+    { provider: 'codex', threadId: THREAD, turnId: 'settled', ordinal: 1 },
+    { kind: 'turn', turnId: 'settled', state: 'completed' }
+  )
+  await host.flushStreamedEvents(SESSION)
+  host.deps.adapter.backgroundTaskState = () => ({
+    state: 'monitoring',
+    tasks: [{ id: 'task-a', kind: 'agent', description: 'Review loop 4', state: 'working' }]
+  })
+  await host.flushAllStreamedEvents()
+  const [offered] = await new AgentSessionRecoveryCapsule(root).list(NOW)
+  expect(offered?.work).toEqual({ kind: 'turn', id: 'settled' })
+  // Where the journal stood once the child stopped: the settlement's rows land after it.
+  expect(offered?.journalCursor).toMatchObject({ sequence: expect.any(Number) })
+})

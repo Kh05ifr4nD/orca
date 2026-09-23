@@ -5,7 +5,7 @@
 // bookkeeping that decides when to run it than buried among the twenty other things a session can
 // do.
 
-import { activeStructuredAgentSessionTurnId } from '../../../shared/structured-agent-session-projection'
+import { structuredAgentSessionShowsWork } from './structured-agent-session-shown-work'
 import {
   evictStructuredAgentSession,
   STRUCTURED_AGENT_SESSION_EVICTION_STEPS,
@@ -203,10 +203,13 @@ export function createStructuredAgentSessionHolds(
       ),
     evict: input.close,
     hasProviderChild: (sessionId) => hasProviderChild(context, sessionId),
-    isTurnActive: (sessionId) => {
+    isWorking: (sessionId) => {
       const session = context.sessions.get(sessionId)
       return session
-        ? activeStructuredAgentSessionTurnId(session.journal.snapshot().items) !== null
+        ? structuredAgentSessionShowsWork(
+            session.journal.snapshot(),
+            context.deps.adapter.backgroundTaskState?.(sessionId)?.tasks
+          )
         : false
     },
     onError: (error) => context.deps.onEventSinkError?.(error),

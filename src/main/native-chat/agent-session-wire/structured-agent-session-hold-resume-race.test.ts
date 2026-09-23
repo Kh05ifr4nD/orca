@@ -17,7 +17,7 @@ function resumeHarness() {
       child = true
     },
     hasProviderChild: () => child,
-    isTurnActive: () => turnActive,
+    isWorking: () => turnActive,
     evict,
     graceMs: GRACE_MS
   })
@@ -182,7 +182,7 @@ describe('a surface leaving while its structured session resumes', () => {
       const holds = new StructuredAgentSessionHolds({
         resume,
         hasProviderChild: () => child,
-        isTurnActive: () => false,
+        isWorking: () => false,
         evict,
         graceMs: GRACE_MS
       })
@@ -219,7 +219,7 @@ describe('a surface leaving while its structured session resumes', () => {
     const holds = new StructuredAgentSessionHolds({
       resume,
       hasProviderChild: () => false,
-      isTurnActive: () => false,
+      isWorking: () => false,
       evict: async () => {},
       graceMs: GRACE_MS
     })
@@ -259,7 +259,7 @@ describe('a surface leaving while its structured session resumes', () => {
       const holds = new StructuredAgentSessionHolds({
         resume,
         hasProviderChild: () => child,
-        isTurnActive: () => turnActive,
+        isWorking: () => turnActive,
         evict,
         graceMs: GRACE_MS
       })

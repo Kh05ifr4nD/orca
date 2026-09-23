@@ -14,15 +14,16 @@ import type {
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
 import {
-  AGENT_SESSION_RESTART_CONTINUATION_MESSAGE,
   AGENT_SESSION_RESTART_CONTINUATION_NOTE,
   AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE,
   AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE,
-  AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE
+  AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE,
+  restartContinuationMessage
 } from '../../../shared/agent-session-restart-continuation'
 import { AgentSessionPreDispatchError } from './structured-agent-session-operation-settlement'
 import { createHash } from 'node:crypto'
 import type { AgentSessionResumeMarker } from '../../../shared/agent-session-resume-marker'
+import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
 
 /**
  * All four dispatch states are preserved, never collapsed into transport success.
@@ -59,14 +60,19 @@ export type StructuredAgentSessionContinuationHost = {
   now: () => number
   /** Whether the marker still describes resumable work, with the continuation's own submission
    *  set aside. Re-asked right before dispatch, so newer user work refuses the send. */
-  stillResumable: (marker: AgentSessionResumeMarker, pendingContinuationId: string) => boolean
+  stillResumable: (
+    marker: AgentSessionResumeMarker,
+    options: { pendingContinuationId: string; admitted?: AgentSessionRestartActivity }
+  ) => boolean
 }
 
 /** Binds one continuation to the host: the superseded check before dispatch, the settlement
  *  waiter for the verdict, and the journal note that attributes the send to Orca. */
 export function restartContinuationDeps(
   host: StructuredAgentSessionContinuationHost,
-  marker: AgentSessionResumeMarker
+  marker: AgentSessionResumeMarker,
+  /** What the offer was acted on for, read before the session was reattached. */
+  admitted?: AgentSessionRestartActivity
 ): StructuredAgentSessionContinuationDeps {
   return {
     currentFence: (sessionId) => host.sessions.get(sessionId)?.fence ?? null,
@@ -74,7 +80,13 @@ export function restartContinuationDeps(
       host.send({
         ...input,
         beforeRun: () => {
-          if (!host.stillResumable(marker, input.envelope.clientOperationId)) {
+          const pendingContinuationId = input.envelope.clientOperationId
+          if (
+            !host.stillResumable(marker, {
+              pendingContinuationId,
+              ...(admitted ? { admitted } : {})
+            })
+          ) {
             throw new RestartContinuationSupersededError()
           }
         }
@@ -132,11 +144,11 @@ export class RestartContinuationSupersededError extends AgentSessionPreDispatchE
 }
 
 /** The message body, built once so both the send and any test read the same text. */
-export function restartContinuationBody(): AgentJournalMessageItem {
+export function restartContinuationBody(marker: AgentSessionResumeMarker): AgentJournalMessageItem {
   return {
     kind: 'message',
     role: 'user',
-    blocks: [{ type: 'text', text: AGENT_SESSION_RESTART_CONTINUATION_MESSAGE }]
+    blocks: [{ type: 'text', text: restartContinuationMessage(marker) }]
   }
 }
 
@@ -147,7 +159,7 @@ export function restartContinuationEnvelope(
   fence: number,
   marker: AgentSessionResumeMarker
 ): { envelope: AgentSessionMutationEnvelope; body: AgentJournalMessageItem } {
-  const body = restartContinuationBody()
+  const body = restartContinuationBody(marker)
   return {
     body,
     envelope: {

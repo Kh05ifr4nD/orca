@@ -2,19 +2,19 @@
 //
 // TWO reasons it is not immediate. A surface that reconnects — a mobile socket dropping on a
 // network switch, a renderer remounting a tab — releases and re-holds within a second, and killing
-// an app-server in that window costs the user a respawn plus a resume for nothing. And a turn the
-// user already asked for must finish: the provider is mid-answer, the journal has an open turn
-// marker, and stopping the child there strands both.
+// an app-server in that window costs the user a respawn plus a resume for nothing. And work the
+// session is doing must finish: a turn mid-answer, and the subagents, commands and monitors it
+// left running, all die with the child.
 //
-// So the clock arms when the last holder leaves, and a tick that finds a turn still running RE-ARMS
-// instead of evicting. That is what makes the wait start at the later of the two events rather than
-// at whichever came first.
+// So the clock arms when the last holder leaves, and a tick that finds the session still working
+// RE-ARMS instead of evicting. That is what makes the wait start at the later of the two events
+// rather than at whichever came first.
 
 export const STRUCTURED_AGENT_SESSION_RELEASE_GRACE_MS = 15_000
 
 export type StructuredAgentSessionReleaseClockDeps = {
-  /** Never evict mid-turn; a true answer re-arms the clock instead. */
-  isTurnActive: (sessionId: string) => boolean
+  /** Never evict a session that shows as working; a true answer re-arms the clock instead. */
+  isWorking: (sessionId: string) => boolean
   /** Re-checked at fire time: a holder may have arrived while the timer ran. */
   isHeld: (sessionId: string) => boolean
   evict: (sessionId: string) => Promise<void>
@@ -64,7 +64,7 @@ export class StructuredAgentSessionReleaseClock {
     if (this.deps.isHeld(sessionId)) {
       return
     }
-    if (this.deps.isTurnActive(sessionId)) {
+    if (this.deps.isWorking(sessionId)) {
       this.arm(sessionId)
       return
     }

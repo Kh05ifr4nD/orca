@@ -31,7 +31,7 @@ import {
 export const GRACE = 15_000
 
 export async function interruptedRestart(
-  work: 'turn' | 'submission' = 'turn',
+  work: 'turn' | 'submission' | 'children' = 'turn',
   historyBoundaryConsistent = true
 ) {
   const previous = hostTestState()
@@ -44,6 +44,38 @@ export async function interruptedRestart(
     previous.dispatch.mockResolvedValueOnce({ state: 'admitted' })
     const body = hostTestMessage('Perform the original task')
     await previous.host.send(CALLER, { envelope: envelope('agentSession.send', { body }), body })
+  } else if (work === 'children') {
+    events.appendItem(
+      { provider: 'codex', threadId: THREAD, turnId: 'settled-turn', ordinal: 1 },
+      { kind: 'turn', turnId: 'settled-turn', state: 'completed' }
+    )
+    const group = {
+      provider: 'codex',
+      threadId: THREAD,
+      turnId: 'settled-turn',
+      ordinal: 2
+    } as const
+    const roster = (state: 'working' | 'unverifiable') => ({
+      kind: 'message' as const,
+      role: 'system' as const,
+      blocks: [
+        {
+          type: 'subagent-group' as const,
+          groupId: 'settled-turn',
+          agents: [{ id: 'child-1', label: 'Review loop 4', state }]
+        }
+      ]
+    })
+    events.appendItem(group, roster('working'))
+    previous.host.deps.adapter.backgroundTaskState = () => ({
+      state: 'monitoring',
+      tasks: [{ id: 'child-1', kind: 'agent', description: 'Review loop 4', state: 'working' }]
+    })
+    // As the real adapters do: the child's own close settles the children it can no longer hear.
+    previous.host.deps.adapter.closeSession = async () => {
+      events.appendItem(group, roster('unverifiable'))
+      return true
+    }
   } else {
     events.appendItem(
       { provider: 'codex', threadId: THREAD, turnId: 'interrupted-turn', ordinal: 1 },

@@ -9,6 +9,7 @@ import type {
   AgentSessionResumeTrigger
 } from '../../../shared/agent-session-resume-marker'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
+import type { AgentSessionRestartActivity as RestartActivity } from '../../../shared/agent-session-restart-activity'
 import type {
   AgentSessionMutationEnvelope,
   AgentSessionMutationResult,
@@ -35,6 +36,7 @@ import {
   continueStructuredAgentSessionAfterRestart,
   noteRestartReattachFailed,
   restartContinuationDeps,
+  type StructuredAgentSessionContinuationHost,
   type StructuredAgentSessionContinuationOutcome
 } from './structured-agent-session-restart-continuation'
 import { createStructuredAgentSessionRestartWitnesses } from './structured-agent-session-restart-witnesses'
@@ -104,6 +106,7 @@ export function createStructuredAgentSessionRestartResume(
   const witnesses = createStructuredAgentSessionRestartWitnesses({
     sessions,
     getRecord: deps.store.getRecord,
+    backgroundTasks: (sessionId) => deps.adapter.backgroundTaskState?.(sessionId)?.tasks,
     derive,
     ...(deps.recoveryCapsule ? { capsule: deps.recoveryCapsule } : {}),
     teardownId: randomUUID(),
@@ -166,17 +169,16 @@ export function createStructuredAgentSessionRestartResume(
     return derive(markers, 'may-be-held')
   }
 
-  const continuationHost = {
+  const continuationHost: StructuredAgentSessionContinuationHost = {
     ...surfaces,
     sessions,
-    stillResumable: (marker: AgentSessionResumeMarker, pendingContinuationId: string) =>
-      derive([marker], 'may-be-held', { pendingContinuationId }).length === 1
+    stillResumable: (marker, options) => derive([marker], 'may-be-held', options).length === 1
   }
 
   const run = async (
     sessionIds: readonly string[] | undefined,
     owner: string,
-    afterAcquire?: (marker: AgentSessionResumeMarker) => Promise<void>,
+    afterAcquire?: (marker: AgentSessionResumeMarker, admitted?: RestartActivity) => Promise<void>,
     settlement: Omit<Parameters<typeof failures.settle>[2], 'candidates' | 'attempts'> = {
       failureAfterResume: () => null,
       failureReason: () => 'agent_session_resume_refused'
@@ -205,6 +207,7 @@ export function createStructuredAgentSessionRestartResume(
           ) ?? Promise.resolve([])
       )) ?? []
     const markersBySession = new Map(reserved.map((marker) => [marker.sessionId, marker]))
+    // Read before any session is reattached: the reattached provider restates what it lost.
     const candidates = derive(reserved, 'may-be-held')
     const attempts = failures.attempts(markersBySession)
 
@@ -227,7 +230,8 @@ export function createStructuredAgentSessionRestartResume(
               })
               const marker = markersBySession.get(sessionId)
               if (marker) {
-                await afterAcquire?.(marker)
+                const admitted = candidates.find((entry) => entry.sessionId === sessionId)
+                await afterAcquire?.(marker, admitted?.activity)
               }
             } finally {
               attempts.observe(sessionId)
@@ -267,10 +271,10 @@ export function createStructuredAgentSessionRestartResume(
     const resumed = await run(
       sessionIds,
       owner,
-      async (marker) => {
+      async (marker, admitted) => {
         continued.push(
           await continueStructuredAgentSessionAfterRestart(
-            restartContinuationDeps(continuationHost, marker),
+            restartContinuationDeps(continuationHost, marker, admitted),
             marker.sessionId,
             marker
           )

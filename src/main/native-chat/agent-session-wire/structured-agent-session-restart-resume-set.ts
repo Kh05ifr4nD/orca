@@ -4,10 +4,11 @@
 // have been spends the user's tokens and can make an agent redo destructive work it already
 // finished. A session missed is an annoyance. When any input is ambiguous this answers "no".
 //
-// Two INDEPENDENT records must concur. The marker is teardown's word; the journal's own turn record
-// is the session's word. One without the other proves nothing — a marker whose journal never opened
-// that turn is a marker for work that did not exist, and a journal turn with no marker is the
-// stale-`running`-row case this whole mechanism exists to refuse.
+// Two INDEPENDENT records must concur. The marker is teardown's word that the session was working;
+// the journal is the session's word on what was cut off — its interrupted turn, the prompts
+// eviction cancelled, the children it marked unverifiable. One without the other proves nothing: a
+// marker whose journal shows nothing cut off is a marker for work that did not exist, and a journal
+// turn with no marker is the stale-`running`-row case this whole mechanism exists to refuse.
 
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type {
@@ -25,6 +26,7 @@ import {
   type AgentSessionResumeTrigger,
   type AgentSessionResumeWork
 } from '../../../shared/agent-session-resume-marker'
+import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
 import { isResumableStructuredAgentSessionRecord } from './structured-agent-session-resume-eligibility'
 import { normalizeOptionalField } from '../../../shared/agent-status-field-normalization'
 import { AGENT_MODEL_MAX_LENGTH } from '../../../shared/agent-status-types'
@@ -45,6 +47,8 @@ export type StructuredAgentSessionResumeCandidate = {
   /** Model in force, read from the record's acknowledged options exactly as the status feed does.
    *  Absent until the host has read them. */
   model?: string
+  /** What the restart cut off, read from the journal. Optional on the wire: an older host omits it. */
+  activity?: AgentSessionRestartActivity
 }
 
 /** An offer that was acted on and did not end with the agent carrying on. Same row shape as the
@@ -63,15 +67,31 @@ export type StructuredAgentSessionResumeSetInput = {
   markers: readonly AgentSessionResumeMarker[]
   getRecord: (sessionId: string) => AgentSessionRecord | null
   supportsRecord: (record: AgentSessionRecord) => boolean
-  /** The newest turn record in that session's journal, state included; null when the journal could
-   *  not be read. Deliberately not the live-turn reader: eviction has already rewritten that turn
-   *  to `interrupted` by the time this runs. */
-  journalTurn: (sessionId: string) => AgentJournalTurnLifecycle | null
+  /** The turn record with this id, state included; null when the journal holds none. Deliberately
+   *  not the live-turn reader: eviction has already rewritten that turn to `interrupted`. */
+  journalTurn: (sessionId: string, turnId: string) => AgentJournalTurnLifecycle | null
+  /** The newest turn record, for a send whose own turn cannot be told apart from later ones. */
+  newestJournalTurn: (sessionId: string) => AgentJournalTurnLifecycle | null
   /** The journalled submission with that client message id, for work that never became a turn. */
   journalSubmission: (sessionId: string, clientMessageId: string) => AgentJournalSubmission | null
-  waitingOnUser: (sessionId: string) => boolean
-  /** Only teardown may validate before it rewrites the stopped child's running turn. */
+  /** Whether a root turn is running, or a prompt is waiting on the user, right now. */
+  liveWork: (sessionId: string) => boolean
+  /** What the restart cut off besides the lead's own reply, read from the journal. */
+  cutOff: (marker: AgentSessionResumeMarker, midReply: boolean) => AgentSessionRestartActivity
+  /**
+   * Only teardown may judge before eviction settles the stopped child. Its prompts are still
+   * pending and its turn still running then, and they are the work being cut off, not newer work.
+   */
   providerStopped?: boolean
+  /** Teardown only: the provider still ran children when the marker was captured, and eviction
+   *  clears that roster before this can read it. */
+  childWorkAtStop?: boolean
+  /**
+   * What the offer was acted on for, read before the session was reattached. A stopped child
+   * cannot resume and a cancelled prompt cannot reopen, but the reattached provider restates their
+   * rows in its own words, so the dispatch check keeps this and re-reads only the lead.
+   */
+  admitted?: AgentSessionRestartActivity
   latestPrompt: (sessionId: string) => string
   latestUserItemId: (sessionId: string) => string | null
   now: number
@@ -102,21 +122,21 @@ function submissionWorkWasCutOff(
   input: StructuredAgentSessionResumeSetInput,
   sessionId: string
 ): boolean {
-  const turn = input.journalTurn(sessionId)
+  const turn = input.newestJournalTurn(sessionId)
   // No turn row at all: nothing finished, because finishing writes one.
   // Otherwise the newest turn decides, and it decides the same way whether or not it names this
   // submission — which is exactly why the link no longer has to be proved to answer safely.
   return turn === null || turnWasCutOff(turn, input.providerStopped)
 }
 
-/** Follow every non-rejected submission forward to its turn, including lost acknowledgements. */
-function journalAgreesWorkWasCutOff(
+/** Whether the lead's own reply was cut off: its turn, found by id, or the send that had not yet
+ *  become one — followed forward to its turn, including lost acknowledgements. */
+function leadWorkWasCutOff(
   input: StructuredAgentSessionResumeSetInput,
   marker: AgentSessionResumeMarker
 ): boolean {
   if (marker.work.kind === 'turn') {
-    const turn = input.journalTurn(marker.sessionId)
-    return turn?.turnId === marker.work.id && turnWasCutOff(turn, input.providerStopped)
+    return turnWasCutOff(input.journalTurn(marker.sessionId, marker.work.id), input.providerStopped)
   }
   const submission = input.journalSubmission(marker.sessionId, marker.work.id)
   if (submission?.clientMessageId !== marker.work.id) {
@@ -126,6 +146,25 @@ function journalAgreesWorkWasCutOff(
     return false
   }
   return submissionWorkWasCutOff(input, marker.sessionId)
+}
+
+/**
+ * The work this marker is still owed, or null when nothing is: the lead's reply, a prompt, or a
+ * child the restart stopped. Before eviction settles the child, a pending prompt or a captured
+ * roster stands in for the rows the settlement is about to write.
+ */
+function owedWork(
+  input: StructuredAgentSessionResumeSetInput,
+  marker: AgentSessionResumeMarker
+): AgentSessionRestartActivity | null {
+  const midReply = leadWorkWasCutOff(input, marker)
+  if (input.providerStopped) {
+    return midReply || input.liveWork(marker.sessionId) || input.childWorkAtStop === true
+      ? { midReply, prompts: [], tasks: [] }
+      : null
+  }
+  const cutOff = input.admitted ? { ...input.admitted, midReply } : input.cutOff(marker, midReply)
+  return midReply || cutOff.prompts.length > 0 || cutOff.tasks.length > 0 ? cutOff : null
 }
 
 export function structuredAgentSessionResumableSet(
@@ -151,11 +190,19 @@ export function structuredAgentSessionResumableSet(
     if (!head || agentSessionProviderHandleRoot(head.handle) !== marker.providerHandleRoot) {
       continue
     }
+    // At teardown a pending prompt is one the marker records and eviction is about to cancel.
+    // Any later one is the resumed agent asking the user now, which a continuation must not bury.
+    // Newer work supersedes the offer: the user's own message, or — once eviction has settled the
+    // stopped child, which interrupts every turn and cancels every prompt — anything live at all.
+    // A turn the provider opened and closed on its own after the restart is neither.
     if (
-      input.waitingOnUser(marker.sessionId) ||
       input.latestUserItemId(marker.sessionId) !== marker.latestUserItemId ||
-      !journalAgreesWorkWasCutOff(input, marker)
+      (!input.providerStopped && input.liveWork(marker.sessionId))
     ) {
+      continue
+    }
+    const owed = owedWork(input, marker)
+    if (!owed) {
       continue
     }
     const model = normalizeOptionalField(record.options?.model, AGENT_MODEL_MAX_LENGTH)
@@ -169,7 +216,8 @@ export function structuredAgentSessionResumableSet(
       latestPrompt: input.latestPrompt(marker.sessionId),
       executionHostId: record.location.executionHostId,
       workspaceKind: record.location.workspaceKind,
-      ...(model === undefined ? {} : { model })
+      ...(model === undefined ? {} : { model }),
+      activity: owed
     })
   }
   return candidates

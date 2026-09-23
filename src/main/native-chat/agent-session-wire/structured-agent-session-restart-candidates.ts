@@ -9,18 +9,27 @@
 // two clauses judge two different conversations.
 
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
-import type { AgentJournalRenderItem } from '../../../shared/agent-session-journal-types'
+import type {
+  AgentJournalRenderItem,
+  AgentJournalTurnLifecycle
+} from '../../../shared/agent-session-journal-types'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionResumeMarker } from '../../../shared/agent-session-resume-marker'
+import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
+import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
+import { newestStructuredAgentSessionTurn } from '../../../shared/structured-agent-session-live-turn'
 import {
   latestStructuredAgentSessionPrompt,
   latestStructuredAgentSessionUserItem,
-  newestStructuredAgentSessionTurn,
   projectStructuredAgentSessionStatus
 } from '../../../shared/structured-agent-session-projection'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { adapterSupportsRecord } from './structured-agent-session-provider-support'
+import {
+  journalItemsRevisedBy,
+  structuredAgentSessionRestartCutOff
+} from './structured-agent-session-restart-cut-off'
 import {
   structuredAgentSessionResumableSet,
   type StructuredAgentSessionResumeCandidate
@@ -34,6 +43,23 @@ export type StructuredAgentSessionRestartCandidateOptions = {
   providerStopped?: boolean
   /** A continuation already in flight; its own submission is not newer user work. */
   pendingContinuationId?: string
+  /** Teardown only: the provider still ran children when this marker was captured. */
+  childWorkAtStop?: boolean
+  /** What the offer was acted on for, read before the session was reattached. */
+  admitted?: AgentSessionRestartActivity
+}
+
+function journalTurnById(
+  items: readonly AgentJournalRenderItem[],
+  turnId: string
+): AgentJournalTurnLifecycle | null {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const turn = readAgentJournalTurn(items[index]?.body)
+    if (turn?.turnId === turnId) {
+      return turn
+    }
+  }
+  return null
 }
 
 export type StructuredAgentSessionRestartCandidateReader = (
@@ -75,19 +101,37 @@ export function createStructuredAgentSessionRestartCandidateReader(deps: {
       }
       return snapshot
     }
+    const revisedSince = (marker: AgentSessionResumeMarker): ReadonlySet<string> | null => {
+      const journal = deps.sessions.get(marker.sessionId)?.journal
+      if (!journal || !marker.journalCursor) {
+        return null
+      }
+      const read = journal.readSince(marker.journalCursor)
+      return read.ok
+        ? new Set([...journalItemsRevisedBy(read.rows)].map(journal.canonicalItemId))
+        : null
+    }
     return structuredAgentSessionResumableSet({
       markers,
       getRecord: deps.getRecord,
       supportsRecord: (record) => adapterSupportsRecord(deps.adapter, record),
-      waitingOnUser: (sessionId) =>
-        projectStructuredAgentSessionStatus(itemsFor(sessionId)) === 'attention',
-      providerStopped: options.providerStopped === true,
-      journalTurn: (sessionId) => newestStructuredAgentSessionTurn(itemsFor(sessionId)),
+      journalTurn: (sessionId, turnId) => journalTurnById(itemsFor(sessionId), turnId),
+      newestJournalTurn: (sessionId) => newestStructuredAgentSessionTurn(itemsFor(sessionId)),
       journalSubmission: (sessionId, clientMessageId) =>
         deps.sessions
           .get(sessionId)
           ?.journal.submissions()
           .find((submission) => submission.clientMessageId === clientMessageId) ?? null,
+      liveWork: (sessionId) => projectStructuredAgentSessionStatus(itemsFor(sessionId)) !== 'idle',
+      cutOff: (marker, midReply) =>
+        structuredAgentSessionRestartCutOff({
+          items: itemsFor(marker.sessionId),
+          revisedSinceCursor: revisedSince(marker),
+          midReply
+        }),
+      ...(options.providerStopped ? { providerStopped: true } : {}),
+      ...(options.childWorkAtStop ? { childWorkAtStop: true } : {}),
+      ...(options.admitted ? { admitted: options.admitted } : {}),
       latestPrompt: (sessionId) => latestStructuredAgentSessionPrompt(itemsFor(sessionId)),
       latestUserItemId: (sessionId) =>
         latestStructuredAgentSessionUserItem(itemsFor(sessionId))?.itemId ?? null,

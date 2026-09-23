@@ -11,6 +11,12 @@ import type {
 } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionResumeMarker } from '../../../shared/agent-session-resume-marker'
+import { newestStructuredAgentSessionTurn } from '../../../shared/structured-agent-session-live-turn'
+import { projectStructuredAgentSessionStatus } from '../../../shared/structured-agent-session-projection'
+import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
+import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
+import { structuredAgentSessionRestartCutOff } from './structured-agent-session-restart-cut-off'
+import { structuredAgentSessionResumableSet } from './structured-agent-session-restart-resume-set'
 
 export const SESSION = 'session-working-1'
 export const THREAD = 'thread-1'
@@ -135,7 +141,11 @@ export function claudeRecord(
  *  The code under test sees the real `AgentSessionJournal` type; tests see this. */
 export type HarnessJournal = {
   isReadOnly: boolean
-  snapshot: () => { items: AgentJournalRenderItem[]; submissions: AgentJournalSubmission[] }
+  snapshot: () => {
+    items: AgentJournalRenderItem[]
+    submissions: AgentJournalSubmission[]
+    cursor: { epoch: string; sequence: number }
+  }
   submissions: () => AgentJournalSubmission[]
   appendItem: (envelope: unknown, body: { kind: string; text: string }) => Promise<void>
 }
@@ -150,7 +160,7 @@ export function journal(
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the code under test calls only isReadOnly, snapshot(), submissions() and appendItem(); a real AgentSessionJournal needs an on-disk SQLite store.
   return {
     isReadOnly,
-    snapshot: () => ({ items, submissions }),
+    snapshot: () => ({ items, submissions, cursor: { epoch: EPOCH, sequence: items.length } }),
     submissions: () => submissions,
     appendItem: async () => undefined
   } as never
@@ -188,4 +198,57 @@ export function submission(
     submittedAt: NOW,
     resolvedAt: null
   }
+}
+
+/** The epoch the fake journal reports. */
+export const EPOCH = 'epoch-1'
+
+/** The resumable set over one fake journal, wired as the host's candidate reader wires it. */
+export function resumableSet(input: {
+  markers: AgentSessionResumeMarker[]
+  items?: AgentJournalRenderItem[]
+  submissions?: AgentJournalSubmission[]
+  chain?: AgentSessionRecord['providerHandleChain']
+  now?: number
+  latestUserItemId?: string | null
+  providerStopped?: boolean
+  childWorkAtStop?: boolean
+  admitted?: AgentSessionRestartActivity
+  epoch?: string
+}) {
+  const items = input.items ?? [turnItem('turn-1', 'interrupted')]
+  const submissions = input.submissions ?? []
+  return structuredAgentSessionResumableSet({
+    markers: input.markers,
+    getRecord: () => record(input.chain === undefined ? {} : { chain: input.chain }),
+    supportsRecord: () => true,
+    journalTurn: (_sessionId, turnId) =>
+      items
+        .map((item) => readAgentJournalTurn(item.body))
+        .find((turn) => turn?.turnId === turnId) ?? null,
+    newestJournalTurn: () => newestStructuredAgentSessionTurn(items),
+    journalSubmission: (_sessionId, clientMessageId) =>
+      submissions.find((entry) => entry.clientMessageId === clientMessageId) ?? null,
+    liveWork: () => projectStructuredAgentSessionStatus(items) !== 'idle',
+    // In these fixtures an item's sequence stands for the row that last revised it.
+    cutOff: (entry, midReply) =>
+      structuredAgentSessionRestartCutOff({
+        items,
+        revisedSinceCursor:
+          entry.journalCursor && entry.journalCursor.epoch === (input.epoch ?? EPOCH)
+            ? new Set(
+                items
+                  .filter((item) => item.sequence > (entry.journalCursor?.sequence ?? Infinity))
+                  .map((item) => item.itemId)
+              )
+            : null,
+        midReply
+      }),
+    ...(input.providerStopped ? { providerStopped: true } : {}),
+    ...(input.childWorkAtStop ? { childWorkAtStop: true } : {}),
+    ...(input.admitted ? { admitted: input.admitted } : {}),
+    latestPrompt: () => 'fix the auth bug',
+    latestUserItemId: () => input.latestUserItemId ?? null,
+    now: input.now ?? NOW
+  })
 }

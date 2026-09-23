@@ -8,6 +8,7 @@
 // The capsule is consumed before offers enter runtime memory; unused witnesses also expire.
 
 import { z } from 'zod'
+import type { AgentJournalCursor } from './agent-session-journal-types'
 
 /** Why the app went away. Recorded because an update install is a restart the user did not choose,
  *  and the surface that offers the resume says so. */
@@ -59,6 +60,18 @@ export type AgentSessionResumeMarker = {
   providerHandleRoot: string
   /** Stable teardown identity for continuation deduplication, not launch ancestry. */
   teardownId: string
+  /**
+   * Where this session's journal stood when teardown captured it, before anything was stopped.
+   * Everything the teardown cuts off lands after it — the adapter marking the subagents and
+   * background tasks it can no longer hear from `unverifiable` as the child closes, then eviction
+   * cancelling prompts and failing tool calls — so the journal alone answers what the session was
+   * doing, and the marker keeps no copy of it.
+   *
+   * Absent on markers from builds that recorded only a working lead. Optional so an older build
+   * strips it and still reads the marker; `work` keeps its two kinds for the same reason, because
+   * a kind that build cannot parse makes it reject the whole capsule.
+   */
+  journalCursor?: AgentJournalCursor
 }
 
 const MAX_FIELD_LENGTH = 512
@@ -88,7 +101,10 @@ const agentSessionResumeMarkerSchema = z.object({
   recordedAt: z.number().int().nonnegative(),
   trigger: z.enum(AGENT_SESSION_RESUME_TRIGGERS),
   providerHandleRoot: markerField,
-  teardownId: markerField
+  teardownId: markerField,
+  journalCursor: z
+    .object({ epoch: markerField, sequence: z.number().int().nonnegative() })
+    .optional()
 })
 
 /** The marker this value describes, or null when it is not one. Null is always a drop, never a

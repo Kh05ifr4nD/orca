@@ -6,17 +6,7 @@
 // resumable session, so deleting the matching guard turns that test red.
 
 import { describe, expect, it, vi } from 'vitest'
-import type {
-  AgentJournalRenderItem,
-  AgentJournalSubmission
-} from '../../../shared/agent-session-journal-types'
-import type { AgentSessionRecord } from '../../../shared/agent-session-record'
-import {
-  AGENT_SESSION_RESUME_MARKER_TTL_MS,
-  type AgentSessionResumeMarker
-} from '../../../shared/agent-session-resume-marker'
-import { projectStructuredAgentSessionStatus } from '../../../shared/structured-agent-session-projection'
-import { newestStructuredAgentSessionTurn } from '../../../shared/structured-agent-session-live-turn'
+import { AGENT_SESSION_RESUME_MARKER_TTL_MS } from '../../../shared/agent-session-resume-marker'
 import { structuredAgentSessionResumableSet } from './structured-agent-session-restart-resume-set'
 import {
   resumeStructuredAgentSessionsFromRestart,
@@ -35,41 +25,25 @@ import {
   NOW,
   pendingApproval,
   record,
+  resumableSet,
   SESSION,
   submission,
   turnItem
 } from './structured-agent-session-restart-resume-test-harness'
 
-function resumableSet(input: {
-  markers: AgentSessionResumeMarker[]
-  items?: AgentJournalRenderItem[]
-  submissions?: AgentJournalSubmission[]
-  chain?: AgentSessionRecord['providerHandleChain']
-  now?: number
-}) {
-  const items = input.items ?? [turnItem('turn-1', 'interrupted')]
-  const submissions = input.submissions ?? []
-  return structuredAgentSessionResumableSet({
-    markers: input.markers,
-    getRecord: () => record(input.chain === undefined ? {} : { chain: input.chain }),
-    supportsRecord: () => true,
-    waitingOnUser: () => projectStructuredAgentSessionStatus(items) === 'attention',
-    journalTurn: () => newestStructuredAgentSessionTurn(items),
-    journalSubmission: (_sessionId, clientMessageId) =>
-      submissions.find((entry) => entry.clientMessageId === clientMessageId) ?? null,
-    latestPrompt: () => 'fix the auth bug',
-    latestUserItemId: () => null,
-    now: input.now ?? NOW
-  })
+/** Teardown's markers alone, for the cases that do not ask about child work. */
+function markersAtTeardown(input: Parameters<typeof structuredAgentSessionsWorkingAtTeardown>[0]) {
+  return structuredAgentSessionsWorkingAtTeardown(input).markers
 }
 
 describe('deriving what was working at teardown', () => {
   it('marks a session this host was running a turn for', () => {
-    const markers = structuredAgentSessionsWorkingAtTeardown({
+    const markers = markersAtTeardown({
       sessions: new Map([
         [SESSION, { journal: journal([turnItem('turn-1', 'running')]), hasProviderChild: true }]
       ]),
       getRecord: () => record(),
+      backgroundTasks: () => undefined,
       trigger: 'quit',
       teardownId: TEARDOWN_CURRENT,
       now: NOW
@@ -83,17 +57,19 @@ describe('deriving what was working at teardown', () => {
         trigger: 'quit',
         teardownId: TEARDOWN_CURRENT,
         providerHandleRoot: HANDLE_ROOT,
-        latestUserItemId: null
+        latestUserItemId: null,
+        journalCursor: { epoch: 'epoch-1', sequence: 1 }
       }
     ])
   })
 
   it('carries the update trigger so the surface can say the restart was not the user choice', () => {
-    const [recorded] = structuredAgentSessionsWorkingAtTeardown({
+    const [recorded] = markersAtTeardown({
       sessions: new Map([
         [SESSION, { journal: journal([turnItem('turn-1', 'running')]), hasProviderChild: true }]
       ]),
       getRecord: () => record(),
+      backgroundTasks: () => undefined,
       trigger: 'update',
       teardownId: TEARDOWN_CURRENT,
       now: NOW
@@ -104,9 +80,10 @@ describe('deriving what was working at teardown', () => {
 
   it('marks nothing for an idle session', () => {
     expect(
-      structuredAgentSessionsWorkingAtTeardown({
+      markersAtTeardown({
         sessions: new Map([[SESSION, { journal: journal([]), hasProviderChild: true }]]),
         getRecord: () => record(),
+        backgroundTasks: () => undefined,
         trigger: 'quit',
         teardownId: TEARDOWN_CURRENT,
         now: NOW
@@ -116,11 +93,12 @@ describe('deriving what was working at teardown', () => {
 
   it('marks nothing for a turn that completed before the quit', () => {
     expect(
-      structuredAgentSessionsWorkingAtTeardown({
+      markersAtTeardown({
         sessions: new Map([
           [SESSION, { journal: journal([turnItem('turn-1', 'completed')]), hasProviderChild: true }]
         ]),
         getRecord: () => record(),
+        backgroundTasks: () => undefined,
         trigger: 'quit',
         teardownId: TEARDOWN_CURRENT,
         now: NOW
@@ -132,11 +110,12 @@ describe('deriving what was working at teardown', () => {
   // crash left behind, and it is the live `hasProviderChild` — not that row — that decides.
   it('marks nothing for a stale running row this host was not executing', () => {
     expect(
-      structuredAgentSessionsWorkingAtTeardown({
+      markersAtTeardown({
         sessions: new Map([
           [SESSION, { journal: journal([turnItem('turn-1', 'running')]), hasProviderChild: false }]
         ]),
         getRecord: () => record(),
+        backgroundTasks: () => undefined,
         trigger: 'quit',
         teardownId: TEARDOWN_CURRENT,
         now: NOW
@@ -144,21 +123,76 @@ describe('deriving what was working at teardown', () => {
     ).toEqual([])
   })
 
-  // The product calls this state `attention`, not `working`. A chat blocked on the user is not
-  // interrupted work, and handing it a provider child resumes nothing it was actually doing.
-  it('marks nothing for a turn that is waiting on the user', () => {
+  // The sidebar shows a chat blocked on the user as needing attention, and teardown cancels the
+  // prompt, so the chat is owed a resume that says which prompt it lost.
+  it('marks a turn that is waiting on the user', () => {
+    const [recorded] = markersAtTeardown({
+      sessions: new Map([
+        [
+          SESSION,
+          {
+            journal: journal([turnItem('turn-1', 'running'), pendingApproval()]),
+            hasProviderChild: true
+          }
+        ]
+      ]),
+      getRecord: () => record(),
+      backgroundTasks: () => undefined,
+      trigger: 'quit',
+      teardownId: TEARDOWN_CURRENT,
+      now: NOW
+    })
+
+    expect(recorded?.work).toEqual({ kind: 'turn', id: 'turn-1' })
+  })
+
+  // What the user hit: the lead had finished, its subagents had not, and the sidebar said working.
+  it('marks a settled lead whose subagent was still running, anchored on its last turn', () => {
+    const capture = structuredAgentSessionsWorkingAtTeardown({
+      sessions: new Map([
+        [SESSION, { journal: journal([turnItem('turn-1', 'completed')]), hasProviderChild: true }]
+      ]),
+      getRecord: () => record(),
+      backgroundTasks: () => [
+        { id: 'task-a', kind: 'agent', description: 'Review loop 4', state: 'working' }
+      ],
+      trigger: 'update',
+      teardownId: TEARDOWN_CURRENT,
+      now: NOW
+    })
+
+    expect(capture.markers.map((entry) => entry.work)).toEqual([{ kind: 'turn', id: 'turn-1' }])
+    expect([...capture.withChildWork]).toEqual([SESSION])
+  })
+
+  it('marks a settled lead whose only live work is a monitor', () => {
+    const capture = structuredAgentSessionsWorkingAtTeardown({
+      sessions: new Map([
+        [SESSION, { journal: journal([turnItem('turn-1', 'completed')]), hasProviderChild: true }]
+      ]),
+      getRecord: () => record(),
+      backgroundTasks: () => [{ id: 'task-m', kind: 'monitor', name: 'ci-watch' }],
+      trigger: 'quit',
+      teardownId: TEARDOWN_CURRENT,
+      now: NOW
+    })
+
+    expect(capture.markers).toHaveLength(1)
+    expect([...capture.withChildWork]).toEqual([SESSION])
+  })
+
+  // A settled task is history, not work the sidebar showed as running.
+  it('marks nothing for a settled lead whose tasks have all finished', () => {
     expect(
-      structuredAgentSessionsWorkingAtTeardown({
+      markersAtTeardown({
         sessions: new Map([
-          [
-            SESSION,
-            {
-              journal: journal([turnItem('turn-1', 'running'), pendingApproval()]),
-              hasProviderChild: true
-            }
-          ]
+          [SESSION, { journal: journal([turnItem('turn-1', 'completed')]), hasProviderChild: true }]
         ]),
         getRecord: () => record(),
+        backgroundTasks: () => [
+          { id: 'task-a', kind: 'agent', state: 'done' },
+          { id: 'task-b', kind: 'command', state: 'idle' }
+        ],
         trigger: 'quit',
         teardownId: TEARDOWN_CURRENT,
         now: NOW
@@ -168,11 +202,12 @@ describe('deriving what was working at teardown', () => {
 
   // Root, not key: a key would embed Claude's leaf, which the close path advances moments later.
   it('records the identity root so an advancing Claude leaf cannot invalidate the marker', () => {
-    const [recorded] = structuredAgentSessionsWorkingAtTeardown({
+    const [recorded] = markersAtTeardown({
       sessions: new Map([
         [SESSION, { journal: journal([turnItem('turn-1', 'running')]), hasProviderChild: true }]
       ]),
       getRecord: () => claudeRecord(null),
+      backgroundTasks: () => undefined,
       trigger: 'quit',
       teardownId: TEARDOWN_CURRENT,
       now: NOW
@@ -183,11 +218,12 @@ describe('deriving what was working at teardown', () => {
 
   it('marks nothing for a session that never proved a provider cursor', () => {
     expect(
-      structuredAgentSessionsWorkingAtTeardown({
+      markersAtTeardown({
         sessions: new Map([
           [SESSION, { journal: journal([turnItem('turn-1', 'running')]), hasProviderChild: true }]
         ]),
         getRecord: () => record({ chain: [] }),
+        backgroundTasks: () => undefined,
         trigger: 'quit',
         teardownId: TEARDOWN_CURRENT,
         now: NOW
@@ -199,7 +235,7 @@ describe('deriving what was working at teardown', () => {
   // message back, which is seconds on a real journal. A turn-id-only marker drops exactly those
   // sessions — the ones that were working hardest — so the send carries its own identity.
   it('records the submission identity for a send the provider has not echoed yet', () => {
-    const [recorded] = structuredAgentSessionsWorkingAtTeardown({
+    const [recorded] = markersAtTeardown({
       sessions: new Map([
         [
           SESSION,
@@ -210,6 +246,7 @@ describe('deriving what was working at teardown', () => {
         ]
       ]),
       getRecord: () => claudeRecord(null),
+      backgroundTasks: () => undefined,
       trigger: 'quit',
       teardownId: TEARDOWN_CURRENT,
       now: NOW
@@ -221,7 +258,7 @@ describe('deriving what was working at teardown', () => {
   // Once a turn exists it is the better identity: it is what eviction rewrites, so it is what the
   // journal can be asked about at launch.
   it('prefers the running turn over the send that opened it', () => {
-    const [recorded] = structuredAgentSessionsWorkingAtTeardown({
+    const [recorded] = markersAtTeardown({
       sessions: new Map([
         [
           SESSION,
@@ -234,6 +271,7 @@ describe('deriving what was working at teardown', () => {
         ]
       ]),
       getRecord: () => record(),
+      backgroundTasks: () => undefined,
       trigger: 'quit',
       teardownId: TEARDOWN_CURRENT,
       now: NOW
@@ -293,9 +331,11 @@ describe('the resumable set', () => {
       markers: [marker({ providerHandleRoot: CLAUDE_ROOT })],
       getRecord: () => claudeRecord('5aed93d6-advanced-leaf'),
       supportsRecord: () => true,
-      waitingOnUser: () => false,
       journalTurn: () => ({ turnId: 'turn-1', state: 'interrupted' }),
+      newestJournalTurn: () => ({ turnId: 'turn-1', state: 'interrupted' }),
       journalSubmission: () => null,
+      liveWork: () => false,
+      cutOff: (_marker, midReply) => ({ midReply, prompts: [], tasks: [] }),
       latestPrompt: () => '',
       latestUserItemId: () => null,
       now: NOW
@@ -310,9 +350,11 @@ describe('the resumable set', () => {
         markers: [marker({ providerHandleRoot: CLAUDE_ROOT })],
         getRecord: () => claudeRecord(null, 'prov-session-2'),
         supportsRecord: () => true,
-        waitingOnUser: () => false,
         journalTurn: () => ({ turnId: 'turn-1', state: 'interrupted' }),
+        newestJournalTurn: () => ({ turnId: 'turn-1', state: 'interrupted' }),
         journalSubmission: () => null,
+        liveWork: () => false,
+        cutOff: (_marker, midReply) => ({ midReply, prompts: [], tasks: [] }),
         latestPrompt: () => '',
         latestUserItemId: () => null,
         now: NOW

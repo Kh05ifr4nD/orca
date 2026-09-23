@@ -5,19 +5,15 @@
 // session's journal, and a rule that trusted it would hand a provider child back to work nobody is
 // doing. A crashed generation leaves no entry in this map, so it can never produce a marker.
 //
-// Three facts have to line up for one marker, and each rules out a different false positive:
-// this host is running the child (not a journal we merely opened for reading), the journal's newest
-// turn is actually running (not one that completed before quit), and the session has a provider
-// cursor to resume onto (not a conversation that never proved a thread).
+// "Working" is what the sidebar showed, not the lead alone: a lead mid-turn, a lead blocked on the
+// user, or a settled lead whose subagents, commands or monitors were still running all count. The
+// marker records only that, and where; what was cut off is read back from the journal.
 
 import {
   agentSessionProviderHandleChainHead,
   agentSessionProviderHandleRoot
 } from '../../../shared/agent-session-provider-handle'
-import {
-  latestStructuredAgentSessionUserItem,
-  projectStructuredAgentSessionStatus
-} from '../../../shared/structured-agent-session-projection'
+import { latestStructuredAgentSessionUserItem } from '../../../shared/structured-agent-session-projection'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type {
   AgentSessionResumeMarker,
@@ -28,8 +24,14 @@ import type {
   AgentJournalRenderItem,
   AgentJournalSubmission
 } from '../../../shared/agent-session-journal-types'
-import { activeStructuredAgentSessionTurnId } from '../../../shared/structured-agent-session-live-turn'
+import type { AgentSessionBackgroundTask } from '../../../shared/agent-session-background-task-wire'
+import { agentChildWorkLiveness } from '../../../shared/agent-status-child-work-liveness'
+import {
+  activeStructuredAgentSessionTurnId,
+  newestStructuredAgentSessionTurn
+} from '../../../shared/structured-agent-session-live-turn'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
+import { structuredAgentSessionShowsWork } from './structured-agent-session-shown-work'
 
 /** A send Orca journaled that the provider has neither opened a turn for nor refused. Mirrors the
  *  projection's own unanswered-dispatch rule, which is what makes that window read as `working`. */
@@ -62,21 +64,48 @@ export function structuredAgentSessionWorkInFlight(
   return submission ? { kind: 'submission', id: submission.clientMessageId } : null
 }
 
+/**
+ * The identity a marker carries: the lead's work in flight, else its newest turn. A settled lead
+ * whose children were the work anchors there, so user work after it supersedes the offer, and the
+ * journal later reads that turn as finished rather than cut off.
+ */
+export function structuredAgentSessionResumeWork(
+  items: readonly AgentJournalRenderItem[],
+  submissions: readonly AgentJournalSubmission[]
+): AgentSessionResumeWork | null {
+  const inFlight = structuredAgentSessionWorkInFlight(items, submissions)
+  if (inFlight) {
+    return inFlight
+  }
+  const newest = newestStructuredAgentSessionTurn(items)
+  return newest ? { kind: 'turn', id: newest.turnId } : null
+}
+
 type WorkingCandidateSession = {
   journal: AgentSessionJournal
   /** Only this host generation's own child counts. A restored-for-reading journal has none. */
   hasProviderChild: boolean
 }
 
+export type StructuredAgentSessionTeardownCapture = {
+  markers: AgentSessionResumeMarker[]
+  /** Sessions whose provider still ran children at capture. Eviction clears that roster before a
+   *  marker is confirmed, so this is the one moment it can be read. Never persisted. */
+  withChildWork: ReadonlySet<string>
+}
+
 export function structuredAgentSessionsWorkingAtTeardown(input: {
   sessions: ReadonlyMap<string, WorkingCandidateSession>
   getRecord: (sessionId: string) => AgentSessionRecord | null
+  /** The provider's live child roster, the same one the status feed publishes. */
+  backgroundTasks: (sessionId: string) => readonly AgentSessionBackgroundTask[] | null | undefined
   trigger: AgentSessionResumeTrigger
   /** Stable teardown identity for continuation deduplication, not launch ancestry. */
   teardownId: string
   now: number
-}): AgentSessionResumeMarker[] {
+}): StructuredAgentSessionTeardownCapture {
   const markers: AgentSessionResumeMarker[] = []
+  const withChildWork = new Set<string>()
   for (const [sessionId, session] of input.sessions) {
     if (!session.hasProviderChild) {
       continue
@@ -86,20 +115,11 @@ export function structuredAgentSessionsWorkingAtTeardown(input: {
       continue
     }
     const snapshot = session.journal.snapshot()
-    const status = projectStructuredAgentSessionStatus(snapshot.items, snapshot.submissions)
-    // Deliberately the LEAD-only projection, not the folded status the UI calls working: a marker
-    // hands back the lead's own in-flight turn, and child work this teardown is about to evict is
-    // not work to resume. A turn blocked on an approval or a question projects as `attention`: the
-    // agent is waiting on the USER, and that is not interrupted work to hand back.
-    //
-    // Provider tail events are re-derived after exit, before eviction cancels pending prompts.
-    if (status !== 'working') {
+    const roster = input.backgroundTasks(sessionId)
+    if (!structuredAgentSessionShowsWork(snapshot, roster)) {
       continue
     }
-    // A running turn when there is one; otherwise the send that has not become a turn YET. Claude
-    // cannot write its turn until the SDK echoes the message back, and dropping the session for
-    // that window under-offers exactly the chats that were working hardest.
-    const work = structuredAgentSessionWorkInFlight(snapshot.items, snapshot.submissions)
+    const work = structuredAgentSessionResumeWork(snapshot.items, snapshot.submissions)
     if (!work) {
       continue
     }
@@ -108,6 +128,9 @@ export function structuredAgentSessionsWorkingAtTeardown(input: {
     )
     if (!head) {
       continue
+    }
+    if (agentChildWorkLiveness(roster ?? undefined) !== null) {
+      withChildWork.add(sessionId)
     }
     markers.push({
       sessionId,
@@ -118,8 +141,10 @@ export function structuredAgentSessionsWorkingAtTeardown(input: {
       teardownId: input.teardownId,
       // Root, not key: the close path advances Claude's leaf moments after this runs, and a key
       // comparison would then refuse the session forever.
-      providerHandleRoot: agentSessionProviderHandleRoot(head.handle)
+      providerHandleRoot: agentSessionProviderHandleRoot(head.handle),
+      // Before the stop: closing the child is itself what settles its children's rows.
+      journalCursor: snapshot.cursor
     })
   }
-  return markers
+  return { markers, withChildWork }
 }
