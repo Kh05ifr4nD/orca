@@ -530,11 +530,10 @@ describe('useStructuredAgentSessionOutbox', () => {
   })
 
   it('stops on a host that could not restart the agent and shows its message', async () => {
-    const message =
-      "This chat's agent stopped and could not be restarted. Retry, or start a new chat."
+    const message = "Claude couldn't restart: Not logged in. Please run /login."
     mocks.call.mockResolvedValue({
       ok: false,
-      refusal: { code: 'agent_session_owner_unrecoverable', message }
+      refusal: { code: 'agent_session_owner_restart_failed', message }
     })
     const { result } = renderHook(() =>
       useStructuredAgentSessionOutbox({
@@ -554,7 +553,14 @@ describe('useStructuredAgentSessionOutbox', () => {
     expect(result.current.blockedClientMessageId).toBe(result.current.outbox[0]?.clientMessageId)
     // Settled, not pending: the refused id never ran, so a Retry is a new operation.
     const sentId: unknown = mocks.call.mock.calls[0]![2].envelope.clientOperationId
-    expect(result.current.outbox[0]?.clientMessageId).not.toBe(sentId)
+    const retryId = result.current.outbox[0]!.clientMessageId
+    expect(retryId).not.toBe(sentId)
+
+    // A manual Retry sends again, which is what asks the host for another restart.
+    act(() => result.current.retry(retryId))
+    await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2))
+    const retriedId: unknown = mocks.call.mock.calls[1]![2].envelope.clientOperationId
+    expect(retriedId).toBe(retryId)
   })
 
   it('persists and dispatches an attachment-only structured send', async () => {

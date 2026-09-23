@@ -251,7 +251,7 @@ const UNREACHABLE = new Set<Pair>([
   // Send reconstructs doubt from its global tombstone instead of refusing it.
   'agentSession.send:agent_session_operation_unknown',
   // Only a send restarts a lost owner.
-  'agentSession.setOption:agent_session_owner_unrecoverable'
+  'agentSession.setOption:agent_session_owner_restart_failed'
 ])
 
 describe('agentSessionRefusalOperationState host oracle', () => {
@@ -386,7 +386,7 @@ describe('agentSessionRefusalOperationState host oracle', () => {
       await assertHostAgreement(
         unrecoverable,
         { method: 'agentSession.send', operationId: operationId() },
-        'agent_session_owner_unrecoverable'
+        'agent_session_owner_restart_failed'
       )
     )
 

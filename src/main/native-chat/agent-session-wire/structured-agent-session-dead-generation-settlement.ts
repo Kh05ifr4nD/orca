@@ -33,12 +33,18 @@ export function unexpectedProviderExitOutcome(reason?: string): string {
 }
 
 /** A restart that produced no child, answered to the send that asked for it; its cause is the
- *  whole story, and nothing is remembered, so the next try is a fresh one. */
-export function providerRestartFailureOutcome(reason?: string): string {
-  const detail = exitReasonDetail(reason)
-  return detail
-    ? `This chat's agent could not be restarted: ${detail}. Retry, or start a new chat.`
-    : "This chat's agent stopped and could not be restarted. Retry, or start a new chat."
+ *  whole story, and nothing is remembered, so the next try is a fresh one. A new chat is offered
+ *  only when the host holds nothing this chat could restart from. */
+export function ownerRestartFailedOutcome(input: {
+  agentName: string
+  reason?: string
+  resumable: boolean
+}): string {
+  const detail = exitReasonDetail(input.reason)
+  const failed = detail
+    ? `${input.agentName} couldn't restart: ${detail}.`
+    : `${input.agentName} couldn't restart.`
+  return input.resumable ? failed : `${failed} Start a new chat to continue.`
 }
 
 /** A start that never finished has no response to interrupt; its cause is the whole story. */

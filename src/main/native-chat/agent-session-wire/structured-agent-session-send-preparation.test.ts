@@ -391,20 +391,18 @@ describe('a send with no live owner', () => {
     expect(host['holds'].isReleasePending(SESSION)).toBe(false)
   })
 
-  it('refuses for good when the owner cannot be restarted, saying why in the answer and in the chat', async () => {
+  it("refuses with the restart's own cause, in the answer and in the chat", async () => {
     await loseOwner()
-    acquire.mockRejectedValue(new Error('no provider thread to resume'))
-    const params = sendParams('nothing to resume')
+    acquire.mockRejectedValue(new Error('Not signed in. Run codex login'))
+    const params = sendParams('while signed out')
 
     const result = await host.send(CALLER, params)
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       ok: false,
       refusal: {
-        code: 'agent_session_owner_unrecoverable',
-        message: expect.stringMatching(
-          /no provider thread to resume.*Retry, or start a new chat\.$/
-        ),
+        code: 'agent_session_owner_restart_failed',
+        message: "Codex couldn't restart: Not signed in. Run codex login.",
         // The failed attach proved its child gone: nothing runs for this session.
         ownerVerdict: 'exited'
       }
@@ -412,24 +410,79 @@ describe('a send with no live owner', () => {
     expect(dispatch).not.toHaveBeenCalled()
     expect(hostErrors).not.toEqual([])
     expect(
-      agentSessionRefusalOperationState('agentSession.send', 'agent_session_owner_unrecoverable')
+      agentSessionRefusalOperationState('agentSession.send', 'agent_session_owner_restart_failed')
     ).toBe('settled-rejected')
+    // Refused before admission: the ledger holds nothing a resend would replay.
+    expect(store.getOperationRow(CALLER.callerKey, params.envelope.clientOperationId)).toBeNull()
     // The same status row a failed start leaves, so the reason outlives the error strip.
-    expect(journalStatuses()).toEqual([expect.stringContaining('no provider thread to resume')])
+    expect(journalStatuses()).toEqual(["Codex couldn't restart: Not signed in. Run codex login."])
+  })
+
+  it('restarts again for a Retry of the refused send, under its own id or a new one', async () => {
+    await loseOwner()
+    acquire.mockRejectedValue(new Error('Not signed in'))
+    const params = sendParams('while signed out')
+    await expect(host.send(CALLER, params)).resolves.toMatchObject({
+      ok: false,
+      refusal: { code: 'agent_session_owner_restart_failed' }
+    })
 
     // A client that resends the same id gets another attempt, and the chat no second row.
     await expect(host.send(CALLER, params)).resolves.toMatchObject({
       ok: false,
-      refusal: { code: 'agent_session_owner_unrecoverable' }
+      refusal: { code: 'agent_session_owner_restart_failed' }
     })
     expect(acquire).toHaveBeenCalledTimes(2)
     expect(journalStatuses()).toHaveLength(1)
 
-    // Nothing is remembered: a Retry under a new id is a fresh attempt, and this one succeeds.
-    acquire.mockReset()
-    acquire.mockImplementation(spawnChild)
-    await expect(host.send(CALLER, sendParams('nothing to resume'))).resolves.toMatchObject({
-      ok: true
+    // The outbox's Retry rotates the id: also a fresh attempt.
+    await expect(host.send(CALLER, sendParams('while signed out'))).resolves.toMatchObject({
+      ok: false,
+      refusal: { code: 'agent_session_owner_restart_failed' }
+    })
+    expect(acquire).toHaveBeenCalledTimes(3)
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('restarts and delivers a later send once the cause clears', async () => {
+    await loseOwner()
+    acquire.mockRejectedValueOnce(new Error('Not signed in'))
+    await expect(host.send(CALLER, sendParams('while signed out'))).resolves.toMatchObject({
+      ok: false,
+      refusal: { code: 'agent_session_owner_restart_failed' }
+    })
+
+    // The user signed in; nothing about the failed attempt is remembered.
+    await expect(host.send(CALLER, sendParams('signed in now'))).resolves.toMatchObject({
+      ok: true,
+      replayed: false
+    })
+    expect(acquire).toHaveBeenCalledTimes(2)
+    expect(dispatch).toHaveBeenCalledOnce()
+    expect(store.getRecord(SESSION)?.lease.claimStatus).toBe('live')
+  })
+
+  it('suggests a new chat only when this host has nothing to restart the chat from', async () => {
+    await loseOwner()
+    acquire.mockRejectedValue(new Error('Not signed in'))
+    const failed = await host.send(CALLER, sendParams('restart fails'))
+    expect(failed).toMatchObject({
+      ok: false,
+      refusal: { code: 'agent_session_owner_restart_failed' }
+    })
+    expect(failed.ok ? '' : failed.refusal.message).not.toMatch(/new chat/)
+
+    // The adapter cannot run this record where it lives: no retry would bring it back.
+    host.deps.adapter.supportsLocation = () => false
+    const unresumable = await host.send(CALLER, sendParams('cannot resume here'))
+
+    expect(unresumable).toMatchObject({
+      ok: false,
+      refusal: {
+        code: 'agent_session_owner_restart_failed',
+        message:
+          "Codex couldn't restart: This execution host cannot resume the requested structured agent session. Start a new chat to continue."
+      }
     })
   })
 
