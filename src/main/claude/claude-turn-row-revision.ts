@@ -124,6 +124,13 @@ function findTurnRow(
   return found
 }
 
+/** How a turn-row write reaches live subscribers. */
+export type ClaudeTurnRowDelivery = {
+  /** False only for a writer that publishes each write itself right after queueing it. */
+  publish: boolean
+  options?: StructuredAgentSessionRevisionOptions
+}
+
 /**
  * Queue one revision of a Claude turn row. A lifecycle write creates the row
  * when it is absent; a context write only ever revises one that exists.
@@ -133,11 +140,15 @@ export function writeClaudeTurnRow(
   sink: StructuredAgentSessionEventSink,
   target: ClaudeTurnRowTarget,
   write: ClaudeTurnRowWrite,
-  options: StructuredAgentSessionRevisionOptions = {}
+  { publish, options = {} }: ClaudeTurnRowDelivery
 ): void {
-  if (!sink.tryReviseResolvedItem) {
+  const revise = publish ? sink.tryReviseResolvedItemAndPublish : sink.tryReviseResolvedItem
+  if (!revise) {
     if (write.lifecycle && 'identity' in target) {
       sink.appendItem(target.identity, write.lifecycle, options)
+      if (publish) {
+        sink.publish()
+      }
     }
     return
   }
@@ -146,7 +157,8 @@ export function writeClaudeTurnRow(
     (known && write.lifecycle
       ? estimateStructuredAgentSessionItemBytes(known, write.lifecycle)
       : TURN_ROW_BYTES_WITHOUT_CONTEXT) + contextBytesBound(write.contextUsage)
-  sink.tryReviseResolvedItem(
+  revise.call(
+    sink,
     reservedBytes,
     (journal) => {
       const row = findTurnRow(journal, target)

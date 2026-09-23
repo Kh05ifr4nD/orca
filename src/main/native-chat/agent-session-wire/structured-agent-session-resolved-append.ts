@@ -20,7 +20,10 @@ export function createStructuredAgentSessionResolvedAppend(
 ): Required<
   Pick<
     StructuredAgentSessionEventSink,
-    'tryAppendResolvedItem' | 'tryAppendResolvedItemAndPublish' | 'tryReviseResolvedItem'
+    | 'tryAppendResolvedItem'
+    | 'tryAppendResolvedItemAndPublish'
+    | 'tryReviseResolvedItem'
+    | 'tryReviseResolvedItemAndPublish'
   >
 > {
   const submit = (
@@ -68,6 +71,8 @@ export function createStructuredAgentSessionResolvedAppend(
     tryAppendResolvedItem: identityOnly(false),
     tryAppendResolvedItemAndPublish: identityOnly(true),
     tryReviseResolvedItem: (reservedBytes, resolve, options = {}) =>
-      submit(reservedBytes, resolve, options, false)
+      submit(reservedBytes, resolve, options, false),
+    tryReviseResolvedItemAndPublish: (reservedBytes, resolve, options = {}) =>
+      submit(reservedBytes + 1, resolve, options, true)
   }
 }

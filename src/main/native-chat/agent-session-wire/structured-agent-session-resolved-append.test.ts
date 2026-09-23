@@ -84,6 +84,23 @@ describe('resolved revisions', () => {
     expect(target.journal.appendItem).not.toHaveBeenCalled()
   })
 
+  it('publishes a revision in the operation that writes it, within the same reservation', async () => {
+    const rows = new Map<string, AgentJournalItemBody>()
+    const deferred = createDeferredStructuredAgentSessionEventSink()
+    const bytes = estimateStructuredAgentSessionItemBytes(ROW, text('a'))
+    deferred.sink.tryReviseResolvedItemAndPublish?.(bytes, appendSuffix('a'))
+    deferred.sink.tryReviseResolvedItemAndPublish?.(bytes, () => null)
+    const target = journalTarget(rows)
+    const published: string[] = []
+    vi.mocked(target.publish).mockImplementation(() =>
+      published.push(textOf(rows.get(agentJournalItemKey(ROW))))
+    )
+    deferred.bind(target)
+    await expect(deferred.drained()).resolves.toEqual({ ok: true })
+    // Published once, after the append: the revision that resolves to nothing publishes nothing.
+    expect(published).toEqual(['a'])
+  })
+
   it('refuses a resolved write larger than the reservation it was admitted with', async () => {
     const rows = new Map<string, AgentJournalItemBody>()
     const deferred = createDeferredStructuredAgentSessionEventSink()

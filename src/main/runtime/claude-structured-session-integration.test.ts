@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import type { AgentJournalRenderItem } from '../../shared/agent-session-journal-types'
 import type { AgentSessionSubscribeEvent } from '../../shared/agent-session-wire'
-import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
+import {
+  AGENT_SESSION_TURN_ITEM_CAPABILITY,
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+} from '../../shared/protocol-version'
 import type {
   ClaudeStreamJsonConnection,
   ClaudeStreamJsonConnectionHandlers,
@@ -72,6 +75,7 @@ function fakeClaude() {
   /** A child that dies during start, with the close verdict its ladder observed. */
   let selfExit: { message: string; exitVerdict: ClaudeStreamJsonConnection['exitVerdict'] } | null =
     null
+  let contextUsage: () => Promise<unknown> = async () => ({})
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the fake answers every control request the session issues; the real opener's signature is what the runtime under test calls.
   const openConnection = (async (launch, handlers = {}) => {
     const connection: FakeClaudeConnection = {
@@ -106,7 +110,7 @@ function fakeClaude() {
       },
       getContextUsage: async () => {
         connection.calls.push({ subtype: 'get_context_usage' })
-        return {}
+        return contextUsage()
       },
       supportedModels: async () => {
         connection.calls.push({ subtype: 'list_models' })
@@ -160,6 +164,9 @@ function fakeClaude() {
     },
     setSelfExit: (exit: typeof selfExit) => {
       selfExit = exit
+    },
+    setContextUsage: (answer: () => Promise<unknown>) => {
+      contextUsage = answer
     }
   }
 }
@@ -281,7 +288,9 @@ async function ok<T>(method: string, params: unknown): Promise<T> {
   return result.value as T
 }
 
-async function subscribe(): Promise<AgentSessionSubscribeEvent[]> {
+async function subscribe(
+  client: { clientKind: 'runtime'; clientCapabilities: string[] } = CLIENT
+): Promise<AgentSessionSubscribeEvent[]> {
   const frames: AgentSessionSubscribeEvent[] = []
   await dispatcher.dispatchStreaming(
     {
@@ -296,7 +305,7 @@ async function subscribe(): Promise<AgentSessionSubscribeEvent[]> {
         frames.push(response.result)
       }
     },
-    CLIENT
+    client
   )
   return frames
 }
@@ -787,6 +796,47 @@ describe('a structured Claude session over agentSession.*', () => {
         leafUuid: 'provider-opened-assistant'
       },
       origin: 'resumed'
+    })
+  })
+
+  it('delivers the breakdown a settled turn asks for with no later frame to carry it', async () => {
+    const answers: ((value: unknown) => void)[] = []
+    claude.setContextUsage(() => new Promise((resolve) => answers.push(resolve)))
+    const created = await ok<{ fence: number }>('agentSession.create', createIntentParams())
+    const stream = await subscribe({
+      ...CLIENT,
+      clientCapabilities: [...CLIENT.clientCapabilities, AGENT_SESSION_TURN_ITEM_CAPABILITY]
+    })
+    const body = { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'Hi' }] }
+    await ok('agentSession.send', {
+      envelope: envelope('agentSession.send', { body }, created.fence),
+      body
+    })
+    claude.live().handlers.onMessage?.({
+      type: 'result',
+      subtype: 'success',
+      session_id: PROVIDER_SESSION,
+      uuid: 'result-frame-uuid'
+    })
+    await getStructuredAgentSessionHost()?.flushStreamedEvents(SESSION)
+    const turnRow = () => itemsOf(stream).find((item) => item.body?.kind === 'turn')
+    expect(turnRow()?.body).toMatchObject({ state: 'completed' })
+
+    answers.at(-1)?.({
+      model: 'claude-sonnet-5',
+      totalTokens: 18_600,
+      rawMaxTokens: 200_000,
+      categories: [{ name: 'Messages', tokens: 12_000 }]
+    })
+    // The answer is the last event of the turn: only its own publication can reach the client.
+    await vi.waitFor(async () => {
+      await getStructuredAgentSessionHost()?.flushStreamedEvents(SESSION)
+      const turn = turnRow()?.body
+      expect(turn?.kind === 'turn' ? turn.contextUsage?.used : undefined).toMatchObject({
+        kind: 'report',
+        usedTokens: 18_600,
+        categories: [{ name: 'Messages', tokens: 12_000 }]
+      })
     })
   })
 

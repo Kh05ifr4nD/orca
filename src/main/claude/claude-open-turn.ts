@@ -125,7 +125,7 @@ export class ClaudeOpenTurn {
       this.deps.sink,
       { identity: item.identity },
       { lifecycle: item.body, ...(contextUsage ? { contextUsage } : {}) },
-      item.options
+      { publish: false, options: item.options }
     )
     // Preserve first-work evidence when completion arrives before the journal drains.
     this.deps.sink.publish({ coalescingKey: item.publishCoalescingKey })

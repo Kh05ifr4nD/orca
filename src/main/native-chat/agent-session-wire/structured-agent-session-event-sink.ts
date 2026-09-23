@@ -106,6 +106,12 @@ export type StructuredAgentSessionEventSink = {
     resolve: StructuredAgentSessionRevisionResolver,
     options?: StructuredAgentSessionRevisionOptions
   ): StructuredAgentSessionSinkAdmission
+  /** Queues one revision and its publication as a single admitted operation. */
+  tryReviseResolvedItemAndPublish?(
+    reservedBytes: number,
+    resolve: StructuredAgentSessionRevisionResolver,
+    options?: StructuredAgentSessionRevisionOptions
+  ): StructuredAgentSessionSinkAdmission
   /** Queues one journal-derived lifecycle append; a null resolution is a no-op. */
   tryAppendLifecycleTransition?(
     identitySizeBound: AgentJournalItemIdentity,

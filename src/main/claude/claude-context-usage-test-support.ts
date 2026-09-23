@@ -44,15 +44,21 @@ export function journal() {
     },
     itemBody: (itemId) => rows.get(itemId)?.body ?? null
   }
+  const revise: NonNullable<StructuredAgentSessionEventSink['tryReviseResolvedItem']> = (
+    _reservedBytes,
+    resolve,
+    options
+  ) => {
+    const resolved = resolve(bound)
+    if (resolved) {
+      appendItem(resolved.identity, resolved.body, options)
+    }
+    return { accepted: true }
+  }
   const sink: StructuredAgentSessionEventSink = {
     appendItem,
-    tryReviseResolvedItem: (_reservedBytes, resolve, options) => {
-      const resolved = resolve(bound)
-      if (resolved) {
-        appendItem(resolved.identity, resolved.body, options)
-      }
-      return { accepted: true }
-    },
+    tryReviseResolvedItem: revise,
+    tryReviseResolvedItemAndPublish: revise,
     appendTombstone: () => {},
     publish: vi.fn()
   }

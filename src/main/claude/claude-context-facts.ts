@@ -158,9 +158,12 @@ export class ClaudeContextFacts {
     this.windowReported = true
     const contextUsage: AgentSessionContextUsage =
       part === 'report' ? { used: { kind: 'report', ...report }, window } : { window }
-    writeClaudeTurnRow(this.sink, target === null ? { newest: true } : { identity: target }, {
-      contextUsage
-    })
+    writeClaudeTurnRow(
+      this.sink,
+      target === null ? { newest: true } : { identity: target },
+      { contextUsage },
+      { publish: true }
+    )
   }
 
   subscribeReportRequests(listener: (target: ClaudeContextReportTarget) => void): () => void {
@@ -176,7 +179,8 @@ export class ClaudeContextFacts {
   private write(contextUsage: AgentSessionContextUsage): void {
     const identity = this.turn.identity
     const target: ClaudeTurnRowTarget = identity ? { identity } : { newest: true }
-    writeClaudeTurnRow(this.sink, target, { contextUsage })
+    // A context fact often lands with no later frame to publish it, so it publishes itself.
+    writeClaudeTurnRow(this.sink, target, { contextUsage }, { publish: true })
   }
 
   /** The context no longer holds what the journal says; a report asked for before now describes the old one. */
