@@ -125,6 +125,12 @@ async function installOrcadBundle(
     ) {
       return
     }
+    // Why this needs ripgrep work before it goes live: `build-orcad.mjs` copies only the BUILD
+    // host's rg into `out/orcad/ripgrep/<platform>/`, and this upload carries that directory
+    // verbatim. orcad reports isPackaged() === true, so its rg resolver takes the packaged branch
+    // and returns an absolute path under its own install root with no PATH fallback -- on a remote
+    // of a different platform that path does not exist and every search fails. Call
+    // `ensureRemoteBundledRipgrep` here (as the relay deploy does), or ship all six platforms.
     await uploadRelayDirectory(options.conn, options.localOrcadDir, remoteDir, options.host, {
       signal: options.signal
     })

@@ -189,12 +189,15 @@ export function probeOrStageCommand(
     const bin = shellEscape(layout.binaryPath)
     const sweep = `find ${shellEscape(layout.cacheDir)} -mindepth 1 -maxdepth 1 -type d -name '${UPLOAD_STAGE_PREFIX}*' -mmin +${STALE_UPLOAD_STAGE_MINUTES} -exec rm -rf {} + 2>/dev/null`
     const stage = makeRelayUploadStageDirectoryCommand(stageNamespace, host, stageDir)
-    return `if ${posixInstalledTest(bin, bytes)}; then echo ${PRESENT}; else ${sweep}; ${stage} && echo ${STAGED}; fi`
+    // Why the sweep runs before the branch, not inside the else: once rg is installed every later
+    // deploy takes the PRESENT path, so a stage orphaned by a dropped connection would never be
+    // collected. It stays one exec round trip either way.
+    return `${sweep}; if ${posixInstalledTest(bin, bytes)}; then echo ${PRESENT}; else ${stage} && echo ${STAGED}; fi`
   }
   return powerShellCommand(
     [
-      `if (${windowsInstalledTest(powerShellLiteral(layout.binaryPath), bytes)}) { '${PRESENT}' } else {`,
       `Get-ChildItem -LiteralPath ${powerShellLiteral(layout.cacheDir)} -Directory -Filter '${UPLOAD_STAGE_PREFIX}*' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddMinutes(-${STALE_UPLOAD_STAGE_MINUTES}) } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue`,
+      `if (${windowsInstalledTest(powerShellLiteral(layout.binaryPath), bytes)}) { '${PRESENT}' } else {`,
       `$null = New-Item -ItemType Directory -Force -Path ${powerShellLiteral(joinRemotePath(host, stageDir, 'payload'))} -ErrorAction Stop`,
       `'${STAGED}' }`
     ].join('\n')

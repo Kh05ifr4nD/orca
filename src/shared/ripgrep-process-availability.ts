@@ -133,6 +133,22 @@ export async function isRipgrepUnavailableAfterLaunchFailure(cwd: string): Promi
   return !(await checkRipgrepAvailableWithoutCwd())
 }
 
+/**
+ * Exit code the WSL wrapper uses when it cannot enter the search root. Why a dedicated code:
+ * ripgrep exits 1 for "no matches", so without this an unreachable workspace would report an
+ * empty listing as a successful scan. Picked above ripgrep's own 0/1/2 and clear of the shell's
+ * 126/127 and 128+signal range.
+ */
+export const RIPGREP_MISSING_CWD_EXIT_CODE = 97
+
+export function isRipgrepMissingCwdExit(code: number | null): boolean {
+  return code === RIPGREP_MISSING_CWD_EXIT_CODE
+}
+
+export function ripgrepMissingCwdError(cwd: string): Error {
+  return new Error(`Search root is not reachable: ${cwd}`)
+}
+
 export function isRipgrepUnavailableExit(
   child: ChildProcess,
   code: number | null,

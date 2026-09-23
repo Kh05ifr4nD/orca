@@ -14,12 +14,15 @@ export function wslAwareSpawn(
     wslDistro?: string
     useWslLoginShell?: boolean
     wslShellCommand?: string
+    cwdFailureExitCode?: number
   }
 ): ChildProcess {
-  const { wslDistro, useWslLoginShell, wslShellCommand, ...spawnOptions } = options
+  const { wslDistro, useWslLoginShell, wslShellCommand, cwdFailureExitCode, ...spawnOptions } =
+    options
   const resolved = resolveCommand(command, args, options.cwd, wslDistro, {
     useWslLoginShell,
-    wslShellCommand
+    wslShellCommand,
+    ...(cwdFailureExitCode === undefined ? {} : { cwdFailureExitCode })
   })
   const spawnStartedAt = performance.now()
   const child = spawn(resolved.binary, resolved.args, {

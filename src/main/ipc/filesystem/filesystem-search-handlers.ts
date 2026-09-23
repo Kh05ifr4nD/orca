@@ -12,9 +12,11 @@ import {
 } from '../../../shared/text-search'
 import {
   absorbPendingRipgrepSpawnError,
+  isRipgrepMissingCwdExit,
   isRipgrepUnavailableExit,
   isTransientRipgrepSpawnError,
-  killSpawnedRipgrepProcess
+  killSpawnedRipgrepProcess,
+  ripgrepMissingCwdError
 } from '../../../shared/ripgrep-process-availability'
 import { toWindowsWslPath, parseWslPath } from '../../wsl'
 import {
@@ -143,6 +145,12 @@ export function registerFilesystemSearchHandlers(context: FilesystemHandlerConte
           resolveOnce()
         }
         const handleClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+          // Why first: this code is above rg's own 0/1/2, so the unavailable check would otherwise
+          // read an unreachable workspace as a broken install and tell the user to reinstall Orca.
+          if (isRipgrepMissingCwdExit(code)) {
+            finish(Promise.reject(ripgrepMissingCwdError(rootPath)))
+            return
+          }
           if (
             child &&
             isRipgrepUnavailableExit(child, code, signal, {

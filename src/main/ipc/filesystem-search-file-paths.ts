@@ -13,8 +13,10 @@ import { isQuickOpenQueryTooLarge, QuickOpenPathRanker } from '../../shared/quic
 import {
   absorbPendingRipgrepSpawnError,
   isRipgrepUnavailableExit,
+  isRipgrepMissingCwdExit,
   isTransientRipgrepSpawnError,
   killSpawnedRipgrepProcess,
+  ripgrepMissingCwdError,
   RipgrepLaunchFailureError,
   RipgrepUnavailableError
 } from '../../shared/ripgrep-process-availability'
@@ -201,6 +203,11 @@ function scanRipgrepPaths(args: {
       ) {
         unavailableExitObserved = true
         finish(new RipgrepUnavailableError())
+        return
+      }
+      if (isRipgrepMissingCwdExit(code)) {
+        pathAccumulator.clear()
+        finish(ripgrepMissingCwdError(args.authorizedRootPath))
         return
       }
       if (signal) {

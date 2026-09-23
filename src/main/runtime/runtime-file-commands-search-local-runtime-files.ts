@@ -17,9 +17,11 @@ import { bundledRipgrepUnavailableError } from '../ripgrep/bundled-ripgrep-path'
 import { spawnBundledRipgrep } from '../ripgrep/bundled-ripgrep-spawn'
 import {
   absorbPendingRipgrepSpawnError,
+  isRipgrepMissingCwdExit,
   isRipgrepUnavailableExit,
   isTransientRipgrepSpawnError,
-  killSpawnedRipgrepProcess
+  killSpawnedRipgrepProcess,
+  ripgrepMissingCwdError
 } from '../../shared/ripgrep-process-availability'
 import type { ChildProcessHandle } from '../../shared/child-process/process-spec'
 import type { RuntimeFileExplorerPath } from './runtime-file-command-target'
@@ -138,6 +140,12 @@ export class RuntimeFileCommandsWithSearchLocalRuntimeFiles extends RuntimeFileC
         resolveOnce()
       }
       const onClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+        // Why first: this code is above rg's own 0/1/2, so the unavailable check would otherwise
+        // read an unreachable workspace as a broken install and tell the user to reinstall Orca.
+        if (isRipgrepMissingCwdExit(code)) {
+          finish(Promise.reject(ripgrepMissingCwdError(authorizedRootPath)))
+          return
+        }
         if (
           child &&
           isRipgrepUnavailableExit(child, code, signal, {

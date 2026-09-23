@@ -21,8 +21,10 @@ import { spawnBundledRipgrep } from '../ripgrep/bundled-ripgrep-spawn'
 import {
   absorbPendingRipgrepSpawnError,
   isRipgrepUnavailableExit,
+  isRipgrepMissingCwdExit,
   isTransientRipgrepSpawnError,
   killSpawnedRipgrepProcess,
+  ripgrepMissingCwdError,
   RipgrepUnavailableError
 } from '../../shared/ripgrep-process-availability'
 import { fileListingCancellationError } from '../../shared/file-listing-cancellation'
@@ -162,6 +164,13 @@ export async function listQuickOpenFiles(
         finish(new Error('rg failed to start'))
       }
       const handleClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+        // Why first: this code is above rg's own 0/1/2, so the unavailable check would otherwise
+        // read an unreachable workspace as a broken install and tell the user to reinstall Orca.
+        if (isRipgrepMissingCwdExit(code)) {
+          buf = ''
+          finish(ripgrepMissingCwdError(authorizedRootPath))
+          return
+        }
         if (
           isRipgrepUnavailableExit(child, code, signal, {
             classifyNativeLauncherExit: true
