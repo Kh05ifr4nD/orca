@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from './rpc-client'
 import { useHostStatusGates, type HostStatusGates } from './host-status-gates'
 
@@ -10,7 +10,16 @@ vi.mock('./host-app-version-store', () => ({
   recordHostAppVersion: (...args: unknown[]) => recordHostAppVersionMock(...args)
 }))
 
+const recordHostDescriptorMock = vi.hoisted(() => vi.fn())
+
+vi.mock('./host-descriptor-store', () => ({
+  recordHostDescriptor: (...args: unknown[]) => recordHostDescriptorMock(...args)
+}))
+
 describe('useHostStatusGates', () => {
+  beforeEach(() => {
+    recordHostDescriptorMock.mockClear()
+  })
   it('clears every prior-host gate and ignores its late response while the client is replaced', async () => {
     let resolveOldStatus: ((response: unknown) => void) | null = null
     const pendingOldStatus = new Promise((resolve) => {
@@ -84,7 +93,9 @@ describe('useHostStatusGates', () => {
       result: {
         appVersion: '1.4.191',
         capabilities: ['browser.screencast.v1'],
-        floatingWorkspaceEnabled: true
+        floatingWorkspaceEnabled: true,
+        machineName: 'studio',
+        hostPlatform: 'darwin'
       }
     })
     const client = { sendRequest } as unknown as RpcClient
@@ -109,6 +120,10 @@ describe('useHostStatusGates', () => {
 
       expect(sendRequest).toHaveBeenCalledOnce()
       expect(recordHostAppVersionMock).toHaveBeenCalledWith('host-1', '1.4.191')
+      expect(recordHostDescriptorMock).toHaveBeenCalledWith('host-1', {
+        machineName: 'studio',
+        platform: 'darwin'
+      })
     } finally {
       renderer?.unmount()
     }

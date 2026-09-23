@@ -13,9 +13,10 @@ import {
   X
 } from 'lucide-react-native'
 import { StatusDot } from '../components/StatusDot'
+import { hostPlatformDisplayName } from '../../../src/shared/host-platform-label'
+import { resolveHostDisplay } from '../../../src/shared/host-display-resolution'
 import { classifyConnection, type ConnectionVerdict } from '../transport/connection-health'
 import { colors } from '../theme/mobile-theme'
-import { hostPlatformLabel } from '../transport/host-platform-label'
 import { hostScreenStyles as styles } from './host-screen-styles'
 import type { HostScreenController } from './use-host-screen-controller'
 
@@ -31,8 +32,7 @@ export function HostScreenHeader({ controller }: { controller: HostScreenControl
     floatingWorkspaceEnabled,
     forceReconnectHost,
     hostId,
-    hostDisplay,
-    hostPlatform,
+    hostDisplay: resolvedHostDisplay,
     lastConnectedAt,
     onHideSidebar,
     reconnectAttempts,
@@ -40,6 +40,13 @@ export function HostScreenHeader({ controller }: { controller: HostScreenControl
     settings,
     state
   } = controller
+  const hostDisplay =
+    resolvedHostDisplay ??
+    resolveHostDisplay({
+      personalLabel: state.hostName,
+      descriptorFresh: false,
+      fallbackLabel: state.hostName || 'Host'
+    })
 
   return (
     <View style={styles.topChrome}>
@@ -73,7 +80,7 @@ export function HostScreenHeader({ controller }: { controller: HostScreenControl
                 {hostDisplay.showDescriptor ? (
                   <Text style={styles.hostPlatformText} numberOfLines={1}>
                     {`${hostDisplay.descriptorFresh ? '' : 'Last known · '}${[
-                      hostPlatformLabel(hostPlatform ?? state.machinePlatform),
+                      hostPlatformDisplayName(hostDisplay.descriptorPlatform),
                       hostDisplay.descriptorName
                     ]
                       .filter(Boolean)
@@ -86,8 +93,12 @@ export function HostScreenHeader({ controller }: { controller: HostScreenControl
                   // Why: auth-failed has its own banner, so suppress the Reconnect button for that verdict.
                   const verdict = headerVerdict
                   const isError = isErrorVerdict(verdict)
-                  const showReconnectButton = isError && hostId && verdict.kind !== 'auth-failed'
-                  if (!showReconnectButton) {
+                  if (
+                    !isError ||
+                    !hostId ||
+                    verdict.kind === 'auth-failed' ||
+                    !forceReconnectHost
+                  ) {
                     return null
                   }
                   return (

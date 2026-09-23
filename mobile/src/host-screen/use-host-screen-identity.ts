@@ -18,9 +18,6 @@ export function useHostScreenIdentity(args: {
     setCatalogError,
     setError,
     setHostLabelById,
-    setMachineDescriptorSeenAt,
-    setMachineName,
-    setMachinePlatform,
     setHostName,
     setHostPlatform,
     setLastKnownWorktrees,
@@ -57,9 +54,6 @@ export function useHostScreenIdentity(args: {
 
   useEffect(() => {
     setHostName('')
-    setMachineName(null)
-    setMachinePlatform(null)
-    setMachineDescriptorSeenAt(null)
     setError('')
     setRepoColorsByName(new Map())
     setRepoIconsByName(new Map())
@@ -93,9 +87,6 @@ export function useHostScreenIdentity(args: {
         return
       }
       setHostName(host.name)
-      setMachineName(host.machineName ?? null)
-      setMachinePlatform(host.machinePlatform ?? null)
-      setMachineDescriptorSeenAt(host.machineDescriptorSeenAt ?? null)
       void updateLastConnected(host.id)
     })
     return () => {

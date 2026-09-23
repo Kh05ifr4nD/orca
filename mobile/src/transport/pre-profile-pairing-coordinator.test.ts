@@ -124,6 +124,7 @@ function dependencies(client: RpcClient, events: string[]) {
     writeCredentialBundle: vi.fn(async (_bundle: MobileRelayCredentialBundle) => {
       events.push('write-credential')
     }),
+    recordHostDescriptor: vi.fn(),
     now: () => now,
     platform: 'ios'
   }
@@ -181,8 +182,7 @@ describe('pre-profile pairing coordinator', () => {
       endpoint: directOffer.endpoint,
       deviceToken: directOffer.deviceToken,
       publicKeyB64: directOffer.publicKeyB64,
-      lastConnected: now,
-      machineDescriptorSeenAt: now
+      lastConnected: now
     })
     expect(events).toEqual(['connect', 'save-host'])
   })
@@ -212,8 +212,7 @@ describe('pre-profile pairing coordinator', () => {
       endpoint: directOffer.endpoint,
       deviceToken: directOffer.deviceToken,
       publicKeyB64: directOffer.publicKeyB64,
-      lastConnected: now,
-      machineDescriptorSeenAt: now
+      lastConnected: now
     })
   })
 
@@ -238,12 +237,12 @@ describe('pre-profile pairing coordinator', () => {
 
     await pending.finalize('Windows-Low Spec')
     expect(deps.saveHost).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'Windows-Low Spec',
-        machineName: 'm4airs-Air',
-        machinePlatform: 'darwin'
-      })
+      expect.objectContaining({ name: 'Windows-Low Spec' })
     )
+    expect(deps.recordHostDescriptor).toHaveBeenCalledWith(`host-${now}`, {
+      machineName: 'm4airs-Air',
+      platform: 'darwin'
+    })
   })
 
   it('journals before connecting and publishes only after authoritative direct install', async () => {

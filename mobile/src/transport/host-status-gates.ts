@@ -6,6 +6,7 @@ import { evaluateCompat, type CompatVerdict } from './protocol-compat'
 import type { HostStatusReply } from './host-status-reply-schema'
 import { normalizeHostAppVersion } from './host-app-version'
 import { recordHostAppVersion } from './host-app-version-store'
+import { recordHostDescriptor } from './host-descriptor-store'
 
 export type HostStatusGates = {
   hostCapabilities: string[]
@@ -94,6 +95,12 @@ export function useHostStatusGates(args: {
         const desktopAppVersion = normalizeHostAppVersion(status.appVersion)
         if (hostId && desktopAppVersion) {
           void recordHostAppVersion(hostId, desktopAppVersion)
+        }
+        if (hostId) {
+          recordHostDescriptor(hostId, {
+            machineName: status.machineName?.trim() || null,
+            platform: status.hostPlatform ?? null
+          })
         }
         settle({
           hostCapabilities: status.capabilities ?? [],

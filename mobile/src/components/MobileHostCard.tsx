@@ -3,8 +3,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { ConnectionVerdict } from '../transport/connection-health'
 import { verdictDisplayLabel } from '../transport/connection-health'
 import { mobileConnectionPathLabel } from '../transport/mobile-connection-path-label'
-import { hostPlatformLabel } from '../transport/host-platform-label'
+import { hostPlatformDisplayName } from '../../../src/shared/host-platform-label'
 import { resolveHostDisplay } from '../../../src/shared/host-display-resolution'
+import type { HostDescriptorSnapshot } from '../transport/host-descriptor-store'
 import type { MobileConnectionPath } from '../transport/stable-logical-rpc-client'
 import type { ConnectionState, HostCatalogEntry, HostProfile } from '../transport/types'
 import { colors, radii, spacing } from '../theme/mobile-theme'
@@ -17,10 +18,7 @@ export function MobileHostCard(props: {
   state: ConnectionState
   verdict: ConnectionVerdict
   path: MobileConnectionPath
-  hostPlatform?: NodeJS.Platform | null
-  machineName?: string | null
-  machinePlatform?: NodeJS.Platform | null
-  descriptorFresh?: boolean
+  descriptor?: HostDescriptorSnapshot
   // Why: the card owns the fresh/stale/unavailable wording so no caller can re-gate the counts
   // away (STA-3123 shipped that bug once already).
   worktreeInfo?: HostWorktreeInfo
@@ -44,14 +42,13 @@ export function MobileHostCard(props: {
       ? { kind: 'warning', label: statusLabel }
       : props.verdict
   const worktreeSummary = homeHostWorktreeSummary(props.worktreeInfo)
-  const platformLabel = hostPlatformLabel(props.hostPlatform ?? props.machinePlatform)
-  const descriptorFresh = props.descriptorFresh ?? props.hostPlatform !== undefined
+  const descriptor = props.descriptor ?? { descriptor: null, fresh: false }
+  const platformLabel = hostPlatformDisplayName(descriptor.descriptor?.platform)
   const display = resolveHostDisplay({
     personalLabel: props.host.name,
-    machineName: props.machineName,
-    platform: props.hostPlatform ?? props.machinePlatform,
-    descriptorFresh,
-    previousPlatform: props.machinePlatform,
+    machineName: descriptor.descriptor?.machineName,
+    platform: descriptor.descriptor?.platform,
+    descriptorFresh: descriptor.fresh,
     fallbackLabel: props.host.name
   })
   const descriptorLabel = [platformLabel, display.descriptorName].filter(Boolean).join(' · ')

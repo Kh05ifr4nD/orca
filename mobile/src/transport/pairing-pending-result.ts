@@ -2,12 +2,13 @@ import type { MobileRelayCredentialBundle } from './mobile-relay-credential-bund
 import type { MobileRelayPairingJournal } from './mobile-relay-pairing-journal'
 import type { HostStatusReply } from './host-status-reply-schema'
 import type { HostProfile } from './types'
+import { recordHostDescriptor } from './host-descriptor-store'
 
 export type PairingPendingResultDependencies = {
-  now: () => number
   saveHost: (host: HostProfile) => Promise<void>
   clearJournal: (journalId: string) => Promise<void>
   writeCredentialBundle: (bundle: MobileRelayCredentialBundle) => Promise<void>
+  recordHostDescriptor: typeof recordHostDescriptor
 }
 
 export type PairingPendingResult = {
@@ -32,15 +33,9 @@ export function createPendingPairing(args: {
   const hostPlatform = args.status?.hostPlatform ?? null
   const suggestedName = args.isExisting ? args.host.name : (machineName ?? args.host.name)
   let settled = false
-  const descriptorHost = {
-    ...args.host,
-    ...(machineName ? { machineName } : {}),
-    ...(hostPlatform ? { machinePlatform: hostPlatform } : {}),
-    ...(args.status ? { machineDescriptorSeenAt: args.dependencies.now() } : {})
-  }
   return {
     hostId: args.host.id,
-    host: descriptorHost,
+    host: args.host,
     machineName,
     hostPlatform,
     suggestedName,
@@ -52,7 +47,13 @@ export function createPendingPairing(args: {
       if (args.credentialBundle) {
         await args.dependencies.writeCredentialBundle(args.credentialBundle)
       }
-      await args.dependencies.saveHost({ ...descriptorHost, name: normalizedName })
+      await args.dependencies.saveHost({ ...args.host, name: normalizedName })
+      if (args.status) {
+        args.dependencies.recordHostDescriptor(args.host.id, {
+          machineName,
+          platform: hostPlatform
+        })
+      }
       if (args.journal) {
         await args.dependencies.clearJournal(args.journal.metadata.journalId)
       }

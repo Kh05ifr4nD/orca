@@ -5,6 +5,7 @@ import { MobileHostCard } from '../components/MobileHostCard'
 import type { HomeStatsSummary } from '../stats/home-stats-total'
 import { spacing } from '../theme/mobile-theme'
 import { classifyConnection } from '../transport/connection-health'
+import { useHostDescriptor } from '../transport/host-descriptor-store'
 import { resolveHomeHostConnectionState } from '../transport/home-host-auto-connect'
 import type { ConnectionState, HostCatalogEntry } from '../transport/types'
 import type { HostWorktreeInfo } from '../worktree/home-worktree-info'
@@ -21,14 +22,6 @@ type MobileHomeHostListProps = {
   hostConnections: HomeHostConnections
   hosts: HostCatalogEntry[]
   hostStates: Record<string, ConnectionState>
-  hostStatusByHostId: Record<
-    string,
-    {
-      hostPlatform: NodeJS.Platform | null
-      machineName: string | null
-      descriptorFresh: boolean
-    }
-  >
   isWideLayout: boolean
   stats: HomeStatsSummary | null
   worktreeInfo: Record<string, HostWorktreeInfo>
@@ -47,7 +40,6 @@ export function MobileHomeHostList(props: MobileHomeHostListProps) {
         hostLastConnected={props.hostLastConnected}
         hostConnections={props.hostConnections}
         hostStates={props.hostStates}
-        hostStatusByHostId={props.hostStatusByHostId}
         worktreeInfo={props.worktreeInfo}
         onOpen={props.onOpen}
         onLongPress={props.onLongPress}
@@ -60,7 +52,6 @@ export function MobileHomeHostList(props: MobileHomeHostListProps) {
       props.hostLastConnected,
       props.hostConnections,
       props.hostStates,
-      props.hostStatusByHostId,
       props.onLongPress,
       props.onOpen,
       props.onOpenActions,
@@ -96,7 +87,6 @@ type MobileHomeHostRowProps = Pick<
   | 'hostLastConnected'
   | 'hostConnections'
   | 'hostStates'
-  | 'hostStatusByHostId'
   | 'worktreeInfo'
   | 'onOpen'
   | 'onLongPress'
@@ -124,22 +114,12 @@ const MobileHomeHostRow = memo(function MobileHomeHostRow(props: MobileHomeHostR
   const open = useCallback(() => onOpen(item), [item, onOpen])
   const longPress = useCallback(() => onLongPress(item), [item, onLongPress])
   const openActions = useCallback(() => onOpenActions(item), [item, onOpenActions])
+  const descriptor = useHostDescriptor(item.id)
 
   return (
     <MobileHostCard
       host={item}
-      hostPlatform={props.hostStatusByHostId[item.id]?.hostPlatform}
-      machineName={
-        props.hostStatusByHostId[item.id]?.descriptorFresh
-          ? props.hostStatusByHostId[item.id]?.machineName
-          : (item.machineName ?? null)
-      }
-      machinePlatform={
-        props.hostStatusByHostId[item.id]?.descriptorFresh
-          ? props.hostStatusByHostId[item.id]?.hostPlatform
-          : (item.machinePlatform ?? null)
-      }
-      descriptorFresh={props.hostStatusByHostId[item.id]?.descriptorFresh === true}
+      descriptor={descriptor}
       credentialStatus={item.credentialStatus}
       state={state}
       verdict={verdict}

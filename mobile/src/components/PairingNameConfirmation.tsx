@@ -1,6 +1,6 @@
 import { useState, type JSX } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import { hostPlatformLabel } from '../transport/host-platform-label'
+import { hostPlatformDisplayName } from '../../../src/shared/host-platform-label'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 
 export function PairingNameConfirmation(props: {
@@ -13,7 +13,7 @@ export function PairingNameConfirmation(props: {
 }): JSX.Element {
   const [name, setName] = useState(props.initialName)
   const machineLabel = props.machineName ?? 'this desktop'
-  const platform = hostPlatformLabel(props.hostPlatform)
+  const platform = hostPlatformDisplayName(props.hostPlatform)
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Connected to {machineLabel}</Text>

@@ -87,6 +87,16 @@
       "ordinal": 5,
       "value": "direct"
     },
+    "41484ffa145c": {
+      "name": "unhandled-rejection",
+      "ordinal": 5,
+      "value": {
+        "category": "RpcIncompatibleReplyError",
+        "code": "incompatible_reply",
+        "isRpcDeliveryUnknown": false,
+        "message": "The host sent a reply this app could not read (status.get)"
+      }
+    },
     "416024b9c436": {
       "status": "fulfilled",
       "startedAt": 0,
@@ -161,6 +171,11 @@
           "ok": false
         }
       }
+    },
+    "8e378786864c": {
+      "name": "candidate-closed",
+      "ordinal": 6,
+      "value": "relay"
     },
     "93edac3a1c3e": {
       "status": "fulfilled",
@@ -481,10 +496,10 @@
           "sender": ["a1e33b5bf8ef", "f39d5bd1c382"],
           "payloads": ["e7b5d7d57a61", "f1834177e593"],
           "settlements": {
-            "race": "416024b9c436"
+            "race": "93edac3a1c3e"
           },
-          "state": "a7d5becc0aed",
-          "effects": ["2a6d50107927"]
+          "state": "d9b301beff12",
+          "effects": ["41484ffa145c", "8e378786864c"]
         }
       },
       {
@@ -493,10 +508,10 @@
           "sender": ["a1e33b5bf8ef", "95e5245e8cf5"],
           "payloads": ["e7b5d7d57a61", "f1834177e593"],
           "settlements": {
-            "race": "416024b9c436"
+            "race": "93edac3a1c3e"
           },
-          "state": "a7d5becc0aed",
-          "effects": ["2a6d50107927"]
+          "state": "d9b301beff12",
+          "effects": ["41484ffa145c", "8e378786864c"]
         }
       },
       {

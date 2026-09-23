@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useLocalSearchParams, usePathname } from 'expo-router'
 import { useRouteHandoff } from '../navigation/route-handoff'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -24,7 +24,7 @@ import { useHostScreenState } from './use-host-screen-state'
 import { useHostViewSettings } from './use-host-view-settings'
 import { useHostWorktreeActions } from './use-host-worktree-actions'
 import { useHostWorktreeCatalog } from './use-host-worktree-catalog'
-import { updateHostMachineDescriptor } from '../transport/host-store'
+import { useHostDescriptor } from '../transport/host-descriptor-store'
 
 export type HostScreenProps = {
   // When true, rendered as the persistent tablet sidebar by the host layout, not as its own routed screen.
@@ -64,45 +64,18 @@ export function useHostScreenController({
   const forceReconnectHost = useForceReconnect()
   // One tick drives every visible agent row's relative timestamp.
   const now = useNow(30_000)
-  const { hostCapabilities, floatingWorkspaceEnabled, hostPlatform, machineName, statusReadable } =
-    useHostProtocolGates()
+  const { hostCapabilities, floatingWorkspaceEnabled } = useHostProtocolGates()
   const state = useHostScreenState(hostId, action)
   const settings = useHostViewSettings({ client, connState, hostId, state })
+  const descriptor = useHostDescriptor(hostId)
 
   const hostDisplay = resolveHostDisplay({
     personalLabel: state.hostName,
-    machineName: statusReadable ? machineName : state.machineName,
-    platform: statusReadable ? hostPlatform : state.machinePlatform,
-    descriptorFresh: statusReadable,
-    previousPlatform: state.machinePlatform,
+    machineName: descriptor.descriptor?.machineName,
+    platform: descriptor.descriptor?.platform,
+    descriptorFresh: descriptor.fresh,
     fallbackLabel: state.hostName || 'Host'
   })
-  const { setMachineDescriptorSeenAt, setMachineName, setMachinePlatform } = state
-
-  useEffect(() => {
-    if (!hostId || !statusReadable) {
-      return
-    }
-    const seenAt = Date.now()
-    setMachineName(machineName)
-    setMachinePlatform(hostPlatform)
-    setMachineDescriptorSeenAt(seenAt)
-    void updateHostMachineDescriptor(hostId, {
-      machineName,
-      machinePlatform: hostPlatform,
-      seenAt
-    }).catch(() => {})
-  }, [
-    hostId,
-    hostPlatform,
-    machineName,
-    state.machineName,
-    state.machinePlatform,
-    setMachineDescriptorSeenAt,
-    setMachineName,
-    setMachinePlatform,
-    statusReadable
-  ])
 
   useHostScreenIdentity({ client, hostId, state })
   const fetchRepoMetadata = useHostRepoMetadata({ client, connState, hostId, state })
@@ -186,7 +159,6 @@ export function useHostScreenController({
     hostCapabilities,
     hostDisplay,
     hostId,
-    hostPlatform,
     insets,
     isReadOnly: connState === 'auth-failed',
     isWideLayout,

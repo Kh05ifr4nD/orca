@@ -30,7 +30,6 @@ import {
   toStoredHostProfile,
   writeStoredHostProfiles
 } from './host-metadata-store'
-import { createHostMachineDescriptorUpdater } from './host-machine-descriptor-store'
 import { createHostNameAndEndpointUpdater } from './host-name-endpoint-updater'
 
 async function commitDeviceToken(hostId: string, token: string): Promise<void> {
@@ -316,8 +315,6 @@ export async function updateLastConnected(hostId: string): Promise<void> {
     // Why: best-effort timestamp fired with void; swallow so unreadable storage doesn't reject.
   }
 }
-
-export const updateHostMachineDescriptor = createHostMachineDescriptorUpdater(mutateStoredHosts)
 
 /** Test-only: drain module mutation chain between cases. */
 export function resetHostStoreForTests(): void {

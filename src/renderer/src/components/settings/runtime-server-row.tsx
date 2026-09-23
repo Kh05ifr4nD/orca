@@ -104,13 +104,20 @@ export function RuntimeServerRow({
       runtimeStatusEntry?.status !== null && runtimeStatusEntry?.status !== undefined,
     fallbackLabel: environment.name
   })
+  const descriptorText = [
+    hostPlatformDisplayName(descriptorStatus?.hostPlatform),
+    hostDisplay.descriptorName
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const hostDescriptorText = hostDisplay.showDescriptor
-    ? `${hostDisplay.descriptorFresh ? '' : 'Last known · '}${[
-        hostPlatformDisplayName(descriptorStatus?.hostPlatform),
-        hostDisplay.descriptorName
-      ]
-        .filter(Boolean)
-        .join(' · ')}`
+    ? hostDisplay.descriptorFresh
+      ? descriptorText
+      : translate(
+          'auto.components.settings.RuntimeServerRow.lastKnownDescriptor',
+          'Last known · {{descriptor}}',
+          { descriptor: descriptorText }
+        )
     : null
 
   return (

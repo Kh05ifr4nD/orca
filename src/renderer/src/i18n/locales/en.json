@@ -12105,6 +12105,9 @@
         "TerminalRenderingSection": {
           "6d4c55bacc": "Inline Images",
           "fffab5890b": "Display images directly in the terminal using SIXEL, iTerm2 (IIP), and Kitty graphics protocols."
+        },
+        "RuntimeServerRow": {
+          "lastKnownDescriptor": "Last known · {{descriptor}}"
         }
       },
       "right": {

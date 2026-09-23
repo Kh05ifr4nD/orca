@@ -2,16 +2,16 @@ export type HostDisplayResolutionInput = {
   personalLabel?: string | null
   machineName?: string | null
   hostname?: string | null
-  platform?: string | null
+  platform?: NodeJS.Platform | null
   descriptorFresh: boolean
-  previousPlatform?: string | null
+  previousPlatform?: NodeJS.Platform | null
   fallbackLabel: string
 }
 
 export type HostDisplayResolution = {
   primaryLabel: string
   descriptorName: string | null
-  descriptorPlatform: string | null
+  descriptorPlatform: NodeJS.Platform | null
   showDescriptor: boolean
   descriptorFresh: boolean
 }
@@ -22,14 +22,15 @@ export function resolveHostDisplay(input: HostDisplayResolutionInput): HostDispl
   const machineName = normalize(input.machineName)
   const hostname = normalize(input.hostname)
   const descriptorName = machineName ?? hostname
-  const descriptorPlatform = normalize(input.platform)
+  const descriptorPlatform = input.platform ?? null
   const fallbackLabel = normalize(input.fallbackLabel) ?? 'Host'
   const primaryLabel = personalLabel ?? descriptorName ?? fallbackLabel
   const descriptorExists = descriptorName !== null || descriptorPlatform !== null
   const platformChanged =
-    normalize(input.previousPlatform) !== null &&
+    input.previousPlatform !== null &&
+    input.previousPlatform !== undefined &&
     descriptorPlatform !== null &&
-    normalize(input.previousPlatform) !== descriptorPlatform
+    input.previousPlatform !== descriptorPlatform
   const personalLabelAgrees = personalLabel !== null && personalLabel === descriptorName
   const canCollapse = personalLabelAgrees && input.descriptorFresh && !platformChanged
 

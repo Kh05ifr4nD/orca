@@ -137,9 +137,10 @@ describe('MobileHostCard', () => {
           state: 'connected',
           verdict: { kind: 'normal', label: 'Connected' },
           path: 'lan',
-          hostPlatform: 'darwin',
-          machineName: 'm4airs-Air',
-          descriptorFresh: true,
+          descriptor: {
+            descriptor: { platform: 'darwin', machineName: 'm4airs-Air' },
+            fresh: true
+          },
           onPress: vi.fn(),
           onLongPress: vi.fn(),
           onOpenActions: vi.fn()
@@ -169,9 +170,7 @@ describe('MobileHostCard', () => {
           state: 'disconnected',
           verdict: { kind: 'normal', label: 'Disconnected' },
           path: 'lan',
-          machineName: 'Desk',
-          machinePlatform: 'darwin',
-          descriptorFresh: false,
+          descriptor: { descriptor: { platform: 'darwin', machineName: 'Desk' }, fresh: false },
           onPress: vi.fn(),
           onLongPress: vi.fn(),
           onOpenActions: vi.fn()

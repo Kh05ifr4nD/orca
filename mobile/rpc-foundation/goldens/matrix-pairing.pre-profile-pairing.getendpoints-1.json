@@ -6,23 +6,13 @@
   "baseline": "37820f9683527becf68d8d4d4fb564f32c49e72d",
   "lockfileSha256": "1327605e77b3fed83c7410635d39fdab40c49380e5cbf483ec6ff1b404b4e1d1",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
-  "adapterSha256": "e33d584229530c716ecdc44d198b95fcfb4dfd9468fba7d5222ee3f122950197",
+  "adapterSha256": "5c844fa435ce1002939cd4402e47b8f31a497a8c2f48ef1ef69543fc0278aa72",
   "scenarioSha256": "ccd2ef7c617d13bdf5987f5f89fed6917206205268633b9ef061b92c3580d672",
   "platform": "darwin",
   "scenarioVersion": 1,
   "projectionVersion": 2,
   "goldenFormatVersion": 5,
   "values": {
-    "061b247f2805": {
-      "name": "host-saved",
-      "ordinal": 13,
-      "value": "relay-host-0001x"
-    },
-    "077b94702eb7": {
-      "name": "candidate-closed",
-      "ordinal": 15,
-      "value": "direct"
-    },
     "0821c2edac81": {
       "name": "pairing.getEndpoints#1",
       "ordinal": 10,
@@ -176,9 +166,9 @@
       "ordinal": 12,
       "value": "direct"
     },
-    "33c6a36cc4b6": {
+    "38131a2042f6": {
       "name": "journal-cleared",
-      "ordinal": 14,
+      "ordinal": 16,
       "value": "pair-fixture-1"
     },
     "406c8ab0b9b6": {
@@ -202,6 +192,13 @@
         "$rpc": "null"
       },
       "timedOut": false
+    },
+    "4fe77334bd35": {
+      "name": "bundle-written",
+      "ordinal": 14,
+      "value": {
+        "version": 4
+      }
     },
     "576427a4aab3": {
       "name": "pairing.getEndpoints#1",
@@ -302,6 +299,11 @@
           "ok": true
         }
       }
+    },
+    "65e2707705d4": {
+      "name": "host-saved",
+      "ordinal": 15,
+      "value": "relay-host-0001x"
     },
     "6995d6b0bd4c": {
       "name": "status.get#1",
@@ -406,13 +408,6 @@
             "$rpc": "null"
           }
         }
-      }
-    },
-    "8bf25ca8d4ae": {
-      "name": "bundle-written",
-      "ordinal": 12,
-      "value": {
-        "version": 4
       }
     },
     "8e378786864c": {
@@ -696,11 +691,6 @@
         "message": "method_not_found: Unknown method",
         "isRpcDeliveryUnknown": false
       }
-    },
-    "f6b99510eefb": {
-      "name": "candidate-closed",
-      "ordinal": 16,
-      "value": "relay"
     }
   },
   "recording": {
@@ -719,11 +709,11 @@
             "406c8ab0b9b6",
             "8e378786864c",
             "e29d4c104dd3",
-            "8bf25ca8d4ae",
-            "061b247f2805",
-            "33c6a36cc4b6",
-            "077b94702eb7",
-            "f6b99510eefb"
+            "2b5606ff50ed",
+            "bb016ec23c9c",
+            "4fe77334bd35",
+            "65e2707705d4",
+            "38131a2042f6"
           ]
         }
       },

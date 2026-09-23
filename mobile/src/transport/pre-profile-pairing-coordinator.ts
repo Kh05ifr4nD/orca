@@ -32,6 +32,7 @@ import { createPairingRelayLogger } from './pairing-relay-log'
 import { redactSocketEndpoint } from './socket-event-debug'
 import { createPendingPairing, type PairingPendingResult } from './pairing-pending-result'
 import { assertCommittedInstall, relayHost } from './pairing-relay-host'
+import { recordHostDescriptor } from './host-descriptor-store'
 
 export type PreProfilePairingResult = PairingPendingResult
 
@@ -51,6 +52,7 @@ type Dependencies = {
   updateJournal: typeof updateMobileRelayPairingJournal
   clearJournal: typeof clearMobileRelayPairingJournal
   writeCredentialBundle: typeof writeMobileRelayCredentialBundle
+  recordHostDescriptor: typeof recordHostDescriptor
   now: () => number
   platform: string
 }
@@ -65,6 +67,7 @@ const defaultDependencies: Dependencies = {
   updateJournal: updateMobileRelayPairingJournal,
   clearJournal: clearMobileRelayPairingJournal,
   writeCredentialBundle: writeMobileRelayCredentialBundle,
+  recordHostDescriptor,
   now: Date.now,
   platform: Platform.OS
 }

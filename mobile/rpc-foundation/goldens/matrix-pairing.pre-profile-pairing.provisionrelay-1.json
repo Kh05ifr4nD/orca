@@ -6,23 +6,13 @@
   "baseline": "37820f9683527becf68d8d4d4fb564f32c49e72d",
   "lockfileSha256": "1327605e77b3fed83c7410635d39fdab40c49380e5cbf483ec6ff1b404b4e1d1",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
-  "adapterSha256": "e33d584229530c716ecdc44d198b95fcfb4dfd9468fba7d5222ee3f122950197",
+  "adapterSha256": "5c844fa435ce1002939cd4402e47b8f31a497a8c2f48ef1ef69543fc0278aa72",
   "scenarioSha256": "399fa8b85d9c2fc341ea2284a54aed278fd1a5b19a84cc9284c29d5a583bc519",
   "platform": "darwin",
   "scenarioVersion": 1,
   "projectionVersion": 2,
   "goldenFormatVersion": 5,
   "values": {
-    "061b247f2805": {
-      "name": "host-saved",
-      "ordinal": 13,
-      "value": "relay-host-0001x"
-    },
-    "077b94702eb7": {
-      "name": "candidate-closed",
-      "ordinal": 15,
-      "value": "direct"
-    },
     "143d29293173": {
       "name": "pairing.provisionRelay#1",
       "ordinal": 8,
@@ -108,6 +98,11 @@
       "ordinal": 12,
       "value": "direct"
     },
+    "2b5aa76fdb8d": {
+      "name": "journal-cleared",
+      "ordinal": 13,
+      "value": "pair-fixture-1"
+    },
     "2f2817ad588d": {
       "outcome": "failed: The host sent a reply this app could not read (pairing.provisionRelay)",
       "savedHost": {
@@ -153,15 +148,10 @@
         }
       }
     },
-    "33c6a36cc4b6": {
+    "38131a2042f6": {
       "name": "journal-cleared",
-      "ordinal": 14,
+      "ordinal": 16,
       "value": "pair-fixture-1"
-    },
-    "37a2861de5fb": {
-      "name": "host-saved",
-      "ordinal": 10,
-      "value": "direct-only"
     },
     "3d3dfd83b05f": {
       "name": "pairing.provisionRelay#1",
@@ -264,6 +254,13 @@
       },
       "timedOut": false
     },
+    "4fe77334bd35": {
+      "name": "bundle-written",
+      "ordinal": 14,
+      "value": {
+        "version": 4
+      }
+    },
     "5f157a7faba9": {
       "name": "pairing.provisionRelay#1",
       "ordinal": 8,
@@ -295,6 +292,11 @@
           "ok": true
         }
       }
+    },
+    "65e2707705d4": {
+      "name": "host-saved",
+      "ordinal": 15,
+      "value": "relay-host-0001x"
     },
     "6995d6b0bd4c": {
       "name": "status.get#1",
@@ -376,6 +378,11 @@
       "ordinal": 11,
       "value": "relay"
     },
+    "79ffb33faf8a": {
+      "name": "host-saved",
+      "ordinal": 12,
+      "value": "direct-only"
+    },
     "8405c7947d76": {
       "name": "pairing.provisionRelay#1",
       "ordinal": 8,
@@ -445,13 +452,6 @@
         }
       }
     },
-    "8bf25ca8d4ae": {
-      "name": "bundle-written",
-      "ordinal": 12,
-      "value": {
-        "version": 4
-      }
-    },
     "8e378786864c": {
       "name": "candidate-closed",
       "ordinal": 6,
@@ -518,11 +518,6 @@
       "name": "candidate-closed",
       "ordinal": 13,
       "value": "relay"
-    },
-    "c1372f4da2d7": {
-      "name": "journal-cleared",
-      "ordinal": 11,
-      "value": "pair-fixture-1"
     },
     "c7584e82c72f": {
       "status": "rejected",
@@ -714,11 +709,6 @@
       "name": "pairing.provisionRelay#1",
       "ordinal": 9,
       "json": "{\"id\":\"frame-3\",\"deviceToken\":\"recording-device\",\"method\":\"pairing.provisionRelay\",\"params\":{\"reqId\":\"install-l99UBPM71AZiC1ghz2glnA\",\"newResumeTokenHash\":\"yrnYzw4B0YZ_R6Tcm4arO3oysaG7lsPjvyp4uWmdBtU\"}}"
-    },
-    "f6b99510eefb": {
-      "name": "candidate-closed",
-      "ordinal": 16,
-      "value": "relay"
     }
   },
   "recording": {
@@ -737,11 +727,11 @@
             "406c8ab0b9b6",
             "8e378786864c",
             "e29d4c104dd3",
-            "8bf25ca8d4ae",
-            "061b247f2805",
-            "33c6a36cc4b6",
-            "077b94702eb7",
-            "f6b99510eefb"
+            "2b5606ff50ed",
+            "bb016ec23c9c",
+            "4fe77334bd35",
+            "65e2707705d4",
+            "38131a2042f6"
           ]
         }
       },
@@ -884,10 +874,10 @@
             "406c8ab0b9b6",
             "8e378786864c",
             "e29d4c104dd3",
-            "37a2861de5fb",
-            "c1372f4da2d7",
-            "2b5606ff50ed",
-            "bb016ec23c9c"
+            "4964fce533f6",
+            "79331d82af94",
+            "79ffb33faf8a",
+            "2b5aa76fdb8d"
           ]
         }
       },

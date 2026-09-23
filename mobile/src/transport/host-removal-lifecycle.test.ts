@@ -4,6 +4,7 @@ const removeHostMock = vi.hoisted(() => vi.fn())
 const unregisterPushMock = vi.hoisted(() => vi.fn(async () => vi.fn()))
 const forgetUpdateFailuresMock = vi.hoisted(() => vi.fn(async () => undefined))
 const deletePageCacheMock = vi.hoisted(() => vi.fn(async () => undefined))
+const forgetHostDescriptorMock = vi.hoisted(() => vi.fn(async () => undefined))
 
 vi.mock('./host-store', () => ({
   removeHost: (hostId: string) => removeHostMock(hostId)
@@ -18,6 +19,10 @@ vi.mock('../mobile-web-shell/removed-host-shell-cache', () => ({
   deleteHostPageCache: (hostId: string) => deletePageCacheMock(hostId)
 }))
 
+vi.mock('./host-descriptor-store', () => ({
+  forgetHostDescriptor: (hostId: string) => forgetHostDescriptorMock(hostId)
+}))
+
 import { removeHostAndCloseClient } from './host-removal-lifecycle'
 
 describe('host removal lifecycle', () => {
@@ -26,6 +31,7 @@ describe('host removal lifecycle', () => {
     unregisterPushMock.mockClear()
     forgetUpdateFailuresMock.mockClear()
     deletePageCacheMock.mockClear()
+    forgetHostDescriptorMock.mockClear()
   })
 
   it('closes the client only after metadata removal commits', async () => {
@@ -95,5 +101,15 @@ describe('host removal lifecycle', () => {
     const closeHostClient = vi.fn()
     await expect(removeHostAndCloseClient('host-1', closeHostClient)).resolves.toBeUndefined()
     expect(closeHostClient).toHaveBeenCalledWith('host-1')
+  })
+
+  it("forgets the host's machine descriptor only after removal commits", async () => {
+    removeHostMock.mockRejectedValueOnce(new Error('storage unavailable'))
+    await expect(removeHostAndCloseClient('host-1', vi.fn())).rejects.toThrow()
+    expect(forgetHostDescriptorMock).not.toHaveBeenCalled()
+
+    removeHostMock.mockResolvedValue(undefined)
+    await removeHostAndCloseClient('host-1', vi.fn())
+    expect(forgetHostDescriptorMock).toHaveBeenCalledWith('host-1')
   })
 })
