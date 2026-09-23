@@ -63,7 +63,7 @@ const assistantFrame = (uuid: string, at: number, input: number, model = 'claude
     at
   )
 
-const resultFrame = (at: number) =>
+const resultFrame = (at: number, contextWindow = 1_000_000) =>
   frame(
     {
       type: 'result',
@@ -72,7 +72,7 @@ const resultFrame = (at: number) =>
       result: 'done',
       duration_ms: 10,
       uuid: `result-${at}`,
-      modelUsage: { 'claude-fable-5-1[1m]': { contextWindow: 1_000_000 } }
+      modelUsage: { 'claude-fable-5-1[1m]': { contextWindow } }
     },
     at
   )
@@ -274,18 +274,18 @@ describe('context usage across a restart', () => {
     before.translator.handle(initFrame(900))
     before.translator.handle(userFrame('turn-a', 1_000))
     before.translator.handle(assistantFrame('reply-a', 2_000, 150_000))
-    before.translator.handle(resultFrame(3_000))
+    before.translator.handle(resultFrame(3_000, 400_000))
     await before.settle()
     before.release()
 
     const after = acquire(journal)
-    after.translator.modelWritten('fable')
+    after.translator.modelWritten('fable[1m]')
     after.translator.handle(initFrame(9_900))
     after.translator.handle(userFrame('turn-b', 10_000))
     after.translator.handle(assistantFrame('reply-b', 11_000, 160_000))
     await after.settle()
-    expect(ring(journal)).toMatchObject({ usedTokens: 160_000, windowTokens: 1_000_000 })
-    expect(journal.contextUsage().window).toEqual({ tokens: 1_000_000, capturedAt: 3_000 })
+    expect(ring(journal)).toMatchObject({ usedTokens: 160_000, windowTokens: 400_000 })
+    expect(journal.contextUsage().window).toEqual({ tokens: 400_000, capturedAt: 3_000 })
     after.release()
   })
 })

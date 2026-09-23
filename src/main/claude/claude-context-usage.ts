@@ -62,12 +62,11 @@ function contextBaseModelId(model: string): string {
 
 /** The window a configured model's name implies before one is measured; null when the name does not say. */
 export function claudeContextWindowHint(model: string): number | null {
-  const name = model.trim()
-  if (name === '' || name === 'default') {
+  // A bare name runs 1M first-party but 200k through a gateway, and `opusplan`/`haiku` switch model in plan mode.
+  if (!/\[1m\]$/iu.test(model.trim())) {
     return null
   }
-  // As the CLI's own `/context` measures it: 200k for every name without `[1m]`; `default` resolves per account.
-  return /\[1m\]$/iu.test(name) ? 1_000_000 : 200_000
+  return 1_000_000
 }
 
 /** What names the main loop's model: the turn's `system/init`, keyed exactly as

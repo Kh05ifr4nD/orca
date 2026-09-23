@@ -89,7 +89,7 @@ describe('the context ring after a session option write', () => {
   it('sizes estimates from a live model write straight away', async () => {
     const s = ringSession()
     await s.write('model', 'sonnet')
-    expect(s.respond('turn-a', 1_000)).toMatchObject({ windowTokens: 200_000, percentage: 50 })
+    expect(s.respond('turn-a', 1_000)).toBeNull()
     await s.write('model', 'sonnet[1m]')
     expect(s.respond('turn-b', 2_000)).toMatchObject({ windowTokens: 1_000_000, percentage: 10 })
   })
@@ -108,7 +108,7 @@ describe('the context ring after a session option write', () => {
 
   it('holds estimates after a permission-mode write even with a model written before it', async () => {
     const s = ringSession()
-    await s.write('model', 'sonnet')
+    await s.write('model', 'sonnet[1m]')
     await s.write('permissionMode', 'plan')
     expect(s.respond('turn-a', 1_000)).toBeNull()
   })
