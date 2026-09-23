@@ -5,7 +5,10 @@ import type {
   AgentSessionContextWindow
 } from './agent-session-context-usage'
 import type { AgentJournalItemBody, AgentJournalRenderItem } from './agent-session-journal-types'
-import { selectStructuredAgentContextUsage } from './structured-agent-session-context-usage'
+import {
+  latestStructuredAgentContextFacts,
+  selectStructuredAgentContextUsage
+} from './structured-agent-session-context-usage'
 
 function item(
   itemId: string,
@@ -141,5 +144,49 @@ describe('selectStructuredAgentContextUsage', () => {
         item('u', 1, { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hi' }] })
       ])
     ).toBeNull()
+  })
+
+  it('fills a part the loaded rows lack from the host whole-journal answer', () => {
+    const wholeJournal = { used: estimate(90_000), window: WINDOW }
+    expect(selectStructuredAgentContextUsage([], wholeJournal)).toMatchObject({
+      usedTokens: 90_000,
+      windowTokens: 1_000_000
+    })
+    // The window was written on a turn row older than the loaded page.
+    expect(
+      selectStructuredAgentContextUsage([turn(40, { used: estimate(120_000) })], wholeJournal)
+    ).toMatchObject({ usedTokens: 120_000, windowTokens: 1_000_000, estimated: true })
+  })
+
+  it('prefers each part the loaded rows carry over the host answer', () => {
+    const wholeJournal = { used: estimate(90_000), window: { tokens: 200_000, capturedAt: 1 } }
+    expect(
+      selectStructuredAgentContextUsage(
+        [turn(40, { used: estimate(120_000), window: WINDOW })],
+        wholeJournal
+      )
+    ).toMatchObject({ usedTokens: 120_000, windowTokens: 1_000_000 })
+    // An unknown size in the loaded rows is newer than any size the host holds for older rows.
+    expect(
+      selectStructuredAgentContextUsage(
+        [turn(40, { used: { kind: 'unknown', capturedAt: 3_000 } })],
+        wholeJournal
+      )
+    ).toBeNull()
+  })
+})
+
+describe('latestStructuredAgentContextFacts', () => {
+  it('answers the same for rows in any order, as the host holds them', () => {
+    const rows = [
+      turn(1, { used: estimate(18_600), window: WINDOW }),
+      turn(2, { used: { kind: 'report', ...REPORT } }),
+      turn(3, { used: estimate(40_000) }),
+      item('u', 4, { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hi' }] })
+    ]
+    const facts = latestStructuredAgentContextFacts(rows)
+    expect(facts).toEqual({ used: estimate(40_000), window: WINDOW })
+    expect(latestStructuredAgentContextFacts(rows.toReversed())).toEqual(facts)
+    expect(latestStructuredAgentContextFacts([])).toEqual({})
   })
 })

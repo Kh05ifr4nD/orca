@@ -260,6 +260,28 @@ describe('structured agent session item retention', () => {
     expect(revived.hasOlder).toBe(false)
   })
 
+  it('counts a live turn-row revision the window could not take, and nothing else', () => {
+    const hydrated = hydrate(
+      Array.from({ length: 3 }, (_, index) => item(index + 200)),
+      true
+    )
+    const turnRow = (sequence: number, revision: number): AgentJournalRenderItem => ({
+      ...item(sequence),
+      revision,
+      body: { kind: 'turn', turnId: `turn-${sequence}`, state: 'running' }
+    })
+
+    const olderMessage = streamRevision(hydrated, { ...item(50), revision: 2 }, 203)
+    expect(olderMessage.unloadedTurnRevisions).toBeUndefined()
+    const loadedTurn = streamRevision(hydrated, turnRow(201, 2), 203)
+    expect(loadedTurn.unloadedTurnRevisions).toBeUndefined()
+
+    const olderTurn = streamRevision(hydrated, turnRow(50, 2), 203)
+    expect(olderTurn.items.some((entry) => entry.sequence === 50)).toBe(false)
+    expect(olderTurn.unloadedTurnRevisions).toBe(1)
+    expect(streamRevision(olderTurn, turnRow(50, 3), 204).unloadedTurnRevisions).toBe(2)
+  })
+
   it('keeps item identity stable when a batch carries no journal change', () => {
     const hydrated = hydrate([item(0)])
     const unchanged = reduceStructuredAgentSession(hydrated, {

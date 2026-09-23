@@ -5,6 +5,7 @@
 
 import {
   contextTokensFromUsage,
+  type AgentSessionContextUsage,
   type AgentSessionContextUsageCategory,
   type AgentSessionContextUsed,
   type AgentSessionContextWindow
@@ -23,9 +24,12 @@ export type StructuredAgentContextUsage = {
   categories: readonly AgentSessionContextUsageCategory[]
 }
 
-export function selectStructuredAgentContextUsage(
-  items: readonly AgentJournalRenderItem[]
-): StructuredAgentContextUsage | null {
+type ContextFactSource = Pick<AgentJournalRenderItem, 'sequence' | 'body'>
+
+/** The newest of each part these rows carry, in any order; a part none of them carries is absent. */
+export function latestStructuredAgentContextFacts(
+  items: Iterable<ContextFactSource>
+): AgentSessionContextUsage {
   let used: { sequence: number; fact: AgentSessionContextUsed } | null = null
   let window: { sequence: number; fact: AgentSessionContextWindow } | null = null
   for (const item of items) {
@@ -37,7 +41,27 @@ export function selectStructuredAgentContextUsage(
       window = { sequence: item.sequence, fact: facts.window }
     }
   }
-  const fact = used?.fact
+  return { ...(used ? { used: used.fact } : {}), ...(window ? { window: window.fact } : {}) }
+}
+
+/**
+ * The ring's reading of the loaded rows, with `wholeJournal` (the host's answer
+ * over every row) filling any part they lack. The loaded window reaches the live
+ * head, so a part found in it is newer than the host's; the host's covers only
+ * rows older than the window.
+ */
+export function selectStructuredAgentContextUsage(
+  items: readonly AgentJournalRenderItem[],
+  wholeJournal?: AgentSessionContextUsage
+): StructuredAgentContextUsage | null {
+  const loaded = latestStructuredAgentContextFacts(items)
+  return summarizeStructuredAgentContextFacts({ ...wholeJournal, ...loaded })
+}
+
+function summarizeStructuredAgentContextFacts({
+  used: fact,
+  window
+}: AgentSessionContextUsage): StructuredAgentContextUsage | null {
   if (fact?.kind === 'report') {
     return {
       usedTokens: fact.usedTokens,
@@ -58,8 +82,8 @@ export function selectStructuredAgentContextUsage(
   const usedTokens = contextTokensFromUsage(fact.usage)
   return {
     usedTokens,
-    windowTokens: window.fact.tokens,
-    percentage: Math.round((usedTokens / window.fact.tokens) * 100),
+    windowTokens: window.tokens,
+    percentage: Math.round((usedTokens / window.tokens) * 100),
     estimated: true,
     categories: []
   }
