@@ -1,8 +1,14 @@
-import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { wslAwareSpawn } from '../git/runner'
 import { bundledRipgrepCommand, bundledRipgrepWslSpawnOptions } from './bundled-ripgrep-path'
 
-export type BundledRipgrepSpawnOptions = SpawnOptions & {
+// Why derived rather than imported from node:child_process: a direct import would land this file
+// on the child_process ratchet's allowlist, which only ever shrinks.
+type WslAwareSpawnOptions = Parameters<typeof wslAwareSpawn>[2]
+
+export type BundledRipgrepSpawnOptions = Omit<
+  WslAwareSpawnOptions,
+  'wslDistro' | 'wslShellCommand' | 'useWslLoginShell'
+> & {
   cwd: string
   /** Distro whose git options own this workspace; routes the spawn through wsl.exe. */
   wslDistro?: string
@@ -18,7 +24,7 @@ export type BundledRipgrepSpawnOptions = SpawnOptions & {
 export function spawnBundledRipgrep(
   args: string[],
   options: BundledRipgrepSpawnOptions
-): ChildProcess {
+): ReturnType<typeof wslAwareSpawn> {
   const { wslDistro, wslDistroForOutput, ...spawnOptions } = options
   const command = bundledRipgrepCommand({ wsl: Boolean(wslDistroForOutput) })
   return wslAwareSpawn(command, args, {

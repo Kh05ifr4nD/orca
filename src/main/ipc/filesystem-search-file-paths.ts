@@ -1,4 +1,3 @@
-import type { ChildProcess } from 'node:child_process'
 import { sep } from 'node:path'
 import type { Store } from '../persistence'
 import { fileListingCancellationError } from '../../shared/file-listing-cancellation'
@@ -112,7 +111,7 @@ function scanRipgrepPaths(args: {
     let parseablePathCount = 0
     let processErrorObserved = false
     let unavailableExitObserved = false
-    let child: ChildProcess
+    let child: ReturnType<typeof spawnBundledRipgrep>
     try {
       child = spawnBundledRipgrep(args.args, {
         cwd: args.authorizedRootPath,
