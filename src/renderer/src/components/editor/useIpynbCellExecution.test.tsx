@@ -1,15 +1,24 @@
 // @vitest-environment happy-dom
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseIpynb } from './ipynb-parse'
 
-const { getConnectionIdMock } = vi.hoisted(() => ({
-  getConnectionIdMock: vi.fn(() => 'ssh-connection')
-}))
+const { getConnectionIdMock, notebookApi } = vi.hoisted(() => {
+  const notebookApi = {
+    listPythonEnvironments: vi.fn(),
+    startKernel: vi.fn(),
+    execute: vi.fn(),
+    shutdownKernel: vi.fn(),
+    onKernelFrame: vi.fn(() => () => {})
+  }
+  // The kernel session subscribes to kernel frames when it loads.
+  Object.defineProperty(window, 'api', { configurable: true, value: { notebook: notebookApi } })
+  return { getConnectionIdMock: vi.fn((): string | null => null), notebookApi }
+})
 
-vi.mock('@/lib/connection-context', () => ({
-  getConnectionId: getConnectionIdMock
-}))
+vi.mock('@/lib/connection-context', () => ({ getConnectionId: getConnectionIdMock }))
+vi.mock('@/i18n/i18n', () => ({ translate: (_key: string, fallback: string) => fallback }))
+vi.mock('@/store', () => ({ useAppStore: { subscribe: () => () => {} } }))
 
 import { useIpynbCellExecution } from './useIpynbCellExecution'
 
@@ -17,105 +26,79 @@ function notebookContent(): string {
   return JSON.stringify({
     nbformat: 4,
     nbformat_minor: 5,
-    metadata: {},
+    metadata: { language_info: { name: 'python' } },
     cells: [
-      {
-        id: 'setup',
-        cell_type: 'code',
-        metadata: {},
-        execution_count: null,
-        outputs: [],
-        source: ['x = 41']
-      },
+      { id: 'md', cell_type: 'markdown', metadata: {}, source: ['# hi'] },
       {
         id: 'run',
         cell_type: 'code',
         metadata: {},
         execution_count: null,
         outputs: [],
-        source: ['print(x + 1)']
+        source: ['print(42)']
       }
     ]
   })
 }
 
-describe('notebook cell execution lifecycle', () => {
-  const runPythonCell = vi.fn()
+function renderExecution(filePath: string, applyContent = vi.fn()) {
+  let content = notebookContent()
+  applyContent.mockImplementation((next: string) => {
+    content = next
+  })
+  const hook = renderHook(() =>
+    useIpynbCellExecution({
+      filePath,
+      worktreeId: 'worktree-a',
+      rootPath: '/repo',
+      flushSourceDrafts: () => content,
+      applyContent
+    })
+  )
+  return { hook, applyContent, content: () => content }
+}
 
+describe('notebook cell execution', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    runPythonCell.mockResolvedValue({ stdout: '42\n', stderr: '', exitCode: 0 })
-    Object.defineProperty(window, 'api', {
-      configurable: true,
-      value: { notebook: { runPythonCell } }
+    getConnectionIdMock.mockReturnValue(null)
+    notebookApi.listPythonEnvironments.mockResolvedValue({
+      workspace: [{ path: '/repo/.venv/bin/python', name: '.venv', version: '3.12.1' }],
+      path: []
     })
+    notebookApi.startKernel.mockResolvedValue({ status: 'ready' })
   })
 
-  afterEach(() => {
-    Reflect.deleteProperty(window, 'api')
-  })
+  it('asks for trust before running, then runs the cell in a kernel', async () => {
+    const { hook } = renderExecution('/repo/trust.ipynb')
 
-  it('requires file trust, saves first, and routes execution through the connection', async () => {
-    const content = notebookContent()
-    const onSave = vi.fn().mockResolvedValue(true)
-    const applyContent = vi.fn()
-    const { result } = renderHook(() =>
-      useIpynbCellExecution({
-        filePath: '/repo/notebook.ipynb',
-        worktreeId: 'worktree-a',
-        flushSourceDrafts: () => content,
-        applyContent,
-        onSave
+    act(() => hook.result.current.runCell(1))
+    expect(hook.result.current.pendingRun).toEqual([{ key: 'run', code: 'print(42)' }])
+    expect(notebookApi.startKernel).not.toHaveBeenCalled()
+
+    act(() => hook.result.current.confirmPendingRun())
+    await waitFor(() =>
+      expect(notebookApi.execute).toHaveBeenCalledWith({
+        filePath: '/repo/trust.ipynb',
+        code: 'print(42)'
       })
     )
-
-    await act(() => result.current.runCell(1))
-    expect(result.current.pendingRunCellIndex).toBe(1)
-    expect(onSave).not.toHaveBeenCalled()
-    expect(runPythonCell).not.toHaveBeenCalled()
-
-    act(() => result.current.confirmPendingRun())
-    await waitFor(() => expect(runPythonCell).toHaveBeenCalledOnce())
-    expect(onSave).toHaveBeenCalledWith(content)
-    expect(runPythonCell).toHaveBeenCalledWith({
-      filePath: '/repo/notebook.ipynb',
-      code: 'print(x + 1)',
-      preamble: 'x = 41',
-      connectionId: 'ssh-connection'
-    })
-    await waitFor(() => expect(applyContent).toHaveBeenCalledOnce())
-    expect(
-      parseIpynb(applyContent.mock.calls[0]?.[0] as string).cells[1]?.outputs[0]
-    ).toMatchObject({
-      kind: 'stream',
-      text: '42\n'
+    expect(notebookApi.startKernel).toHaveBeenCalledWith({
+      filePath: '/repo/trust.ipynb',
+      python: '/repo/.venv/bin/python'
     })
   })
 
-  it('drops stale trust prompts across file moves and skips execution after a failed save', async () => {
-    const content = notebookContent()
-    const onSave = vi.fn().mockResolvedValue(false)
-    const hook = renderHook(
-      ({ filePath }: { filePath: string }) =>
-        useIpynbCellExecution({
-          filePath,
-          worktreeId: 'worktree-a',
-          flushSourceDrafts: () => content,
-          applyContent: vi.fn(),
-          onSave
-        }),
-      { initialProps: { filePath: '/repo/a.ipynb' } }
+  it('writes a local-only notice into the cell for SSH workspaces without starting a kernel', async () => {
+    getConnectionIdMock.mockReturnValue('ssh-connection')
+    const { hook, content } = renderExecution('/remote/notebook.ipynb')
+
+    act(() => hook.result.current.runCell(1))
+    await waitFor(() => expect(parseIpynb(content()).cells[1]?.outputs).toHaveLength(1))
+    expect(JSON.stringify(parseIpynb(content()).cells[1]?.outputs)).toContain(
+      'only run for files on this computer'
     )
-
-    await act(() => hook.result.current.runCell(1))
-    expect(hook.result.current.pendingRunCellIndex).toBe(1)
-    hook.rerender({ filePath: '/repo/b.ipynb' })
-    expect(hook.result.current.pendingRunCellIndex).toBeNull()
-    hook.rerender({ filePath: '/repo/a.ipynb' })
-    expect(hook.result.current.pendingRunCellIndex).toBeNull()
-
-    await act(() => hook.result.current.runCell(1, { skipTrustPrompt: true }))
-    expect(onSave).toHaveBeenCalledWith(content)
-    expect(runPythonCell).not.toHaveBeenCalled()
+    expect(hook.result.current.pendingRun).toBeNull()
+    expect(notebookApi.startKernel).not.toHaveBeenCalled()
   })
 })

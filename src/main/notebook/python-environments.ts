@@ -1,0 +1,93 @@
+import { existsSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { runProcess } from '../../shared/child-process/run-process'
+import type { PythonEnvironment, PythonEnvironments } from '../../shared/notebook-kernel-types'
+
+const PROBE = 'import sys, platform; print(sys.executable); print(platform.python_version())'
+const PROBE_TIMEOUT_MS = 10_000
+const WORKSPACE_ENV_DIRS = ['.venv', '.conda']
+
+/** `.venv`/`.conda` interpreters from the notebook's folder up to the workspace root, nearest first. */
+export function findWorkspaceInterpreters(
+  notebookPath: string,
+  rootPath: string | null,
+  platform: NodeJS.Platform = process.platform,
+  exists: (path: string) => boolean = existsSync
+): string[] {
+  const interpreters: string[] = []
+  for (let dir = dirname(notebookPath); ; dir = dirname(dir)) {
+    for (const envDir of WORKSPACE_ENV_DIRS.map((name) => join(dir, name))) {
+      // Windows venvs keep python.exe in Scripts\, conda envs at the env root.
+      const candidates =
+        platform === 'win32'
+          ? [join(envDir, 'Scripts', 'python.exe'), join(envDir, 'python.exe')]
+          : [join(envDir, 'bin', 'python')]
+      const interpreter = candidates.find(exists)
+      if (interpreter) {
+        interpreters.push(interpreter)
+      }
+    }
+    const fromRoot = rootPath === null ? '' : relative(rootPath, dir)
+    if (!fromRoot || fromRoot.startsWith('..') || isAbsolute(fromRoot) || dirname(dir) === dir) {
+      return interpreters
+    }
+  }
+}
+
+async function probe(
+  program: string,
+  args: string[],
+  name: (executable: string) => string
+): Promise<PythonEnvironment | null> {
+  try {
+    const result = await runProcess({
+      program,
+      args: [...args, '-c', PROBE],
+      timeoutMs: PROBE_TIMEOUT_MS
+    })
+    const [executable, version] = result.stdout.trim().split(/\r?\n/)
+    return result.code === 0 && executable && version
+      ? { path: executable, name: name(executable), version }
+      : null
+  } catch {
+    return null
+  }
+}
+
+/** Names an interpreter after its environment folder when it lives in one. */
+function environmentName(executable: string): string {
+  const envDir = dirname(dirname(executable))
+  return existsSync(join(envDir, 'pyvenv.cfg')) || existsSync(join(envDir, 'conda-meta'))
+    ? basename(envDir)
+    : basename(executable)
+}
+
+export function describePython(path: string): Promise<PythonEnvironment | null> {
+  return probe(path, [], environmentName)
+}
+
+export async function listPythonEnvironments(
+  notebookPath: string,
+  rootPath: string | null
+): Promise<PythonEnvironments> {
+  const pathCommands =
+    process.platform === 'win32' ? [['py', '-3'], ['python']] : [['python3'], ['python']]
+  const [workspace, onPath] = await Promise.all([
+    Promise.all(findWorkspaceInterpreters(notebookPath, rootPath).map(describePython)),
+    Promise.all(
+      pathCommands.map(([program, ...args]) =>
+        probe(program, args, () => [program, ...args].join(' '))
+      )
+    )
+  ])
+  const seen = new Set<string>()
+  const unique = (environments: (PythonEnvironment | null)[]): PythonEnvironment[] =>
+    environments.filter((env): env is PythonEnvironment => {
+      if (!env || seen.has(env.path)) {
+        return false
+      }
+      seen.add(env.path)
+      return true
+    })
+  return { workspace: unique(workspace), path: unique(onPath) }
+}
