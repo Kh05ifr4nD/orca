@@ -46,6 +46,10 @@ export type NativeChatRestartOffer = Readonly<{
 const EMPTY: NativeChatRestartOffer = { candidates: [], failed: [], listedAt: 0 }
 let offer: NativeChatRestartOffer = EMPTY
 let launch: Promise<void> | undefined
+/** Continue and dismiss calls, begun and settled. Each ends by publishing the host's answer, which
+ *  a re-read that raced it must neither pre-empt nor undo. */
+let actionsBegun = 0
+let actionsSettled = 0
 const listeners = new Set<() => void>()
 const LAUNCH_READ_RETRY_DELAYS_MS = [100, 250, 500] as const
 
@@ -126,15 +130,21 @@ function noticeFailedChatActivity(): void {
       continue
     }
     const key = failedChatActivityKey(summary)
-    if (seen.get(failure.sessionId) !== key) {
+    const previous = seen.get(failure.sessionId)
+    if (previous !== key) {
       seen.set(failure.sessionId, key)
-      changed ||= summary.updatedAt > offer.listedAt
+      // A first sighting is news only if newer than the list; a change to a known chat always is,
+      // since the host may have answered the list just before the change was delivered here.
+      changed ||= previous !== undefined || summary.updatedAt > offer.listedAt
     }
   }
   if (changed && failedChatRefresh === null) {
     failedChatRefresh = setTimeout(() => {
       failedChatRefresh = null
-      void refreshNativeChatRestartOffer()
+      if (actionsBegun === actionsSettled) {
+        const issued = actionsBegun
+        void readNativeChatRestartOffer(() => actionsBegun === issued)
+      }
     }, FAILED_CHAT_REFRESH_DELAY_MS)
   }
 }
@@ -180,7 +190,7 @@ function failedFrom(payload: HostOfferPayload): ResumeFailure[] {
   return Array.isArray(payload.failed) ? (payload.failed as ResumeFailure[]) : []
 }
 
-async function readNativeChatRestartOffer(): Promise<HostOfferRead> {
+async function readNativeChatRestartOffer(current = () => true): Promise<HostOfferRead> {
   try {
     const offered = await callStructuredAgentSession<HostOfferPayload>(
       LOCAL,
@@ -190,13 +200,17 @@ async function readNativeChatRestartOffer(): Promise<HostOfferRead> {
       throw new Error('agent_session_restart_offer_invalid')
     }
     const failed = failedFrom(offered)
-    publish({ candidates: offered.sessions, failed, listedAt: Date.now() })
+    if (current()) {
+      publish({ candidates: offered.sessions, failed, listedAt: Date.now() })
+    }
     return { candidates: offered.sessions, failed, available: true }
   } catch {
     // A failed read is not an answer. Hide the last snapshot so a modal can never present a
     // candidate the host has not confirmed; the durable record remains and a later refresh can
     // restore it.
-    publish({ ...EMPTY, listedAt: Date.now() })
+    if (current()) {
+      publish({ ...EMPTY, listedAt: Date.now() })
+    }
     return { candidates: [], failed: [], available: false }
   }
 }
@@ -233,6 +247,7 @@ export async function continueNativeChatRestartOffer(
   sessionIds: readonly string[] | undefined,
   reported: readonly string[] = sessionIds ?? []
 ): Promise<void> {
+  actionsBegun += 1
   try {
     const result = await callStructuredAgentSession<
       HostOfferPayload & {
@@ -256,6 +271,8 @@ export async function continueNativeChatRestartOffer(
   } catch {
     await refreshNativeChatRestartOffer()
     announceRestartUnconfirmed(reported.length)
+  } finally {
+    actionsSettled += 1
   }
 }
 
@@ -266,6 +283,7 @@ export async function continueNativeChatRestartOffer(
  * the offer after the host is available again.
  */
 export async function dismissNativeChatRestartOffer(sessionIds?: readonly string[]): Promise<void> {
+  actionsBegun += 1
   try {
     const result = await callStructuredAgentSession<HostOfferPayload>(
       LOCAL,
@@ -282,6 +300,8 @@ export async function dismissNativeChatRestartOffer(sessionIds?: readonly string
   } catch {
     await refreshNativeChatRestartOffer()
     announceRestartDismissUnconfirmed()
+  } finally {
+    actionsSettled += 1
   }
 }
 
@@ -340,6 +360,8 @@ export function useNativeChatRestartOffer(enabled: boolean): NativeChatRestartOf
 export function _resetNativeChatRestartOffer(): void {
   releaseFailedChatWatch()
   offer = EMPTY
+  actionsBegun = 0
+  actionsSettled = 0
   launch = undefined
   listeners.clear()
 }

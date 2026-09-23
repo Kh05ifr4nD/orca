@@ -8,6 +8,7 @@ import type {
 import { resetStructuredAgentSessionStatusFeedsForTests } from '@/runtime/structured-agent-session-status-feed'
 import {
   _resetNativeChatRestartOffer,
+  dismissNativeChatRestartOffer,
   getNativeChatRestartOffer,
   refreshNativeChatRestartOffer
 } from './native-chat-resume-on-restart-store'
@@ -125,4 +126,35 @@ it('does not re-read for an agent streaming in a failed chat or for news older t
   // Still failed, so the watch stays for the user's own reply.
   expect(offerReads()).toBe(2)
   expect(mocks.unsubscribe).not.toHaveBeenCalled()
+})
+
+// Host and renderer stamp time separately, and the host can answer a list just before a reply is
+// delivered here: a change to a chat already seen is news whatever its timestamp says.
+it('re-reads for a known failed chat that changes even when its stamp predates the list', async () => {
+  await listFailure()
+  hostEmit()({ type: 'snapshot', sessions: [summary('idle', 'Fix it', 1)] })
+  hostEmit()({ type: 'status', session: summary('working', 'Carry on please', 2) })
+  await vi.advanceTimersByTimeAsync(500)
+  expect(offerReads()).toBe(2)
+  expect(getNativeChatRestartOffer().failed).toEqual([])
+})
+
+it('never lets a re-read that was already in flight bring back a dismissed failure', async () => {
+  await listFailure({ failed: [failure] })
+  const stale = Promise.withResolvers<unknown>()
+  mocks.rpc.mockImplementation((_target: unknown, method: string) =>
+    method === 'agentSession.restartResumable'
+      ? stale.promise
+      : Promise.resolve({ sessions: [], failed: [] })
+  )
+  hostEmit()({ type: 'status', session: summary('working', 'Carry on please', Date.now() + 1) })
+  await vi.advanceTimersByTimeAsync(500)
+  expect(offerReads()).toBe(2)
+
+  await dismissNativeChatRestartOffer(['a'])
+  expect(getNativeChatRestartOffer().failed).toEqual([])
+  stale.resolve({ sessions: [], failed: [failure] })
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(getNativeChatRestartOffer().failed).toEqual([])
 })

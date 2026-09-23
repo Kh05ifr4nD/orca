@@ -28,3 +28,12 @@ it('counts every chat not carried on when an older host sends no failure list', 
   announceRestartResults(['a', 'b'], refusedBoth, undefined, actions)
   expect(vi.mocked(toast).mock.calls.map(([text]) => text)).toEqual(['2 chats couldn’t be resumed'])
 })
+
+// The host retires an unconfirmed send once the agent is seen carrying on it; the action must still
+// report the chat, and as resumed, not as a failure the list can no longer show.
+it('counts an unconfirmed chat the host no longer lists as resumed', () => {
+  announceRestartResults(['a'], [{ sessionId: 'a', outcome: 'unknown' }], [], actions)
+  expect(vi.mocked(toast).mock.calls.map(([text]) => text)).toEqual([
+    'Resumed 1 chat and asked it to continue'
+  ])
+})

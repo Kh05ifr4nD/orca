@@ -121,15 +121,21 @@ export function announceRestartResults(
   actions: RestartFailureActions
 ): void {
   const notContinued = restartChatsNotContinued(requested, results)
-  announceContinued(new Set(requested).size - notContinued.length)
   const failed = new Set(hostFailed)
   // A host that lists failures has already dropped chats that moved on by themselves or that the
   // user answered; counting those would report a failure nothing on screen can show.
-  announceNotContinued(
+  const reported =
     hostFailed === undefined
       ? notContinued
-      : notContinued.filter((sessionId) => failed.has(sessionId)),
-    failed,
-    actions
+      : notContinued.filter((sessionId) => failed.has(sessionId))
+  // An unconfirmed send the host no longer lists was seen carrying on (or answered by the user), so
+  // it was resumed and asked to continue; left out of both counts, the action would say nothing.
+  const outcomes = new Map(results.map((result) => [result.sessionId, result.outcome]))
+  const seenCarryingOn = notContinued.filter(
+    (sessionId) =>
+      !reported.includes(sessionId) &&
+      (outcomes.get(sessionId) === 'pending' || outcomes.get(sessionId) === 'unknown')
   )
+  announceContinued(new Set(requested).size - notContinued.length + seenCarryingOn.length)
+  announceNotContinued(reported, failed, actions)
 }
