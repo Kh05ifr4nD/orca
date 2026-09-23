@@ -85,6 +85,7 @@ import {
 import { getRuntimeEnvironmentRevision } from '@/runtime/runtime-environment-revision'
 
 const REMOTE_TERMINAL_INPUT_FLUSH_MS = 8
+let nextE2EInputTraceId = 0
 const REMOTE_TERMINAL_VIEWPORT_FLUSH_MS = 33
 const REMOTE_RUNTIME_MAX_PENDING_QUERY_REPLIES = 64
 const HOST_SESSION_ATTACH_POLL_MS = 150
@@ -209,6 +210,7 @@ export function createRemoteRuntimePtyTransport(
   let sameHandleEndReuseAttachedAt: number | null = null
   let attachGeneration = 0
   let subscriptionGeneration = 0
+  const inputTraceId = ++nextE2EInputTraceId
   const traceE2EInput = (stage: string, details: Record<string, unknown>): void => {
     if (
       String(import.meta.env.VITE_EXPOSE_STORE) !== 'true' ||
@@ -218,10 +220,9 @@ export function createRemoteRuntimePtyTransport(
       return
     }
     console.info(
-      `[paired-input-client] ${JSON.stringify({ stage, tabId, handle, connected, attachmentReady, recovery: recovery.currentPhase, ...details })}`
+      `[paired-input-client] ${JSON.stringify({ stage, inputTraceId, tabId, handle, connected, attachmentReady, recovery: recovery.currentPhase, ...details })}`
     )
   }
-  traceE2EInput('created', {})
 
   function setAttachmentReady(ready: boolean): void {
     attachmentReady = ready
@@ -286,6 +287,7 @@ export function createRemoteRuntimePtyTransport(
     }
     emitRecoveryState()
   })
+  traceE2EInput('created', {})
   let lastRecoveryStateKey = ''
   let pendingViewportClaim = false
   let pendingClaimInput: { text: string; queryReply: boolean }[] = []
