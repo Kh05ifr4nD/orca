@@ -1,5 +1,6 @@
 import type { EffortLevel, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeControlRequestError } from './claude-stream-json-connection'
+import { ClaudeControlRequestTimeoutError } from './claude-agent-sdk-control-requests'
 import {
   AgentSessionOptionRejectedError,
   isAgentSessionOptionRejectedError
@@ -240,7 +241,14 @@ export async function restoreClaudeStructuredSessionOptions(
     try {
       await setClaudeStructuredOption(session, { key, value }, timeoutMs)
     } catch (error) {
-      if (!isAgentSessionOptionRejectedError(error)) {
+      // A write the CLI never answered is skipped the same way: startup has no deadline of its
+      // own, and a slow control answer must not fault a session whose child is otherwise fine.
+      // The child's current value stands, and the user can set the option again.
+      if (error instanceof ClaudeControlRequestTimeoutError) {
+        console.warn(
+          `[claude-structured] restore of ${key} for ${session.providerSessionId} was not answered in time; keeping the CLI's value`
+        )
+      } else if (!isAgentSessionOptionRejectedError(error)) {
         throw error
       }
       // A stale or unavailable preference must not poison every future acquire;

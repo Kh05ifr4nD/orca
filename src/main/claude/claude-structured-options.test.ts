@@ -4,6 +4,7 @@ import {
   setClaudeStructuredOption
 } from './claude-structured-options'
 import type { ClaudeSession } from './claude-structured-session-state'
+import { ClaudeControlRequestTimeoutError } from './claude-agent-sdk-control-requests'
 import { ClaudeBackgroundTaskTracker } from './claude-background-task-tracker'
 import { ClaudeSlashCommandCatalog } from './claude-slash-command-catalog'
 import { createClaudeSessionStartupGate } from './claude-structured-session-startup-gate'
@@ -437,5 +438,30 @@ describe('Claude Fast mode reported by the session frame alone', () => {
     const result = await readClaudeStructuredSessionOptions(session, undefined)
 
     expect(result.current.fastMode).toBeUndefined()
+  })
+})
+
+describe('Claude structured option restore under the request deadline', () => {
+  it('skips a write the CLI never answered and finishes the restore', async () => {
+    const session = sessionFor(async () => {
+      throw new ClaudeControlRequestTimeoutError('set_model')
+    })
+    session.options = new Map([['model', 'sonnet']])
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await expect(restoreClaudeStructuredSessionOptions(session, 10)).resolves.toBeUndefined()
+
+    expect([...session.restoreSkippedOptions]).toEqual(['model'])
+    expect(session.options.has('model')).toBe(false)
+  })
+
+  it("keeps a timed-out client write as the deadline's own error, not a rejection", async () => {
+    const session = sessionFor(async () => {
+      throw new ClaudeControlRequestTimeoutError('set_model')
+    })
+
+    await expect(
+      setClaudeStructuredOption(session, { key: 'model', value: 'sonnet' }, 10)
+    ).rejects.toBeInstanceOf(ClaudeControlRequestTimeoutError)
   })
 })

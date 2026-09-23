@@ -10,7 +10,9 @@ import type {
   ClaudeStreamJsonLaunch,
   openClaudeStreamJsonConnection
 } from '../claude/claude-stream-json-connection'
+import { runClaudeControl } from '../claude/claude-agent-sdk-control-requests'
 import { claudeSessionIdForOrcaSession } from '../claude/claude-structured-launch-resolution'
+import type { AgentSessionAttachParams } from '../native-chat/agent-session-wire/structured-agent-session-attach'
 import { hostTestAttachParams } from '../native-chat/agent-session-wire/structured-agent-session-host-test-data'
 import type { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import {
@@ -29,6 +31,12 @@ export type ScriptedClaudeBehavior = {
   exitsDuringSpawn?: { diagnostic: string; at: 'spawn' | 'start-time-read' }
   /** Closing cannot prove the descendant tree gone, as when it was never snapshottable. */
   closeUnproven?: boolean
+  /** Control requests run under this deadline, the way production's run under the default one. */
+  controlTimeoutMs?: number
+  /** Every option write (set_model, set_permission_mode, apply_flag_settings) goes unanswered. */
+  optionWritesHang?: boolean
+  /** Startup's own settings read goes unanswered. */
+  startupSettingsReadHangs?: boolean
 }
 
 export type ScriptedClaudeChild = {
@@ -72,6 +80,14 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
     let answerInit = (): void => {}
     const answer = <T>(value: T, startup: boolean): Promise<T> =>
       behavior.stallsControlReads && !startup ? stall.then(() => value) : Promise.resolve(value)
+    // Untimed unless the behavior sets a deadline; a hang then settles only on the child's exit.
+    const control = <T>(subtype: string, run: () => Promise<T>): Promise<T> =>
+      runClaudeControl(subtype, run, behavior.controlTimeoutMs ?? null)
+    const never = <T>(): Promise<T> => new Promise<T>(() => {})
+    const optionWrite = (subtype: string): Promise<void> => {
+      child.calls.push(subtype)
+      return control(subtype, () => (behavior.optionWritesHang ? never() : Promise.resolve()))
+    }
     let settingsReads = 0
     const child: ScriptedClaudeChild = {
       sessionId,
@@ -113,15 +129,22 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
         getSettings: () => {
           child.calls.push('get_settings')
           settingsReads += 1
-          return answer({ effective: { effortLevel: 'high' } }, settingsReads === 1)
+          const startup = settingsReads === 1
+          return control('get_settings', () =>
+            behavior.startupSettingsReadHangs && startup
+              ? never()
+              : answer({ effective: { effortLevel: 'high' } }, startup)
+          )
         },
         supportedModels: () => {
           child.calls.push('list_models')
-          return answer([{ value: 'sonnet', displayName: 'Sonnet' }], false)
+          return control('list_models', () =>
+            answer([{ value: 'sonnet', displayName: 'Sonnet' }], false)
+          )
         },
-        setModel: async () => {},
-        setPermissionMode: async () => {},
-        applyFlagSettings: async () => {},
+        setModel: () => optionWrite('set_model'),
+        setPermissionMode: () => optionWrite('set_permission_mode'),
+        applyFlagSettings: () => optionWrite('apply_flag_settings'),
         interrupt: async () => undefined,
         cancelAsyncMessage: async () => {},
         stopTask: async () => {},
@@ -184,7 +207,11 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
         readProcessStartTime
       })
     },
-    attachParams: (sessionId: string, expectedRuntimeFence: number | null) =>
+    attachParams: (
+      sessionId: string,
+      expectedRuntimeFence: number | null,
+      overrides: Partial<AgentSessionAttachParams> = {}
+    ) =>
       hostTestAttachParams(expectedRuntimeFence, {
         envelope: {
           sessionId,
@@ -200,7 +227,8 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
           kind: 'claude',
           sessionId: claudeSessionIdForOrcaSession(sessionId),
           leafUuid: null
-        }
+        },
+        ...overrides
       }),
     dispose: async (): Promise<void> => {
       releaseStalls()

@@ -16,6 +16,15 @@ export class ClaudeControlRequestError extends Error {
 
 export const CLAUDE_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 
+/** The deadline fired before the CLI answered. The request may still land, so this proves
+ *  nothing about it either way; it is neither the CLI refusing nor the transport closing. */
+export class ClaudeControlRequestTimeoutError extends Error {
+  constructor(readonly subtype: string) {
+    super(`claude ${subtype} request timed out`)
+    this.name = 'ClaudeControlRequestTimeoutError'
+  }
+}
+
 /** The SDK closes a query out from under an in-flight control request with this exact message. */
 const QUERY_CLOSED_MESSAGE = 'Query closed before response received'
 
@@ -70,7 +79,7 @@ export function runClaudeControl<T>(
     return request
   }
   const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`claude ${subtype} request timed out`)), timeoutMs)
+    timer = setTimeout(() => reject(new ClaudeControlRequestTimeoutError(subtype)), timeoutMs)
     timer.unref?.()
   })
   return Promise.race([request, deadline]).finally(() => {
