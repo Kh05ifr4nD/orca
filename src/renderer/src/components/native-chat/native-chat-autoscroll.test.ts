@@ -63,7 +63,7 @@ describe('nextFollowingEnd', () => {
     following: true,
     programmatic: false,
     geometry: parkedAbove(0),
-    previousScrollTop: wellAway.scrollTop
+    previousDistanceFromEnd: 400
   }
 
   it('follows when the reader reaches the end', () => {
@@ -89,7 +89,7 @@ describe('nextFollowingEnd', () => {
           following: false,
           programmatic: true,
           geometry: parkedAbove(distance),
-          previousScrollTop: wellAway.scrollTop
+          previousDistanceFromEnd: 400
         })
       ).toBe(false)
     }
@@ -108,7 +108,7 @@ describe('nextFollowingEnd', () => {
     const detached = {
       following: false,
       programmatic: false,
-      previousScrollTop: wellAway.scrollTop
+      previousDistanceFromEnd: 400
     }
     expect(
       nextFollowingEnd({ ...detached, geometry: parkedAbove(NATIVE_CHAT_FOLLOW_REARM_PX) })
@@ -122,19 +122,19 @@ describe('nextFollowingEnd', () => {
   // move a pixel or two and are unmarked: read as the reader arriving, they
   // re-armed follow and the next frame rebased the view, cancelling the scroll.
   it('does not reattach a detached reader who is moving away from the end', () => {
-    const leaving = { following: false, programmatic: false, previousScrollTop: 952 }
+    const leaving = { following: false, programmatic: false, previousDistanceFromEnd: 0 }
     expect(nextFollowingEnd({ ...leaving, geometry: parkedAbove(0.3) })).toBe(false)
     expect(nextFollowingEnd({ ...leaving, geometry: parkedAbove(2) })).toBe(false)
     // Arriving from above still reattaches, and standing still at the end does too.
-    expect(nextFollowingEnd({ ...leaving, previousScrollTop: 900, geometry: parkedAbove(2) })).toBe(
-      true
-    )
+    expect(
+      nextFollowingEnd({ ...leaving, previousDistanceFromEnd: 52, geometry: parkedAbove(2) })
+    ).toBe(true)
     expect(nextFollowingEnd({ ...leaving, geometry: parkedAbove(0) })).toBe(true)
   })
 
   it('keeps a following reader through a small move up inside the band', () => {
     expect(
-      nextFollowingEnd({ ...following, previousScrollTop: 952, geometry: parkedAbove(2) })
+      nextFollowingEnd({ ...following, previousDistanceFromEnd: 0, geometry: parkedAbove(2) })
     ).toBe(true)
   })
 
