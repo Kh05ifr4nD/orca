@@ -81,18 +81,37 @@ export function restartContinuationDeps(
     awaitSettlement: async (sessionId, clientMessageId) =>
       (await host.awaitSendSettlement(sessionId, clientMessageId))?.value.submission,
     onNoteFailed: host.onNoteFailed,
-    note: async (sessionId, text, tone) => {
-      const session = host.sessions.get(sessionId)
-      if (!session) {
-        return
-      }
-      await session.journal.appendItem(
-        { provider: 'orca', clientMessageId: `restart-continuation:${sessionId}:${host.now()}` },
-        { kind: 'status', text, ...(tone ? { tone } : {}) },
-        { fence: session.fence }
-      )
-      host.publish(sessionId, session.journal)
+    note: restartNoteWriter(host)
+  }
+}
+
+/** The refused note for a reattach that failed before any continuation was attempted. */
+export function noteRestartRefused(
+  host: StructuredAgentSessionContinuationHost,
+  sessionId: string
+): Promise<void> {
+  return noteNotContinued(
+    { note: restartNoteWriter(host), onNoteFailed: host.onNoteFailed },
+    sessionId,
+    'refused'
+  )
+}
+
+/** Writes a host-authored status note into the chat and publishes it to open panes. */
+function restartNoteWriter(
+  host: Pick<StructuredAgentSessionContinuationHost, 'sessions' | 'publish' | 'now'>
+): StructuredAgentSessionContinuationDeps['note'] {
+  return async (sessionId, text, tone) => {
+    const session = host.sessions.get(sessionId)
+    if (!session) {
+      return
     }
+    await session.journal.appendItem(
+      { provider: 'orca', clientMessageId: `restart-continuation:${sessionId}:${host.now()}` },
+      { kind: 'status', text, ...(tone ? { tone } : {}) },
+      { fence: session.fence }
+    )
+    host.publish(sessionId, session.journal)
   }
 }
 
@@ -211,7 +230,7 @@ export async function continueStructuredAgentSessionAfterRestart(
 /** The chat itself carries the failure, so it survives the toast, a dismissed record and a restart,
  *  and the user's next message is what moves past it. */
 async function noteNotContinued(
-  deps: StructuredAgentSessionContinuationDeps,
+  deps: Pick<StructuredAgentSessionContinuationDeps, 'note' | 'onNoteFailed'>,
   sessionId: string,
   outcome: 'refused' | 'unconfirmed'
 ): Promise<void> {

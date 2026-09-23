@@ -17168,7 +17168,6 @@
         "ownershipUnknown": "Orca is still working out which process owns this session. Wait a moment, then retry.",
         "notAttached": "The chat didn’t reconnect. Retry, or open it to start a fresh turn.",
         "dispatchRejected": "The agent refused the “continue” message. Open the chat and send one yourself.",
-        "notEligible": "This chat finished on its own after it was listed, so there is nothing to resume.",
         "unsupported": "This chat can’t be resumed by Orca. Open it to see where it stopped.",
         "fallback": "Orca couldn’t resume this chat. Open it to continue manually."
       }

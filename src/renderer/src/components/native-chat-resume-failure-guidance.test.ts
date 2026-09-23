@@ -12,7 +12,6 @@ describe('resumeFailureGuidance', () => {
     ['execution_owner_reconciling', 'retry', 'open'],
     ['agent_session_not_attached', 'retry', 'open'],
     ['agent_session_send_failed', 'retry', 'open'],
-    ['agent_session_resume_not_eligible', 'open', 'dismiss'],
     ['structured_agent_session_unsupported', 'open', 'dismiss'],
     ['agent_session_identity_required', 'open', 'dismiss'],
     ['something_this_build_has_never_seen', 'open', 'retry']

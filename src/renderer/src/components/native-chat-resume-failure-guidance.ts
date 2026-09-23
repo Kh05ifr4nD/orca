@@ -108,16 +108,6 @@ function reasonGuidance(failure: Pick<ResumeFailure, 'outcome' | 'reason'>): Res
       secondary: null
     }
   }
-  if (reason === 'agent_session_resume_not_eligible') {
-    return {
-      text: translate(
-        'auto.components.NativeChatResumeFailureGuidance.notEligible',
-        'This chat finished on its own after it was listed, so there is nothing to resume.'
-      ),
-      primary: 'open',
-      secondary: 'dismiss'
-    }
-  }
   if (NOT_RESUMABLE.has(reason)) {
     return {
       text: translate(

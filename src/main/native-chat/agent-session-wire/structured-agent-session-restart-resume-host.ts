@@ -33,6 +33,7 @@ import {
 } from './structured-agent-session-restart-resume-runner'
 import {
   continueStructuredAgentSessionAfterRestart,
+  noteRestartRefused,
   restartContinuationDeps,
   type StructuredAgentSessionContinuationOutcome
 } from './structured-agent-session-restart-continuation'
@@ -165,6 +166,13 @@ export function createStructuredAgentSessionRestartResume(
     return derive(markers, 'may-be-held')
   }
 
+  const continuationHost = {
+    ...surfaces,
+    sessions,
+    stillResumable: (marker: AgentSessionResumeMarker, pendingContinuationId: string) =>
+      derive([marker], 'may-be-held', { pendingContinuationId }).length === 1
+  }
+
   const run = async (
     sessionIds: readonly string[] | undefined,
     owner: string,
@@ -205,7 +213,6 @@ export function createStructuredAgentSessionRestartResume(
       outcomes = await resumeStructuredAgentSessionsFromRestart(
         {
           admission,
-          // An ineligible chat is not observed: the message that made it so answers its failure.
           consumeMarker: async (sessionId) => {
             const marker = markersBySession.get(sessionId)
             return marker !== undefined && derive([marker], 'may-be-held').length === 1
@@ -213,7 +220,11 @@ export function createStructuredAgentSessionRestartResume(
           resume: async (sessionId) => {
             const holder = `restart-resume:${sessionId}`
             try {
-              await surfaces.hold(sessionId, holder)
+              await surfaces.hold(sessionId, holder).catch(async (error: unknown) => {
+                // The reattach failure is filed like any other, so the chat must say so too.
+                await noteRestartRefused(continuationHost, sessionId)
+                throw error
+              })
               const marker = markersBySession.get(sessionId)
               if (marker) {
                 await afterAcquire?.(marker)
@@ -239,17 +250,6 @@ export function createStructuredAgentSessionRestartResume(
     }
     await failures.settle(operationId, outcomes, { candidates, attempts, ...settlement })
     return outcomes
-  }
-
-  const continuationHost = {
-    sessions,
-    send: surfaces.send,
-    awaitSendSettlement: surfaces.awaitSendSettlement,
-    onNoteFailed: surfaces.onNoteFailed,
-    publish: surfaces.publish,
-    now: surfaces.now,
-    stillResumable: (marker: AgentSessionResumeMarker, pendingContinuationId: string) =>
-      derive([marker], 'may-be-held', { pendingContinuationId }).length === 1
   }
 
   const continueAfterRestart = async (

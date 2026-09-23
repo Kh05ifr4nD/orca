@@ -18,6 +18,11 @@ import type {
   AgentSessionResumeFailureOutcome,
   AgentSessionResumeMarker
 } from '../../../shared/agent-session-resume-marker'
+import type { AgentJournalSnapshot } from '../../../shared/agent-session-journal-types'
+import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
+import { isRootAgentJournalItem } from '../../../shared/agent-session-journal-producer'
+import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
+import { latestStructuredAgentSessionUserItem } from '../../../shared/structured-agent-session-projection'
 import { normalizeOptionalField } from '../../../shared/agent-status-field-normalization'
 import { AGENT_MODEL_MAX_LENGTH } from '../../../shared/agent-status-types'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
@@ -31,7 +36,10 @@ import type {
   StructuredAgentSessionResumeCandidate,
   StructuredAgentSessionResumeFailure
 } from './structured-agent-session-restart-resume-set'
-import type { StructuredAgentSessionResumeOutcome } from './structured-agent-session-restart-resume-runner'
+import {
+  STRUCTURED_AGENT_SESSION_RESUME_NOT_ELIGIBLE,
+  type StructuredAgentSessionResumeOutcome
+} from './structured-agent-session-restart-resume-runner'
 
 type FailureCapsule = Pick<
   AgentSessionRecoveryCapsule,
@@ -89,6 +97,45 @@ export function continuationFailureOutcome(
   outcome: StructuredAgentSessionContinuationOutcome['outcome']
 ): AgentSessionResumeFailureOutcome | null {
   return outcome === 'continued' ? null : outcome === 'refused' ? 'refused' : 'unconfirmed'
+}
+
+/** Whether the chat itself has moved past a failure: a newer user message, or, for a delivery
+ *  nobody confirmed, a turn the continuation's own message opened. */
+function failureAnsweredByChat(
+  failure: AgentSessionResumeFailureRecord,
+  snapshot: AgentJournalSnapshot
+): boolean {
+  const latest = latestStructuredAgentSessionUserItem(snapshot.items)?.itemId ?? null
+  if (latest !== failure.latestUserItemId) {
+    return true
+  }
+  // Only when the continuation's message was journaled: otherwise the newest user message is the
+  // interrupted one, whose own turn proves nothing about the continuation.
+  return (
+    failure.outcome === 'unconfirmed' &&
+    latest !== null &&
+    latest !== failure.marker.latestUserItemId &&
+    newestTurnUserItemId(snapshot) === latest
+  )
+}
+
+/** The user message that opened the newest root turn, resolved through a provider key the send was
+ *  accepted under. */
+function newestTurnUserItemId(snapshot: AgentJournalSnapshot): string | null {
+  for (let index = snapshot.items.length - 1; index >= 0; index -= 1) {
+    const item = snapshot.items[index]
+    const turn = isRootAgentJournalItem(item) ? readAgentJournalTurn(item?.body) : null
+    if (!turn) {
+      continue
+    }
+    const key = turn.userItemId
+    if (key === undefined) {
+      return null
+    }
+    const accepted = snapshot.submissions.find((entry) => entry.providerItemId === key)
+    return accepted ? agentJournalSubmissionKey(accepted.clientMessageId) : key
+  }
+  return null
 }
 
 export function createStructuredAgentSessionRestartFailureLedger(deps: {
@@ -150,9 +197,9 @@ export function createStructuredAgentSessionRestartFailureLedger(deps: {
       if (!deps.sessions.has(sessionId)) {
         await deps.reveal(sessionId)
       }
-      const latest = liveStructuredAgentSessionLatestUserItemId(deps.sessions, sessionId)
+      const snapshot = deps.sessions.get(sessionId)?.journal.snapshot()
       // An unreadable journal decides nothing; the record stays until something that can decide.
-      if (latest !== undefined && latest !== failure.latestUserItemId) {
+      if (snapshot && failureAnsweredByChat(failure, snapshot)) {
         superseded.push(failure)
       } else {
         current.push(failure)
@@ -189,7 +236,13 @@ export function createStructuredAgentSessionRestartFailureLedger(deps: {
     )
     for (const outcome of outcomes) {
       const resumed = outcome.outcome === 'resumed'
-      const failure = resumed ? action.failureAfterResume(outcome.sessionId) : 'refused'
+      // Ineligible means the chat moved on by itself (finished, or is waiting on the user), so there
+      // is nothing for the user to do and the offer is simply spent.
+      const failure = resumed
+        ? action.failureAfterResume(outcome.sessionId)
+        : outcome.reason === STRUCTURED_AGENT_SESSION_RESUME_NOT_ELIGIBLE
+          ? null
+          : 'refused'
       if (failure === null) {
         completed.push(outcome.sessionId)
         continue
