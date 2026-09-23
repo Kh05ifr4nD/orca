@@ -3,6 +3,7 @@ import {
   continueMainAgentStatus,
   mainAgentTurnInterrupted,
   foldAgentLeadStatus,
+  isAgentExecutionOwed,
   isAgentStatusHeldOpenByChildWork
 } from './agent-lead-status-fold'
 
@@ -91,6 +92,37 @@ describe('isAgentStatusHeldOpenByChildWork', () => {
     ).toBe(false)
     // No main agent fact means no claim: an old host's row is never read as child-held.
     expect(isAgentStatusHeldOpenByChildWork({ state: 'working' })).toBe(false)
+  })
+})
+
+describe('isAgentExecutionOwed', () => {
+  it('is owed while the main agent itself works, whatever the row shows', () => {
+    expect(isAgentExecutionOwed({ state: 'working', mainAgent: { state: 'working' } })).toBe(true)
+  })
+
+  it('is owed while a settled main agent is held working by live agent child work', () => {
+    expect(isAgentExecutionOwed({ state: 'working', mainAgent: { state: 'done' } })).toBe(true)
+  })
+
+  it('is not owed by a watch loop, a paused main agent, or a settled row', () => {
+    expect(
+      isAgentExecutionOwed({
+        state: 'working',
+        workingMode: 'monitoring',
+        mainAgent: { state: 'done' }
+      })
+    ).toBe(false)
+    expect(isAgentExecutionOwed({ state: 'blocked', mainAgent: { state: 'blocked' } })).toBe(false)
+    // A child's permission prompt while the main agent is settled parks the row; nothing executes.
+    expect(isAgentExecutionOwed({ state: 'blocked', mainAgent: { state: 'done' } })).toBe(false)
+    expect(isAgentExecutionOwed({ state: 'done', mainAgent: { state: 'done' } })).toBe(false)
+  })
+
+  it("falls back to today's read of the combined state when an old host sends no main agent fact", () => {
+    expect(isAgentExecutionOwed({ state: 'working' })).toBe(true)
+    // An old host's monitoring row read as working before `mainAgent` existed; it still does.
+    expect(isAgentExecutionOwed({ state: 'working', workingMode: 'monitoring' })).toBe(true)
+    expect(isAgentExecutionOwed({ state: 'done' })).toBe(false)
   })
 })
 

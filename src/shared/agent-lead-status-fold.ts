@@ -60,6 +60,30 @@ export function isAgentStatusHeldOpenByChildWork(row: {
   return row.mainAgent?.state === 'done' && row.state !== 'done'
 }
 
+/**
+ * Agent execution is owed: the main agent's own turn runs, or a settled main agent's live agent
+ * child work still holds the row `working`. A watch loop (`monitoring`) owes nothing — the fold
+ * reads it that way on purpose — and a main agent paused on a prompt owes nothing even if a child
+ * runs, matching the combined `state` a reader saw before `mainAgent` existed. Without
+ * `mainAgent` (an old host) the combined `state` is all there is, and `working` is read exactly
+ * as it was before.
+ */
+export function isAgentExecutionOwed(row: {
+  state: AgentStatusState
+  workingMode?: AgentWorkingMode
+  mainAgent?: Pick<AgentMainAgentStatus, 'state'>
+}): boolean {
+  if (!row.mainAgent) {
+    return row.state === 'working'
+  }
+  if (row.mainAgent.state === 'working') {
+    return true
+  }
+  return (
+    row.mainAgent.state === 'done' && row.state === 'working' && row.workingMode !== 'monitoring'
+  )
+}
+
 /** The main agent's clock follows the same continuity rule as the row's: an unchanged main agent state
  *  keeps the instant it first appeared, a changed one starts at `now`. A caller that knows
  *  the real instant (a restored stash, a journal record) passes it and wins. */
