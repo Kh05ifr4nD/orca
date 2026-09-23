@@ -2,7 +2,8 @@ import { expect, it, vi } from 'vitest'
 import { marker, SESSION } from './structured-agent-session-restart-resume-test-harness'
 import {
   AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE,
-  AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE
+  AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE,
+  AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE
 } from '../../../shared/agent-session-restart-continuation'
 import {
   continueStructuredAgentSessionAfterRestart,
@@ -45,6 +46,7 @@ it('reports an accepted continuation and records its note', async () => {
 
 const UNCONFIRMED = [SESSION, AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE, 'warning']
 const REFUSED = [SESSION, AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE, 'error']
+const NOT_CONNECTED = [SESSION, AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE, 'error']
 
 it.each([
   ['pending', { sessionId: SESSION, outcome: 'pending' }, UNCONFIRMED],
@@ -72,19 +74,23 @@ it('notes a superseded continuation in the chat and still reports the refusal', 
   expect(deps.note).toHaveBeenCalledExactlyOnceWith(...REFUSED)
 })
 
-it('reports a send refusal without waiting for settlement', async () => {
+// An ownership refusal would meet the user's own message too, so the note gives no advice to send one.
+it.each([
+  ['agent_session_conflict', NOT_CONNECTED],
+  ['agent_session_operation_invalid', REFUSED]
+] as const)('reports a %s send refusal without waiting for settlement', async (code, note) => {
   const deps = dependencies('accepted')
-  deps.send.mockResolvedValue({ ok: false, refusal: { code: 'agent_session_conflict' } })
+  deps.send.mockResolvedValue({ ok: false, refusal: { code } })
 
   await expect(
     continueStructuredAgentSessionAfterRestart(deps, SESSION, marker())
   ).resolves.toEqual({
     sessionId: SESSION,
     outcome: 'refused',
-    reason: 'agent_session_conflict'
+    reason: code
   })
   expect(deps.awaitSettlement).not.toHaveBeenCalled()
-  expect(deps.note).toHaveBeenCalledExactlyOnceWith(...REFUSED)
+  expect(deps.note).toHaveBeenCalledExactlyOnceWith(...note)
 })
 
 it('reports an unattached chat without sending', async () => {

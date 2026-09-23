@@ -33,7 +33,7 @@ import {
 } from './structured-agent-session-restart-resume-runner'
 import {
   continueStructuredAgentSessionAfterRestart,
-  noteRestartRefused,
+  noteRestartReattachFailed,
   restartContinuationDeps,
   type StructuredAgentSessionContinuationOutcome
 } from './structured-agent-session-restart-continuation'
@@ -222,7 +222,7 @@ export function createStructuredAgentSessionRestartResume(
             try {
               await surfaces.hold(sessionId, holder).catch(async (error: unknown) => {
                 // The reattach failure is filed like any other, so the chat must say so too.
-                await noteRestartRefused(continuationHost, sessionId)
+                await noteRestartReattachFailed(continuationHost, sessionId)
                 throw error
               })
               const marker = markersBySession.get(sessionId)

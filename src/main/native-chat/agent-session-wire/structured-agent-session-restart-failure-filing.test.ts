@@ -2,7 +2,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { AgentSessionRecoveryCapsule } from '../../runtime/agent-session-recovery-capsule'
 import {
   AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE,
-  AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE
+  AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE,
+  AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE
 } from '../../../shared/agent-session-restart-continuation'
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
 import { AgentSessionJournal } from '../agent-session-journal/journal-store'
@@ -113,10 +114,10 @@ it.each(['resume', 'continueAfterRestart'] as const)(
     expect(await host.restartResume.listFailures()).toMatchObject([
       { sessionId: SESSION, outcome: 'refused' }
     ])
-    expect(statusNotes(host)).toContainEqual({
-      text: AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE,
-      tone: 'error'
-    })
+    // The fix depends on why it failed, which the dialog explains; "send a message" would not work.
+    expect(statusNotes(host)).toEqual([
+      { text: AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE, tone: 'error' }
+    ])
   }
 )
 

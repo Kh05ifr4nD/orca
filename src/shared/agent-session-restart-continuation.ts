@@ -33,3 +33,8 @@ export const AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE =
   "Orca couldn't continue this chat after the restart. Send a message to continue it."
 export const AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE =
   "Orca asked this agent to continue after the restart but couldn't confirm it did. Check its latest reply before sending another message."
+
+/** For a chat Orca could not get hold of. Why decides the fix, which the restart list gives; advice
+ *  to send a message would meet the same refusal. */
+export const AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE =
+  "Orca couldn't reconnect this chat after the restart, so it didn't ask the agent to continue."

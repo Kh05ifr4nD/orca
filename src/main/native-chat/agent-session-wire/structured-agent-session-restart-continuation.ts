@@ -17,7 +17,8 @@ import {
   AGENT_SESSION_RESTART_CONTINUATION_MESSAGE,
   AGENT_SESSION_RESTART_CONTINUATION_NOTE,
   AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE,
-  AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE
+  AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE,
+  AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE
 } from '../../../shared/agent-session-restart-continuation'
 import { AgentSessionPreDispatchError } from './structured-agent-session-operation-settlement'
 import { createHash } from 'node:crypto'
@@ -85,15 +86,15 @@ export function restartContinuationDeps(
   }
 }
 
-/** The refused note for a reattach that failed before any continuation was attempted. */
-export function noteRestartRefused(
+/** The note for a reattach that failed before any continuation was attempted. */
+export function noteRestartReattachFailed(
   host: StructuredAgentSessionContinuationHost,
   sessionId: string
 ): Promise<void> {
   return noteNotContinued(
     { note: restartNoteWriter(host), onNoteFailed: host.onNoteFailed },
     sessionId,
-    'refused'
+    'not-connected'
   )
 }
 
@@ -114,6 +115,13 @@ function restartNoteWriter(
     host.publish(sessionId, session.journal)
   }
 }
+
+/** Refusals the user's own message would meet as well; the restart list says to retry these. */
+const OWNERSHIP_REFUSALS = new Set([
+  'agent_session_conflict',
+  'agent_session_ownership_unknown',
+  'execution_owner_reconciling'
+])
 
 /** Only this pre-dispatch failure proves a thrown send did not deliver. */
 export class RestartContinuationSupersededError extends AgentSessionPreDispatchError {
@@ -221,7 +229,11 @@ export async function continueStructuredAgentSessionAfterRestart(
     await noteNotContinued(
       deps,
       sessionId,
-      result.outcome === 'refused' ? 'refused' : 'unconfirmed'
+      result.outcome !== 'refused'
+        ? 'unconfirmed'
+        : OWNERSHIP_REFUSALS.has(result.reason ?? '')
+          ? 'not-connected'
+          : 'refused'
     )
   }
   return result
@@ -232,12 +244,18 @@ export async function continueStructuredAgentSessionAfterRestart(
 async function noteNotContinued(
   deps: Pick<StructuredAgentSessionContinuationDeps, 'note' | 'onNoteFailed'>,
   sessionId: string,
-  outcome: 'refused' | 'unconfirmed'
+  outcome: 'refused' | 'not-connected' | 'unconfirmed'
 ): Promise<void> {
   try {
-    await (outcome === 'refused'
-      ? deps.note(sessionId, AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE, 'error')
-      : deps.note(sessionId, AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE, 'warning'))
+    await (outcome === 'unconfirmed'
+      ? deps.note(sessionId, AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE, 'warning')
+      : deps.note(
+          sessionId,
+          outcome === 'refused'
+            ? AGENT_SESSION_RESTART_CONTINUATION_REFUSED_NOTE
+            : AGENT_SESSION_RESTART_NOT_CONNECTED_NOTE,
+          'error'
+        ))
   } catch (error) {
     deps.onNoteFailed(sessionId, error)
   }
