@@ -14,6 +14,9 @@ export type CodexExecutionChild = {
   registered: boolean
   label: string | null
   parentTurnId: string | null
+  /** The thread whose stream carried this child's `started` activity. Codex
+   *  emits that item on the spawning agent's own session, so it names the parent. */
+  spawnerThreadId: string | null
   execution: CodexChildExecution | null
 }
 
@@ -25,7 +28,8 @@ export class CodexSubagentExecutions {
   register(
     agentThreadId: string,
     label: string | null,
-    parentTurnId: string | null | undefined
+    parentTurnId: string | null | undefined,
+    spawnerThreadId?: string
   ): CodexExecutionChild | undefined {
     const child = this.child(agentThreadId)
     if (!child) {
@@ -34,6 +38,8 @@ export class CodexSubagentExecutions {
     if (!child.registered || parentTurnId !== undefined) {
       child.parentTurnId = parentTurnId ?? null
     }
+    // A child is spawned once; its announcement is delivered twice, never by another thread.
+    child.spawnerThreadId ??= spawnerThreadId ?? null
     child.registered = true
     // Retain one overflow unit so the journal can append its per-row truncation marker.
     child.label ??=
@@ -87,6 +93,11 @@ export class CodexSubagentExecutions {
     return this.children.get(agentThreadId)?.label ?? null
   }
 
+  /** The child as last observed, without creating one. */
+  find(agentThreadId: string): Readonly<CodexExecutionChild> | undefined {
+    return this.children.get(agentThreadId)
+  }
+
   workingChildren(): CodexExecutionChild[] {
     return [...this.children.values()].filter(
       (child) => child.registered && child.execution?.state === 'working'
@@ -128,6 +139,7 @@ export class CodexSubagentExecutions {
       registered: false,
       label: null,
       parentTurnId: null,
+      spawnerThreadId: null,
       execution: null
     }
     this.children.set(agentThreadId, child)
