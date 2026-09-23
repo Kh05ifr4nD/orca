@@ -222,7 +222,8 @@ export function seedClaudeSubagentRosterFromSnapshots(
 }
 
 /** Restore a settled main agent so its children's drain can still complete the row after a restart.
- *  A running shell's liveness is not restored, so a row it held stays unseeded and never falsely settles. */
+ *  A running shell's liveness is not restored, so only a row that says no shell ran is seeded; one
+ *  that says nothing (rewritten without the fact) stays unseeded rather than falsely settling. */
 export function seedClaudeLeadTurnFromPersistedStatus(
   state: HookListenerState,
   paneKey: string,
@@ -233,7 +234,7 @@ export function seedClaudeLeadTurnFromPersistedStatus(
   if (
     status.payload.agentType === 'claude' &&
     mainAgent?.state === 'done' &&
-    status.claudeRunningNonAgentTask !== true
+    status.claudeRunningNonAgentTask === false
   ) {
     setClaudeMainAgentTurnState(state, paneKey, {
       state: 'done',

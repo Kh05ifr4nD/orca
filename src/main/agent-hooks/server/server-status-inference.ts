@@ -169,10 +169,6 @@ export abstract class AgentHookServerStatusInference extends AgentHookServerRowO
       worktreeId: existing.worktreeId,
       connectionId: existing.connectionId,
       providerSession: existing.providerSession,
-      // Why: restart seeds a settled main agent unless a shell held the row; keep that fact beside it.
-      ...(existing.claudeRunningNonAgentTask !== undefined
-        ? { claudeRunningNonAgentTask: existing.claudeRunningNonAgentTask }
-        : {}),
       payload: {
         state: restored.state,
         ...(restored.workingMode ? { workingMode: restored.workingMode } : {}),

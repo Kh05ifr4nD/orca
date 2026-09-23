@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { normalizeAgentProviderSession } from '../../../shared/agent-session-resume'
 import {
   normalizeAgentStatusPayload,
+  type AgentMainAgentStatus,
   type ParsedAgentStatusPayload
 } from '../../../shared/agent-status-types'
 import { isAgentHookSource } from '../../../shared/agent-hook-relay'
@@ -35,24 +36,21 @@ export function dropHydratedIdleClaudeSubagents(
  *  main agent had settled and child agents alone held the row `working`. That is `mainAgent.state === 'done'`
  *  stored as a boolean, so it only fills an absent `mainAgent`; a row carrying both keeps `mainAgent`. The
  *  flag stays readable until every user's file has been rewritten without it. */
-function fillMainAgentFromLegacyChildOnlyBoundary(
+function legacyChildOnlyBoundaryMainAgent(
   payload: ParsedAgentStatusPayload,
   record: Record<string, unknown>,
   stateStartedAt: number
-): ParsedAgentStatusPayload {
+): AgentMainAgentStatus | undefined {
   if (
     payload.mainAgent !== undefined ||
     record.claudeLeadBoundaryChildOnly !== true ||
     payload.agentType !== 'claude'
   ) {
-    return payload
+    return undefined
   }
-  return {
-    ...payload,
-    // Why: the gated working row stamps the main agent's end as `turnCompletedAt`; the row clock is the
-    // nearest fact an older row that lacks it can offer.
-    mainAgent: { state: 'done', stateStartedAt: payload.turnCompletedAt ?? stateStartedAt }
-  }
+  // Why: the gated working row stamps the main agent's end as `turnCompletedAt`; the row clock is the
+  // nearest fact an older row that lacks it can offer.
+  return { state: 'done', stateStartedAt: payload.turnCompletedAt ?? stateStartedAt }
 }
 
 export function sanitizeHydratedEntry(
@@ -112,11 +110,21 @@ export function sanitizeHydratedEntry(
   if (!normalizedPayload) {
     return null
   }
-  const payload = fillMainAgentFromLegacyChildOnlyBoundary(
+  const legacyBoundaryMainAgent = legacyChildOnlyBoundaryMainAgent(
     normalizedPayload,
     record,
     stateStartedAt
   )
+  const payload = legacyBoundaryMainAgent
+    ? { ...normalizedPayload, mainAgent: legacyBoundaryMainAgent }
+    : normalizedPayload
+  const claudeRunningNonAgentTask =
+    typeof record.claudeRunningNonAgentTask === 'boolean'
+      ? record.claudeRunningNonAgentTask
+      : // Why: the legacy flag was only ever written while no shell ran beside the children.
+        legacyBoundaryMainAgent
+        ? false
+        : undefined
   const providerSession = normalizeAgentProviderSession(record.providerSession) ?? undefined
   const providerSessionOnly = record.providerSessionOnly === true
   const retainedForLiveness = record.retainedForLiveness === true
@@ -156,9 +164,7 @@ export function sanitizeHydratedEntry(
     toolAgentId: typeof record.toolAgentId === 'string' ? record.toolAgentId : undefined,
     teammateName: typeof record.teammateName === 'string' ? record.teammateName : undefined,
     toolAgentType: typeof record.toolAgentType === 'string' ? record.toolAgentType : undefined,
-    ...(typeof record.claudeRunningNonAgentTask === 'boolean'
-      ? { claudeRunningNonAgentTask: record.claudeRunningNonAgentTask }
-      : {}),
+    ...(claudeRunningNonAgentTask !== undefined ? { claudeRunningNonAgentTask } : {}),
     providerSession,
     providerSessionOnly: providerSessionOnly ? true : undefined,
     retainedForLiveness: retainedForLiveness ? true : undefined,

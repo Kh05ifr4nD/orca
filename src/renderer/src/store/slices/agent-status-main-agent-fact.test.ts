@@ -4,6 +4,17 @@ import { createTestStore } from './store-test-helpers'
 
 const PANE = 'tab-1:11111111-1111-4111-8111-111111111111'
 
+function osc(revision: number) {
+  return {
+    origin: 'osc' as const,
+    authorityId: 'renderer',
+    incarnation: 0,
+    revision,
+    observedAt: revision,
+    kind: 'snapshot' as const
+  }
+}
+
 describe('the main agent fact on a renderer status entry', () => {
   it('lands on the entry from the IPC payload and is reused by reference when unchanged', () => {
     const store = createTestStore()
@@ -35,11 +46,37 @@ describe('the main agent fact on a renderer status entry', () => {
       state: 'working',
       prompt: 'go',
       agentType: 'claude',
-      toolName: 'Bash'
+      toolName: 'Bash',
+      observation: osc(1)
     })
     expect(store.getState().agentStatusByPaneKey[PANE].mainAgent).toEqual(mainAgent)
 
-    store.getState().setAgentStatus(PANE, { state: 'done', prompt: 'go', agentType: 'claude' })
+    store
+      .getState()
+      .setAgentStatus(PANE, {
+        state: 'done',
+        prompt: 'go',
+        agentType: 'claude',
+        observation: osc(2)
+      })
+    expect(store.getState().agentStatusByPaneKey[PANE].mainAgent).toBeUndefined()
+  })
+
+  it('drops the main agent when a hook row carries none, matching the host snapshot', () => {
+    const store = createTestStore()
+    store.getState().setAgentStatus(PANE, {
+      state: 'working',
+      prompt: 'go',
+      agentType: 'claude',
+      mainAgent: { state: 'done', stateStartedAt: 5 }
+    })
+    // The host lost its main agent record (unseeded restart, relay restart, old relay).
+    store.getState().setAgentStatus(PANE, {
+      state: 'working',
+      prompt: 'go',
+      agentType: 'claude',
+      toolName: 'Bash'
+    })
     expect(store.getState().agentStatusByPaneKey[PANE].mainAgent).toBeUndefined()
   })
 

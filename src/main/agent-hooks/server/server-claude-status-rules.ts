@@ -4,6 +4,21 @@ import { isAskUserQuestionTool } from '../../../shared/agent-question-answered-i
 import type { AgentHookEventPayload } from '../../../shared/agent-hook-listener/listener-event'
 import type { EnrichedAgentHookEventPayload } from './server-types'
 
+/** The shell fact a Claude row stores beside its `mainAgent`; restart seeds a settled main agent only
+ *  when it reads `false`. The listener restates it on every event it produces; any other write keeps
+ *  the previous fact only while `mainAgent` is unchanged, since the fact was observed with that one. */
+export function pairedClaudeNonAgentWork(
+  previous: EnrichedAgentHookEventPayload | undefined,
+  next: AgentHookEventPayload
+): boolean | undefined {
+  if (next.claudeRunningNonAgentTask !== undefined) {
+    return next.claudeRunningNonAgentTask
+  }
+  return previous && mainAgentStatusEqual(previous.payload.mainAgent, next.payload.mainAgent)
+    ? previous.claudeRunningNonAgentTask
+    : undefined
+}
+
 /** A child's permission prompt stays visible over the main agent's own progress, but the row must
  *  still carry that progress: restart seeds the main agent from it, and a stale `done` would let the
  *  children's drain settle a row whose main agent is working. Returns `previous` when nothing changed,
@@ -16,14 +31,14 @@ export function withHeldChildWaitMainAgent(
   if (!previous.toolAgentId || !mainAgent) {
     return previous
   }
-  // Why: restart seeding reads the shell fact beside `mainAgent`; a stale one settles a shell-held row.
-  const runningNonAgentTask = next.claudeRunningNonAgentTask ?? previous.claudeRunningNonAgentTask
+  const runningNonAgentTask = pairedClaudeNonAgentWork(previous, next)
   const mainAgentChanged = !mainAgentStatusEqual(previous.payload.mainAgent, mainAgent)
   if (!mainAgentChanged && runningNonAgentTask === previous.claudeRunningNonAgentTask) {
     return previous
   }
+  const { claudeRunningNonAgentTask: _unpaired, ...unpaired } = previous
   return {
-    ...previous,
+    ...unpaired,
     ...(runningNonAgentTask !== undefined
       ? { claudeRunningNonAgentTask: runningNonAgentTask }
       : {}),

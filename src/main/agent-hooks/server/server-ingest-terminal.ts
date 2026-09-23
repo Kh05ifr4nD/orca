@@ -150,10 +150,6 @@ export abstract class AgentHookServerIngestTerminal extends AgentHookServerInges
         connectionId,
         ...(preservedProviderSession ? { providerSession: preservedProviderSession } : {}),
         ...(terminalHandle ? { terminalHandle } : {}),
-        // Why: restart seeds a settled main agent unless a shell held the row; keep that fact beside it.
-        ...(preservedMainAgent && previous?.claudeRunningNonAgentTask !== undefined
-          ? { claudeRunningNonAgentTask: previous.claudeRunningNonAgentTask }
-          : {}),
         payload: preservedMainAgent
           ? { ...event.payload, mainAgent: preservedMainAgent }
           : event.payload

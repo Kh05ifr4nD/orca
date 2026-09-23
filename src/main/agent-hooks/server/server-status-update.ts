@@ -12,6 +12,7 @@ import type { AgentHookEventPayload } from '../../../shared/agent-hook-listener/
 import type { AgentStatusObservationOrigin } from '../../../shared/agent-status-observation'
 import {
   attachClaudePermissionToolUseId,
+  pairedClaudeNonAgentWork,
   shouldKeepClaudePermissionVisible,
   withHeldChildWaitMainAgent
 } from './server-claude-status-rules'
@@ -154,6 +155,11 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     const effectivePayload = attachClaudePermissionToolUseId(previous, identityResolvedPayload)
     if (previous && shouldKeepClaudePermissionVisible(previous, effectivePayload)) {
       const held = withHeldChildWaitMainAgent(previous, effectivePayload)
+      // Why: a child's prompt leaves the main agent running, so the held row takes its `mainAgent` and
+      // must take the same event's background evidence; a main agent's own prompt blocks it, so not there.
+      if (previous.toolAgentId) {
+        onAccepted?.()
+      }
       if (held !== previous) {
         if (!this.writeLegacyStatusRow(held)) {
           return undefined
@@ -208,9 +214,15 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     }
     // Why carried forward only within one host: main's OSC parse resolves the handle, so a later
     // hook must not erase its terminal join; a connection change must not inherit another host's.
+    const { claudeRunningNonAgentTask: _unpaired, ...unpairedPayload } = effectivePayload
+    const runningNonAgentTask = pairedClaudeNonAgentWork(previous, effectivePayload)
+    const pairedPayload =
+      runningNonAgentTask === undefined
+        ? unpairedPayload
+        : { ...unpairedPayload, claudeRunningNonAgentTask: runningNonAgentTask }
     const enriched = {
-      ...this.attachStatusTiming(effectivePayload, now, observedAt),
-      observation: this.stampObservation(effectivePayload, origin, observedAt ?? now)
+      ...this.attachStatusTiming(pairedPayload, now, observedAt),
+      observation: this.stampObservation(pairedPayload, origin, observedAt ?? now)
     }
     if (
       typeof enriched.payload.turnCompletedAt === 'number' &&
