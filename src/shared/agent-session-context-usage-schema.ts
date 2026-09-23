@@ -40,25 +40,12 @@ const Used = z.discriminatedUnion('kind', [
       .max(MAX_CONTEXT_CATEGORIES),
     capturedAt: CapturedAt
   }),
-  z.object({
-    kind: z.literal('estimate'),
-    usage: TokenUsage,
-    model: ModelId.optional(),
-    responseModel: ModelId.optional(),
-    capturedAt: CapturedAt
-  }),
+  z.object({ kind: z.literal('estimate'), usage: TokenUsage, capturedAt: CapturedAt }),
   z.object({ kind: z.literal('unknown'), capturedAt: CapturedAt })
 ])
 
 export const AgentSessionContextUsageSchema = z.object({
-  window: z
-    .object({
-      tokens: WindowTokens,
-      model: ModelId,
-      canonicalModel: ModelId.optional(),
-      capturedAt: CapturedAt
-    })
-    .optional(),
+  window: z.object({ tokens: WindowTokens, capturedAt: CapturedAt }).optional(),
   used: Used.optional()
 })
 

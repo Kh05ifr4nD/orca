@@ -204,6 +204,7 @@ describe('answerClaudePrompt', () => {
       markContextActivity: vi.fn(),
       subscribeContextUsageRequests: () => () => {},
       recordContextReport: () => {},
+      modelMayHaveChanged: () => {},
       pendingStreamedBlocks: 0,
       dispose: vi.fn()
     }

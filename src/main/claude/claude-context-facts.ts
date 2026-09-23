@@ -1,7 +1,8 @@
 // Where the Claude CLI's context facts land in the journal, and when a fresh
 // `/context` breakdown is worth asking for. The facts live on turn rows and are
 // written to the open turn, else the newest turn the journal holds; this keeps
-// only what tells a late answer it is stale and whose window a result reports.
+// only what tells a late answer it is stale, whose window a result reports, and
+// whether the newest window still serves the model responding.
 
 import {
   contextTokensFromUsage,
@@ -14,7 +15,6 @@ import type { StructuredAgentSessionEventSink } from '../native-chat/agent-sessi
 import {
   claudeContextResetKind,
   claudeContextWindowFromResult,
-  claudeMainThreadModelKey,
   claudeTokenUsage,
   type ClaudeMainThreadModel
 } from './claude-context-usage'
@@ -29,10 +29,15 @@ const CONVERSATION_FRAME_TYPES = new Set(['assistant', 'user', 'stream_event'])
 /** The row of the turn a requested report describes; null when no turn was open to name. */
 export type ClaudeContextReportTarget = AgentJournalItemIdentity | null
 
+/** The model may have changed since the newest window, so no estimate can be divided by it. */
+const STALE = Symbol('stale-window')
+
 export class ClaudeContextFacts {
   private activity = 0
   /** Whose window a result's per-model usage should report. */
   private mainModel: ClaudeMainThreadModel = { initModel: null, responseModel: null }
+  /** The response model the newest window serves; null adopts the next one. Every window write resets it. */
+  private servedModel: string | null | typeof STALE = null
   /** The last response fact written, so a response's per-block frames revise its row once. */
   private lastResponse: string | null = null
   private readonly requestListeners = new Set<(target: ClaudeContextReportTarget) => void>()
@@ -66,16 +71,15 @@ export class ClaudeContextFacts {
       this.mainModel = { initModel, responseModel: null }
     }
     const reset = claudeContextResetKind(message)
-    if (!reset) {
-      return
+    if (reset) {
+      this.forget(observedAt, reset === 'compaction')
     }
-    // A report asked for before the reset describes the context it replaced.
-    this.markActivity()
-    this.lastResponse = null
-    this.write({ used: { kind: 'unknown', capturedAt: observedAt } })
-    if (reset === 'compaction') {
-      this.requestReport(this.turn.identity)
-    }
+  }
+
+  /** A write that can change the main thread's model or window: hold estimates until a new window lands. */
+  modelMayHaveChanged(observedAt: number = Date.now()): void {
+    this.servedModel = STALE
+    this.forget(observedAt, true)
   }
 
   /** A frame after it is journaled, so a response lands on the turn it opened.
@@ -96,30 +100,31 @@ export class ClaudeContextFacts {
     if (model) {
       this.mainModel = { ...this.mainModel, responseModel: model }
     }
-    // Responses drop `[1m]`; only the init's key tells a 1M window from a 200k one of the same model.
-    // Plan mode can run the turn on a model the init does not name, leaving the response's id alone.
-    const key = claudeMainThreadModelKey(this.mainModel)
-    const dedupe = JSON.stringify([this.turn.id, usage, key, model])
+    if (this.servedModel === STALE) {
+      return
+    }
+    // An approved plan hands the turn to another model mid-turn; only a response says so.
+    if (model && this.servedModel !== null && model !== this.servedModel) {
+      this.modelMayHaveChanged(observedAt)
+      return
+    }
+    this.servedModel = model ?? this.servedModel
+    const dedupe = JSON.stringify([this.turn.id, usage])
     if (dedupe === this.lastResponse) {
       return
     }
     this.lastResponse = dedupe
-    this.write({
-      used: {
-        kind: 'estimate',
-        usage,
-        ...(key ? { model: key } : {}),
-        ...(model ? { responseModel: model } : {}),
-        capturedAt: observedAt
-      }
-    })
+    this.write({ used: { kind: 'estimate', usage, capturedAt: observedAt } })
   }
 
   /** End the turn a root result settles, with the window its per-model usage
    *  reports, then ask for the breakdown. */
   settle(message: Record<string, unknown>, end: ClaudeTurnEnd): void {
-    const window = claudeContextWindowFromResult(message, this.mainModel)
-    const facts = window ? { window: { ...window, capturedAt: end.completedAt } } : undefined
+    const tokens = claudeContextWindowFromResult(message, this.mainModel)
+    const facts = tokens === null ? undefined : { window: { tokens, capturedAt: end.completedAt } }
+    if (facts) {
+      this.servedModel = null
+    }
     const settled = this.turn.identity
     if (settled === null) {
       this.turn.settle(end)
@@ -134,11 +139,8 @@ export class ClaudeContextFacts {
 
   /** Record a requested report on the turn it was asked for; its window serves later estimates. */
   recordReport(target: ClaudeContextReportTarget, report: AgentSessionContextReport): void {
-    const window = {
-      tokens: report.windowTokens,
-      model: report.model,
-      capturedAt: report.capturedAt
-    }
+    const window = { tokens: report.windowTokens, capturedAt: report.capturedAt }
+    this.servedModel = null
     writeClaudeTurnRow(this.sink, target === null ? { newest: true } : { identity: target }, {
       contextUsage: { used: { kind: 'report', ...report }, window }
     })
@@ -158,6 +160,16 @@ export class ClaudeContextFacts {
     const identity = this.turn.identity
     const target: ClaudeTurnRowTarget = identity ? { identity } : { newest: true }
     writeClaudeTurnRow(this.sink, target, { contextUsage })
+  }
+
+  /** The context no longer holds what the journal says; a report asked for before now describes the old one. */
+  private forget(observedAt: number, requestReport: boolean): void {
+    this.markActivity()
+    this.lastResponse = null
+    this.write({ used: { kind: 'unknown', capturedAt: observedAt } })
+    if (requestReport) {
+      this.requestReport(this.turn.identity)
+    }
   }
 
   private requestReport(target: ClaudeContextReportTarget): void {

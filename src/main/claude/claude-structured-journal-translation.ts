@@ -69,6 +69,8 @@ export type ClaudeJournalTranslator = {
     target: ClaudeContextReportTarget,
     report: AgentSessionContextReport
   ) => void
+  /** After a write that can change the model or its window; the ring waits for the new window. */
+  modelMayHaveChanged: () => void
   dispose: () => void
 }
 
@@ -319,6 +321,7 @@ export function createClaudeJournalTranslator(
     markContextActivity: () => context.markActivity(),
     subscribeContextUsageRequests: (listener) => context.subscribeReportRequests(listener),
     recordContextReport: (target, report) => context.recordReport(target, report),
+    modelMayHaveChanged: () => context.modelMayHaveChanged(),
     dispose: () => {
       streamedText.flush()
       context.dispose()

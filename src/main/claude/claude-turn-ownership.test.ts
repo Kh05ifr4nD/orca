@@ -103,6 +103,7 @@ function sessionHoldingTurn(turnId: string | null): ReturnType<typeof sessionFor
     markContextActivity: vi.fn(),
     subscribeContextUsageRequests: () => () => {},
     recordContextReport: () => {},
+    modelMayHaveChanged: () => {},
     pendingStreamedBlocks: 0,
     dispose: vi.fn()
   }
@@ -282,6 +283,7 @@ describe('Claude turn ownership', () => {
         markContextActivity: vi.fn(),
         subscribeContextUsageRequests: () => () => {},
         recordContextReport: () => {},
+        modelMayHaveChanged: () => {},
         pendingStreamedBlocks: 0,
         dispose: vi.fn()
       }

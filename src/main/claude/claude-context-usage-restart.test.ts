@@ -174,6 +174,30 @@ describe('context usage across a restart', () => {
     after.release()
   })
 
+  it('reads the ring from the journal after a restart, and adopts the first response model', async () => {
+    const journal = await openJournal()
+    const before = acquire(journal)
+    before.translator.handle(initFrame(900))
+    before.translator.handle(userFrame('turn-a', 1_000))
+    before.translator.handle(assistantFrame('reply-a', 2_000, 150_000))
+    before.translator.handle(resultFrame(3_000))
+    await before.settle()
+    before.release()
+
+    const after = acquire(journal)
+    expect(ring(journal)).toMatchObject({ usedTokens: 150_000, windowTokens: 1_000_000 })
+    after.translator.handle(initFrame(9_900))
+    after.translator.handle(userFrame('turn-b', 10_000))
+    after.translator.handle(assistantFrame('reply-b', 11_000, 160_000))
+    await after.settle()
+    expect(ring(journal)).toMatchObject({ usedTokens: 160_000, windowTokens: 1_000_000 })
+    // Adopted: a response on another model says the journal's window no longer serves.
+    after.translator.handle(assistantFrame('reply-b2', 12_000, 170_000, 'claude-sonnet-5'))
+    await after.settle()
+    expect(ring(journal)).toBeNull()
+    after.release()
+  })
+
   it('keeps the last known size of a turn the child crashed in', async () => {
     const journal = await openJournal()
     const crashed = acquire(journal)

@@ -1,166 +1,27 @@
 import { describe, expect, it, vi } from 'vitest'
-import type {
-  AgentJournalItemBody,
-  AgentJournalItemIdentity,
-  AgentJournalRenderItem
-} from '../../shared/agent-session-journal-types'
+import type { AgentJournalRenderItem } from '../../shared/agent-session-journal-types'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { isAdmissibleAgentJournalItemBody } from '../../shared/agent-session-journal-schemas'
 import { selectStructuredAgentContextUsage } from '../../shared/structured-agent-session-context-usage'
-import type {
-  StructuredAgentSessionEventSink,
-  StructuredAgentSessionRevisionJournal
-} from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { claudeContextReportFromControl } from './claude-context-usage'
-import type { ClaudeContextReportTarget } from './claude-context-facts'
-import { createClaudeJournalTranslator } from './claude-structured-journal-translation'
-import { claudeTurnLifecycleIdentity } from './claude-turn-lifecycle-item'
+import {
+  assistantFrame,
+  compactBoundary,
+  frame,
+  initFrame,
+  journal,
+  resultFrame,
+  setup,
+  turnIdentity,
+  userFrame
+} from './claude-context-usage-test-support'
 import { ClaudeOpenTurn } from './claude-open-turn'
 import { dispatchClaudeTurn } from './claude-structured-dispatch'
 import { childExited, sessionFor, userMessage } from './claude-structured-dispatch-test-support'
 
-/** A journal in miniature: the latest revision per row, its creation clock
- *  pinned, and revisions resolved against it as a bound sink would. */
-function journal() {
-  const clock = { now: 0 }
-  const appends: { identity: AgentJournalItemIdentity; body: AgentJournalItemBody }[] = []
-  const rows = new Map<string, AgentJournalRenderItem>()
-  const appendItem: StructuredAgentSessionEventSink['appendItem'] = (identity, body, options) => {
-    appends.push({ identity, body })
-    const itemId = agentJournalItemKey(identity)
-    const existing = rows.get(itemId)
-    rows.set(itemId, {
-      itemId,
-      revision: (existing?.revision ?? 0) + 1,
-      sequence: existing?.sequence ?? rows.size + 1,
-      observedAt: existing?.observedAt ?? options?.observedAt ?? clock.now,
-      body
-    })
-  }
-  const scans = { count: 0 }
-  const bound: StructuredAgentSessionRevisionJournal = {
-    epoch: 'test',
-    visitItems: (visit) => {
-      scans.count += 1
-      for (const row of rows.values()) {
-        visit(row.itemId, row.sequence, row.body)
-      }
-    },
-    itemBody: (itemId) => rows.get(itemId)?.body ?? null
-  }
-  const sink: StructuredAgentSessionEventSink = {
-    appendItem,
-    tryReviseResolvedItem: (_reservedBytes, resolve, options) => {
-      const resolved = resolve(bound)
-      if (resolved) {
-        appendItem(resolved.identity, resolved.body, options)
-      }
-      return { accepted: true }
-    },
-    appendTombstone: () => {},
-    publish: vi.fn()
-  }
-  const turnRow = (turnId: string) =>
-    rows.get(agentJournalItemKey(claudeTurnLifecycleIdentity('claude-session', turnId)))
-  const items = () => [...rows.values()].sort((left, right) => left.sequence - right.sequence)
-  return { sink, clock, appends, rows, turnRow, items, scans }
-}
-
-function frame(message: Record<string, unknown>, observedAt: number, startsTurn = false) {
-  return {
-    type: 'message' as const,
-    sessionId: 'orca-session',
-    observedAt,
-    ...(startsTurn ? { startsTurn: true as const } : {}),
-    message: { session_id: 'claude-session', parent_tool_use_id: null, ...message }
-  }
-}
-
-const userFrame = (uuid: string, at: number) =>
-  frame(
-    { type: 'user', uuid, message: { role: 'user', content: [{ type: 'text', text: 'go' }] } },
-    at,
-    true
-  )
-
-function assistantFrame(
-  uuid: string,
-  at: number,
-  input: number,
-  parentToolUseId?: string,
-  model = 'claude-fable-5-1',
-  content: unknown[] = [{ type: 'text', text: uuid }]
-) {
-  return frame(
-    {
-      type: 'assistant',
-      uuid,
-      ...(parentToolUseId ? { parent_tool_use_id: parentToolUseId } : {}),
-      message: {
-        role: 'assistant',
-        model,
-        content,
-        usage: {
-          input_tokens: input,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-          output_tokens: 4
-        }
-      }
-    },
-    at
-  )
-}
-
-const resultFrame = (at: number, modelUsage: Record<string, unknown> = {}) =>
-  frame(
-    {
-      type: 'result',
-      subtype: 'success',
-      is_error: false,
-      result: 'done',
-      duration_ms: 10,
-      uuid: `result-${at}`,
-      modelUsage
-    },
-    at
-  )
-
-const initFrame = (model: string, at: number) =>
-  frame({ type: 'system', subtype: 'init', uuid: `init-${at}`, model }, at)
-
-const compactBoundary = (at: number) =>
-  frame(
-    {
-      type: 'system',
-      subtype: 'compact_boundary',
-      uuid: `compact-${at}`,
-      compact_metadata: { trigger: 'auto', pre_tokens: 150_000 }
-    },
-    at
-  )
-
 const MODEL_USAGE = {
   'claude-haiku-4-5': { contextWindow: 200_000 },
   'claude-fable-5-1[1m]': { contextWindow: 1_000_000 }
-}
-
-const turnIdentity = (turnId: string) => claudeTurnLifecycleIdentity('claude-session', turnId)
-
-/** Every turn the CLI runs opens with an init naming the main model as `modelUsage` keys it. */
-function setup({ init = 'claude-fable-5-1[1m]' }: { init?: string | null } = {}) {
-  const state = journal()
-  const translator = createClaudeJournalTranslator({ sink: state.sink, coalesceMs: 0 })
-  const requests: ClaudeContextReportTarget[] = []
-  translator.subscribeContextUsageRequests((target) => requests.push(target))
-  const handle = (event: Parameters<typeof translator.handle>[0]): void => {
-    state.clock.now = event.type === 'message' ? (event.observedAt ?? 0) : 0
-    translator.handle(event)
-  }
-  if (init) {
-    handle(initFrame(init, 500))
-  }
-  return { ...state, translator, requests, handle }
 }
 
 describe('context usage on journal rows', () => {
@@ -174,8 +35,6 @@ describe('context usage on journal rows', () => {
         used: {
           kind: 'estimate',
           usage: { inputTokens: 18_600, outputTokens: 4 },
-          // The init's exact key, not the response's `[1m]`-less name.
-          model: 'claude-fable-5-1[1m]',
           capturedAt: 2_000
         }
       }
@@ -189,7 +48,7 @@ describe('context usage on journal rows', () => {
     expect(turnRevisions[0]?.body).toMatchObject({
       state: 'completed',
       contextUsage: {
-        window: { tokens: 1_000_000, model: 'claude-fable-5-1[1m]', capturedAt: 3_000 },
+        window: { tokens: 1_000_000, capturedAt: 3_000 },
         used: { kind: 'estimate' }
       }
     })
@@ -456,104 +315,6 @@ describe('context usage on journal rows', () => {
       windowTokens: 1_000_000,
       estimated: false
     })
-    t.translator.dispose()
-  })
-
-  it('hides the ring after a model switch until the window of the new model is known', () => {
-    const t = setup()
-    t.handle(initFrame('claude-fable-5-1[1m]', 900))
-    t.handle(userFrame('turn-a', 1_000))
-    t.handle(assistantFrame('reply-a', 2_000, 18_600))
-    t.handle(resultFrame(3_000, { 'claude-fable-5-1[1m]': { contextWindow: 1_000_000 } }))
-    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({ windowTokens: 1_000_000 })
-    t.handle(initFrame('claude-sonnet-5', 3_900))
-    t.handle(userFrame('turn-b', 4_000))
-    t.handle(assistantFrame('reply-b', 5_000, 150_000, undefined, 'claude-sonnet-5'))
-    // 150k of a 1M window would read 15% of a model whose window is 200k.
-    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
-    t.handle(
-      resultFrame(6_000, {
-        'claude-fable-5-1[1m]': { contextWindow: 1_000_000 },
-        'claude-sonnet-5': { contextWindow: 200_000 }
-      })
-    )
-    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
-      usedTokens: 150_000,
-      windowTokens: 200_000,
-      percentage: 75
-    })
-    t.translator.dispose()
-  })
-
-  it('hides the ring after a switch between the 1M and 200k windows of one model', () => {
-    const t = setup()
-    const usage = {
-      'claude-fable-5-1[1m]': { contextWindow: 1_000_000 },
-      'claude-fable-5-1': { contextWindow: 200_000 }
-    }
-    t.handle(userFrame('turn-a', 1_000))
-    t.handle(assistantFrame('reply-a', 2_000, 150_000))
-    t.handle(resultFrame(3_000, usage))
-    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({ percentage: 15 })
-    // Responses name both the same; only the init says this turn runs on 200k.
-    t.handle(initFrame('claude-fable-5-1', 3_900))
-    t.handle(userFrame('turn-b', 4_000))
-    t.handle(assistantFrame('reply-b', 5_000, 160_000))
-    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
-    t.handle(resultFrame(6_000, usage))
-    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
-      windowTokens: 200_000,
-      percentage: 80
-    })
-    t.handle(initFrame('claude-fable-5-1[1m]', 6_900))
-    t.handle(userFrame('turn-c', 7_000))
-    t.handle(assistantFrame('reply-c', 8_000, 170_000))
-    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
-    t.translator.dispose()
-  })
-
-  it('keeps the ring through plan-mode turns that run on a model the init does not name', () => {
-    // Shape measured from Claude Code 2.1.280 with `--model opusplan`: the init names the
-    // resting model while plan mode runs the turn on Opus's 1M window.
-    const t = setup({ init: 'claude-sonnet-5' })
-    const usage = {
-      'claude-sonnet-5': { contextWindow: 200_000 },
-      'claude-opus-5-5[1m]': { contextWindow: 1_000_000 }
-    }
-    t.handle(userFrame('turn-a', 1_000))
-    t.handle(assistantFrame('reply-a', 2_000, 50_000, undefined, 'claude-sonnet-5'))
-    t.handle(resultFrame(3_000, { 'claude-sonnet-5': usage['claude-sonnet-5'] }))
-    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({ percentage: 25 })
-    // Plan mode: the resting model's 200k window cannot state an Opus response's share.
-    t.handle(initFrame('claude-sonnet-5', 3_900))
-    t.handle(userFrame('turn-b', 4_000))
-    t.handle(assistantFrame('reply-b', 5_000, 100_000, undefined, 'claude-opus-5-5'))
-    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
-    t.handle(resultFrame(6_000, usage))
-    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
-      windowTokens: 1_000_000,
-      percentage: 10
-    })
-    t.translator.recordContextReport(
-      turnIdentity('turn-b'),
-      claudeContextReportFromControl(
-        { model: 'claude-opus-5-5[1m]', totalTokens: 101_000, rawMaxTokens: 1_000_000 },
-        6_500
-      )!
-    )
-    t.handle(initFrame('claude-sonnet-5', 6_900))
-    t.handle(userFrame('turn-c', 7_000))
-    t.handle(assistantFrame('reply-c', 8_000, 120_000, undefined, 'claude-opus-5-5'))
-    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
-      usedTokens: 120_000,
-      windowTokens: 1_000_000,
-      estimated: true
-    })
-    // Out of plan mode, the resting model's window is not the newest one.
-    t.handle(initFrame('claude-sonnet-5', 8_900))
-    t.handle(userFrame('turn-d', 9_000))
-    t.handle(assistantFrame('reply-d', 10_000, 130_000, undefined, 'claude-sonnet-5'))
-    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
     t.translator.dispose()
   })
 

@@ -76,10 +76,10 @@ describe('claudeContextWindowFromResult', () => {
     const side = { contextWindow: 200_000 }
     expect(
       claudeContextWindowFromResult({ modelUsage: { 'claude-fable-5-1[1m]': main, haiku: side } })
-    ).toEqual({ tokens: 1_000_000, model: 'claude-fable-5-1[1m]' })
+    ).toBe(1_000_000)
     expect(
       claudeContextWindowFromResult({ modelUsage: { haiku: side, 'claude-fable-5-1[1m]': main } })
-    ).toEqual({ tokens: 1_000_000, model: 'claude-fable-5-1[1m]' })
+    ).toBe(1_000_000)
   })
 
   it('reads the entry of the model that served the main thread, not a larger one', () => {
@@ -89,12 +89,9 @@ describe('claudeContextWindowFromResult', () => {
     }
     const byResponse = (responseModel: string) =>
       claudeContextWindowFromResult({ modelUsage }, { initModel: null, responseModel })
-    expect(byResponse('claude-sonnet-5')).toEqual({ tokens: 200_000, model: 'claude-sonnet-5' })
+    expect(byResponse('claude-sonnet-5')).toBe(200_000)
     // Responses drop the `[1m]` the usage is keyed with.
-    expect(byResponse('claude-fable-5-1')).toEqual({
-      tokens: 1_000_000,
-      model: 'claude-fable-5-1[1m]'
-    })
+    expect(byResponse('claude-fable-5-1')).toBe(1_000_000)
     // A provider-specific key is matched through the canonical id it reports.
     expect(
       claudeContextWindowFromResult(
@@ -109,11 +106,7 @@ describe('claudeContextWindowFromResult', () => {
         },
         { initModel: null, responseModel: 'claude-sonnet-5' }
       )
-    ).toEqual({
-      tokens: 200_000,
-      model: 'us.anthropic.claude-sonnet-5-v1',
-      canonicalModel: 'claude-sonnet-5'
-    })
+    ).toBe(200_000)
   })
 
   it('reads the exact entry the turn init names when the model runs with and without [1m]', () => {
@@ -127,20 +120,56 @@ describe('claudeContextWindowFromResult', () => {
         { modelUsage },
         { initModel: 'claude-fable-5-1', responseModel }
       )
-    ).toEqual({ tokens: 200_000, model: 'claude-fable-5-1' })
+    ).toBe(200_000)
     expect(
       claudeContextWindowFromResult(
         { modelUsage },
         { initModel: 'claude-fable-5-1[1m]', responseModel }
       )
-    ).toEqual({ tokens: 1_000_000, model: 'claude-fable-5-1[1m]' })
+    ).toBe(1_000_000)
     // An init the newest response contradicts names a model the session has left.
     expect(
       claudeContextWindowFromResult(
         { modelUsage: { ...modelUsage, 'claude-sonnet-5': { contextWindow: 300_000 } } },
         { initModel: 'claude-fable-5-1[1m]', responseModel: 'claude-sonnet-5' }
       )
-    ).toEqual({ tokens: 300_000, model: 'claude-sonnet-5' })
+    ).toBe(300_000)
+  })
+
+  it('reads the plan-mode model the init does not name', () => {
+    // Shape measured from Claude Code 2.1.280 with `--model opusplan` in plan mode.
+    const modelUsage = {
+      'claude-sonnet-5': { contextWindow: 200_000 },
+      'claude-opus-5-5[1m]': { contextWindow: 1_000_000 }
+    }
+    expect(
+      claudeContextWindowFromResult(
+        { modelUsage },
+        { initModel: 'claude-sonnet-5', responseModel: 'claude-opus-5-5' }
+      )
+    ).toBe(1_000_000)
+    // An approved plan hands the rest of the turn back to the resting model.
+    expect(
+      claudeContextWindowFromResult(
+        { modelUsage },
+        { initModel: 'claude-sonnet-5', responseModel: 'claude-sonnet-5' }
+      )
+    ).toBe(200_000)
+  })
+
+  it('keeps the main thread window when a subagent ran on a larger one', () => {
+    const modelUsage = {
+      'claude-sonnet-5': { contextWindow: 200_000 },
+      'claude-fable-5-1[1m]': { contextWindow: 1_000_000 }
+    }
+    for (const initModel of ['claude-sonnet-5', null]) {
+      expect(
+        claudeContextWindowFromResult(
+          { modelUsage },
+          { initModel, responseModel: 'claude-sonnet-5' }
+        )
+      ).toBe(200_000)
+    }
   })
 
   it('is null when no entry reports a usable window', () => {

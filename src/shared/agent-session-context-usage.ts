@@ -43,13 +43,9 @@ export type AgentSessionContextReport = {
   capturedAt: number
 }
 
-/** The window of the main thread's model, and the model it was measured for. */
+/** The main thread's window. After a model change the writer holds estimates until a new one lands. */
 export type AgentSessionContextWindow = {
   tokens: number
-  /** The provider's key for the model, e.g. `claude-opus-5[1m]`. */
-  model: string
-  /** The provider's canonical id when its key is provider-specific. */
-  canonicalModel?: string
   capturedAt: number
 }
 
@@ -58,47 +54,12 @@ export type AgentSessionContextUsed =
   | ({ kind: 'report' } & AgentSessionContextReport)
   /** The newest main-thread response, whatever its blocks: its input is the
    *  live context size. A subagent's measures its own window. */
-  | {
-      kind: 'estimate'
-      usage: AgentSessionTokenUsage
-      /** The model as the window's key names it, `[1m]` included, when the turn's init names it. */
-      model?: string
-      /** The response's own model id, which drops `[1m]`. */
-      responseModel?: string
-      capturedAt: number
-    }
-  /** Compaction or a conversation reset: unknown until a response or report restates it. */
+  | { kind: 'estimate'; usage: AgentSessionTokenUsage; capturedAt: number }
+  /** Compaction, a conversation reset or a model change: unknown until a response or report restates it. */
   | { kind: 'unknown'; capturedAt: number }
 
 /** Context facts on a turn row. An absent part says nothing. */
 export type AgentSessionContextUsage = {
   window?: AgentSessionContextWindow
   used?: AgentSessionContextUsed
-}
-
-/** `claude-opus-5[1m]` and `Claude-Opus-5` name the same model; the suffix picks a window, not a model. */
-export function contextBaseModelId(model: string): string {
-  return model
-    .replace(/\[[^\]]*\]$/u, '')
-    .trim()
-    .toLowerCase()
-}
-
-/** Whether an estimate was measured on the window's model. An exact key must
- *  match `[1m]` included, since that is what tells a 1M window from a 200k one;
- *  a response's id drops the suffix, so it can only name the base model. */
-export function contextWindowServesEstimate(
-  window: AgentSessionContextWindow,
-  estimate: { model?: string; responseModel?: string }
-): boolean {
-  const names = [window.model, window.canonicalModel].flatMap((name) => (name ? [name] : []))
-  if (estimate.model !== undefined) {
-    const id = estimate.model.trim().toLowerCase()
-    return names.some((name) => name.trim().toLowerCase() === id)
-  }
-  if (estimate.responseModel !== undefined) {
-    const base = contextBaseModelId(estimate.responseModel)
-    return names.some((name) => contextBaseModelId(name) === base)
-  }
-  return true
 }

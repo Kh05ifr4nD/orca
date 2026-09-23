@@ -2,13 +2,11 @@
 // and the `get_context_usage` request that asks for the breakdown.
 
 import {
-  contextBaseModelId,
   MAX_CONTEXT_CATEGORIES,
   MAX_CONTEXT_CATEGORY_NAME_CHARS,
   MAX_CONTEXT_MODEL_ID_CHARS,
   type AgentSessionContextReport,
   type AgentSessionContextUsageCategory,
-  type AgentSessionContextWindow,
   type AgentSessionTokenUsage
 } from '../../shared/agent-session-context-usage'
 import type { ClaudeStreamJsonConnection } from './claude-stream-json-connection'
@@ -54,30 +52,36 @@ function modelId(value: unknown): string | null {
   return model.length > 0 && model.length <= MAX_CONTEXT_MODEL_ID_CHARS ? model : null
 }
 
+/** `claude-opus-5[1m]` and `Claude-Opus-5` name the same model; the suffix picks a window, not a model. */
+function contextBaseModelId(model: string): string {
+  return model
+    .replace(/\[[^\]]*\]$/u, '')
+    .trim()
+    .toLowerCase()
+}
+
 /** What names the main loop's model: the turn's `system/init`, keyed exactly as
  *  `modelUsage` is, and the newest main-thread response, which drops `[1m]`. */
 export type ClaudeMainThreadModel = { initModel: string | null; responseModel: string | null }
 
 /** The turn's init model; an init older than the newest response names a model the session has left. */
 function currentInitModel({ initModel, responseModel }: ClaudeMainThreadModel): string | null {
-  return initModel !== null &&
-    (responseModel === null || contextBaseModelId(initModel) === contextBaseModelId(responseModel))
-    ? initModel
-    : null
+  if (initModel === null || responseModel === null) {
+    return initModel
+  }
+  // Plan mode under `opusplan`: the init names the resting model while Opus answers.
+  if (contextBaseModelId(initModel) !== contextBaseModelId(responseModel)) {
+    return null
+  }
+  return initModel
 }
 
-/** The main thread's model as `modelUsage` keys it, `[1m]` included, when the turn's init still names it. */
-export function claudeMainThreadModelKey(main: ClaudeMainThreadModel): string | null {
-  return modelId(currentInitModel(main))
-}
-
-/** The main thread's window, and the model it was measured for, from a
- *  result's per-model usage, which also counts subagents, side calls and models
- *  the session used before a switch. */
+/** The main thread's window from a result's per-model usage, which also counts
+ *  subagents, side calls and models the session used before a switch. */
 export function claudeContextWindowFromResult(
   message: Record<string, unknown>,
   main: ClaudeMainThreadModel = { initModel: null, responseModel: null }
-): Omit<AgentSessionContextWindow, 'capturedAt'> | null {
+): number | null {
   if (!isRecord(message.modelUsage)) {
     return null
   }
@@ -88,31 +92,27 @@ export function claudeContextWindowFromResult(
     }
     const canonicalModel = modelId(usage.canonicalModel)
     const bases = [key, ...(canonicalModel ? [canonicalModel] : [])].map(contextBaseModelId)
-    return [{ key, window, canonicalModel, bases }]
+    return [{ key, window, bases }]
   })
   const initModel = currentInitModel(main)
-  const exact = initModel ? entries.filter((entry) => entry.key === initModel) : []
   const names = [main.responseModel ?? initModel].flatMap((model) =>
     model ? [contextBaseModelId(model)] : []
   )
-  const named =
-    exact.length > 0
-      ? exact
-      : entries.filter((entry) => entry.bases.some((base) => names.includes(base)))
   // Nothing names the main thread's model: the largest window is usually the main loop's.
-  const pool = named.length > 0 ? named : entries
-  const largest = pool.reduce<(typeof pool)[number] | null>(
-    (best, entry) => (best === null || entry.window > best.window ? entry : best),
+  let pool = entries
+  const named = entries.filter((entry) => entry.bases.some((base) => names.includes(base)))
+  if (named.length > 0) {
+    pool = named
+  }
+  // Responses drop `[1m]`; only the init's key tells a 1M window from a 200k one of the same model.
+  const exact = entries.filter((entry) => entry.key === initModel)
+  if (exact.length > 0) {
+    pool = exact
+  }
+  return pool.reduce<number | null>(
+    (best, entry) => (best === null || entry.window > best ? entry.window : best),
     null
   )
-  if (!largest) {
-    return null
-  }
-  return {
-    tokens: largest.window,
-    model: largest.key,
-    ...(largest.canonicalModel ? { canonicalModel: largest.canonicalModel } : {})
-  }
 }
 
 /** A frame after which the CLI's context no longer holds what it held: a

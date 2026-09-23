@@ -25,17 +25,9 @@ const REPORT: AgentSessionContextReport = {
   capturedAt: 5_000
 }
 
-const WINDOW: AgentSessionContextWindow = {
-  tokens: 1_000_000,
-  model: 'claude-fable-5-1[1m]',
-  capturedAt: 2_000
-}
+const WINDOW: AgentSessionContextWindow = { tokens: 1_000_000, capturedAt: 2_000 }
 
-function estimate(
-  usedTokens: number,
-  model?: string,
-  responseModel?: string
-): AgentSessionContextUsage['used'] {
+function estimate(usedTokens: number): AgentSessionContextUsage['used'] {
   return {
     kind: 'estimate',
     usage: {
@@ -44,8 +36,6 @@ function estimate(
       cacheReadInputTokens: 0,
       outputTokens: 4
     },
-    ...(model ? { model } : {}),
-    ...(responseModel ? { responseModel } : {}),
     capturedAt: 1
   }
 }
@@ -89,7 +79,7 @@ describe('selectStructuredAgentContextUsage', () => {
     expect(
       selectStructuredAgentContextUsage([
         turn(1, { used: estimate(10_000), window: WINDOW }),
-        turn(2, { used: estimate(18_600, 'claude-fable-5-1[1m]') })
+        turn(2, { used: estimate(18_600) })
       ])
     ).toEqual({
       usedTokens: 18_600,
@@ -98,6 +88,15 @@ describe('selectStructuredAgentContextUsage', () => {
       estimated: true,
       categories: []
     })
+  })
+
+  it('divides by the newest window, not the one written beside the estimate', () => {
+    expect(
+      selectStructuredAgentContextUsage([
+        turn(1, { used: estimate(150_000), window: WINDOW }),
+        turn(2, { window: { tokens: 200_000, capturedAt: 3_000 } })
+      ])
+    ).toMatchObject({ usedTokens: 150_000, windowTokens: 200_000, percentage: 75 })
   })
 
   it('keeps the last turn with a count while a new turn has none yet', () => {
@@ -111,42 +110,6 @@ describe('selectStructuredAgentContextUsage', () => {
 
   it('states nothing before the CLI has reported a window', () => {
     expect(selectStructuredAgentContextUsage([turn(1, { used: estimate(18_600) })])).toBeNull()
-  })
-
-  it('states nothing when the newest response ran on a model the window was not measured for', () => {
-    const items = (model: string) => [
-      turn(1, { window: WINDOW }),
-      turn(2, { used: estimate(150_000, model) })
-    ]
-    expect(selectStructuredAgentContextUsage(items('claude-sonnet-5'))).toBeNull()
-    expect(selectStructuredAgentContextUsage(items('Claude-Fable-5-1[1m]'))).toMatchObject({
-      windowTokens: 1_000_000
-    })
-    // The same model without `[1m]` runs on a 200k window, not this one.
-    expect(selectStructuredAgentContextUsage(items('claude-fable-5-1'))).toBeNull()
-    // A provider-specific key names its model through the canonical id.
-    const bedrock = { tokens: 200_000, model: 'us.anthropic.claude-sonnet-5-v1', capturedAt: 1 }
-    expect(
-      selectStructuredAgentContextUsage([
-        turn(1, { window: { ...bedrock, canonicalModel: 'claude-sonnet-5' } }),
-        turn(2, { used: estimate(50_000, 'claude-sonnet-5') })
-      ])
-    ).toMatchObject({ windowTokens: 200_000, percentage: 25 })
-  })
-
-  it('matches only the base model when no init named the exact key', () => {
-    const items = (responseModel: string, model?: string) => [
-      turn(1, { window: WINDOW }),
-      turn(2, { used: estimate(150_000, model, responseModel) })
-    ]
-    expect(selectStructuredAgentContextUsage(items('claude-fable-5-1'))).toMatchObject({
-      windowTokens: 1_000_000
-    })
-    expect(selectStructuredAgentContextUsage(items('claude-sonnet-5'))).toBeNull()
-    // An exact key outranks the response's id.
-    expect(
-      selectStructuredAgentContextUsage(items('claude-fable-5-1', 'claude-fable-5-1'))
-    ).toBeNull()
   })
 
   it('hides the pre-compaction size until the next response or report restates it', () => {

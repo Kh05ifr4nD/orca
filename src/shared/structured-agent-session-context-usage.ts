@@ -5,7 +5,6 @@
 
 import {
   contextTokensFromUsage,
-  contextWindowServesEstimate,
   type AgentSessionContextUsageCategory,
   type AgentSessionContextUsed,
   type AgentSessionContextWindow
@@ -52,11 +51,11 @@ export function selectStructuredAgentContextUsage(
   if (fact?.kind !== 'estimate') {
     return null
   }
-  const usedTokens = contextTokensFromUsage(fact.usage)
-  // Another model's window would state a wrong share; wait for this model's.
-  if (!window || !contextWindowServesEstimate(window.fact, fact)) {
+  // The writer holds estimates back across a model change, so the newest window is this model's.
+  if (!window) {
     return null
   }
+  const usedTokens = contextTokensFromUsage(fact.usage)
   return {
     usedTokens,
     windowTokens: window.fact.tokens,

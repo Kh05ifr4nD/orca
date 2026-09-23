@@ -33,16 +33,7 @@ const USAGE = {
 
 /** One of each part and kind, as the writer builds them. */
 const FACTS: AgentSessionContextUsage[] = [
-  { window: { tokens: 1_000_000, model: 'claude-fable-5-1[1m]', capturedAt: 3 } },
-  {
-    window: {
-      tokens: 200_000,
-      model: 'us.anthropic.claude-sonnet-5-v1',
-      canonicalModel: 'claude-sonnet-5',
-      capturedAt: 3
-    }
-  },
-  { used: { kind: 'estimate', usage: USAGE, model: 'claude-fable-5-1', capturedAt: 4 } },
+  { window: { tokens: 1_000_000, capturedAt: 3 } },
   { used: { kind: 'estimate', usage: USAGE, capturedAt: 4 } },
   { used: { kind: 'unknown', capturedAt: 5 } },
   {
@@ -59,7 +50,7 @@ const FACTS: AgentSessionContextUsage[] = [
       ],
       capturedAt: 6
     },
-    window: { tokens: 1_000_000, model: 'claude-fable-5-1[1m]', capturedAt: 6 }
+    window: { tokens: 1_000_000, capturedAt: 6 }
   }
 ]
 

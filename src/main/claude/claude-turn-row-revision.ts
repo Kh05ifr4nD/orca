@@ -44,12 +44,7 @@ const MAX_CONTEXT_PART_BYTES: Record<keyof AgentSessionContextUsage, number> = (
   const text = (length: number) => '\u0000'.repeat(length)
   const number = -Number.MAX_VALUE
   const worst: Required<AgentSessionContextUsage> = {
-    window: {
-      tokens: number,
-      model: text(MAX_CONTEXT_MODEL_ID_CHARS),
-      canonicalModel: text(MAX_CONTEXT_MODEL_ID_CHARS),
-      capturedAt: number
-    },
+    window: { tokens: number, capturedAt: number },
     used: {
       kind: 'report',
       model: text(MAX_CONTEXT_MODEL_ID_CHARS),
