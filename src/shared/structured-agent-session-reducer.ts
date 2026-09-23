@@ -39,8 +39,8 @@ export type StructuredAgentSessionState = {
   activity?: AgentSessionTurnActivity | null
   /** Absent until a frame from a host that stamps `hostNow` has been applied. */
   hostClock?: StructuredAgentHostClock
-  /** Bumped per live batch whose turn-row revisions the window could not take, so a
-   *  whole-journal answer derived from turn rows knows to be asked for again. */
+  /** Bumped per live batch that leaves a turn row's newest revision outside the window
+   *  (dropped or trimmed), so a whole-journal answer derived from turn rows is asked for again. */
   unloadedTurnRevisions?: number
 }
 
@@ -245,11 +245,6 @@ export function reduceStructuredAgentSession(
     event.backgroundTasks !== undefined ? event.backgroundTasks : state.backgroundTasks
   const activity = event.activity !== undefined ? event.activity : state.activity
   const liveItems = liveItemsWithinWindow(state, event.batch.items)
-  const missedTurnRevision =
-    liveItems.length < event.batch.items.length &&
-    event.batch.items.some(
-      (item) => !liveItems.includes(item) && readAgentJournalTurn(item.body) !== null
-    )
   const journalUnchanged =
     liveItems.length === 0 &&
     event.batch.removedItemIds.length === 0 &&
@@ -272,6 +267,13 @@ export function reduceStructuredAgentSession(
     ? state.items
     : mergeItems(state.items, liveItems, event.batch.removedItemIds)
   const items = trimRetainedItems(merged, state.retainedItemLimit)
+  const outsideWindow = [
+    ...(liveItems.length < event.batch.items.length
+      ? event.batch.items.filter((item) => !liveItems.includes(item))
+      : []),
+    ...merged.slice(0, merged.length - items.length)
+  ]
+  const lostTurnRow = outsideWindow.some((item) => readAgentJournalTurn(item.body) !== null)
   return {
     ...state,
     cursor: event.batch.cursor,
@@ -289,9 +291,7 @@ export function reduceStructuredAgentSession(
     commands: event.commands !== undefined ? event.commands : state.commands,
     ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
     ...(activity !== undefined ? { activity } : {}),
-    ...(missedTurnRevision
-      ? { unloadedTurnRevisions: (state.unloadedTurnRevisions ?? 0) + 1 }
-      : {}),
+    ...(lostTurnRow ? { unloadedTurnRevisions: (state.unloadedTurnRevisions ?? 0) + 1 } : {}),
     ...hostClockField(event.hostNow, receivedAt, state.hostClock)
   }
 }

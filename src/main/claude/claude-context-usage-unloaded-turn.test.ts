@@ -142,6 +142,18 @@ function applyLive(
 const hasTurnRow = (state: StructuredAgentSessionState): boolean =>
   state.items.some((item) => readAgentJournalTurn(item.body) !== null)
 
+function catchUp(
+  journal: AgentSessionJournal,
+  state: StructuredAgentSessionState
+): StructuredAgentSessionState {
+  let next = applyLive(journal, state)
+  while (next.cursor?.sequence !== state.cursor?.sequence) {
+    state = next
+    next = applyLive(journal, state)
+  }
+  return next
+}
+
 describe('context usage for a turn row outside the loaded page', () => {
   it('shows the ring on a reopened chat from the host whole-journal answer', async () => {
     const journal = await openJournal()
@@ -199,5 +211,46 @@ describe('context usage for a turn row outside the loaded page', () => {
     expect(
       selectStructuredAgentContextUsage(live.items, options.contextUsage?.current)
     ).toMatchObject({ usedTokens: 250_000, windowTokens: 1_000_000 })
+  })
+
+  it('keeps the ring on the newest facts while a live turn outgrows the retained window', async () => {
+    const journal = await openJournal()
+    const { translator, settle } = translate(journal)
+    runTurn(translator, 'turn-a', 1_000, [120_000])
+    translator.handle(resultFrame(2_000, { 'claude-fable-5-1[1m]': { contextWindow: 1_000_000 } }))
+    runTurn(translator, 'turn-b', 3_000, [])
+    await settle()
+    const hostAnswer = async () =>
+      (await readOptions(journal, { recordsContextUsage: () => true })).contextUsage?.current
+    // The client reads the host once per turn, and again whenever its window loses a turn row.
+    let state = attachTail(journal, 200)
+    let host = await hostAnswer()
+    const respond = (index: number): void => {
+      translator.handle(assistantFrame(`turn-b-reply-${index}`, 4_000 + index, 200_000 + index))
+    }
+    let index = 0
+    for (; index < 1_900; index += 1) {
+      respond(index)
+    }
+    await settle()
+    state = catchUp(journal, state)
+    expect(hasTurnRow(state)).toBe(true)
+
+    // Step one response at a time across the batch that trims the turn row out, and past it.
+    let stepsAfterTrim = 0
+    while (stepsAfterTrim < 5 && index < 3_000) {
+      respond(index++)
+      await settle()
+      const seen = state.unloadedTurnRevisions
+      state = catchUp(journal, state)
+      if (state.unloadedTurnRevisions !== seen) {
+        host = await hostAnswer()
+      }
+      expect(selectStructuredAgentContextUsage(state.items, host)).toEqual(
+        selectStructuredAgentContextUsage(journal.snapshot().items)
+      )
+      stepsAfterTrim += hasTurnRow(state) ? 0 : 1
+    }
+    expect(hasTurnRow(state)).toBe(false)
   })
 })

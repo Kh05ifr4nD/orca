@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ call: vi.fn() }))
@@ -167,5 +167,38 @@ describe('useStructuredAgentSession context usage', () => {
 
     await waitFor(() => expect(result.current.contextUsage).toMatchObject({ usedTokens: 170_000 }))
     expect(optionReads()).toBe(2)
+  })
+
+  it('keeps one refresh in flight and one behind it however many revisions it missed', async () => {
+    const replies: ((used: number) => void)[] = []
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.options'
+        ? new Promise((resolve) =>
+            replies.push((used) =>
+              resolve({
+                models: [],
+                current: { model: 'opus' },
+                contextUsage: { current: { used: estimate(used), window: WINDOW } }
+              })
+            )
+          )
+        : Promise.resolve(null)
+    )
+    const { result, rerender } = render()
+    await act(async () => replies[0](150_000))
+    await waitFor(() => expect(result.current.contextUsage).toMatchObject({ usedTokens: 150_000 }))
+
+    for (let revision = 1; revision <= 5; revision += 1) {
+      unloadedTurnRevisions = revision
+      rerender()
+    }
+    expect(optionReads()).toBe(2)
+    await act(async () => replies[1](160_000))
+    // The one in flight lands, and one more read covers every revision behind it.
+    expect(result.current.contextUsage).toMatchObject({ usedTokens: 160_000 })
+    await waitFor(() => expect(optionReads()).toBe(3))
+    await act(async () => replies[2](175_000))
+    expect(result.current.contextUsage).toMatchObject({ usedTokens: 175_000 })
+    expect(optionReads()).toBe(3)
   })
 })

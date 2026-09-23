@@ -282,6 +282,22 @@ describe('structured agent session item retention', () => {
     expect(streamRevision(olderTurn, turnRow(50, 3), 204).unloadedTurnRevisions).toBe(2)
   })
 
+  it('counts a turn row the cap trims out of a live window', () => {
+    const turnRow: AgentJournalRenderItem = {
+      ...item(0),
+      body: { kind: 'turn', turnId: 'turn-0', state: 'running' }
+    }
+    const full = streamItems(
+      hydrate([turnRow]),
+      Array.from({ length: CAP - 1 }, (_, index) => index + 1)
+    )
+    expect(full.unloadedTurnRevisions).toBeUndefined()
+    const trimmed = streamItems(full, [CAP])
+    expect(trimmed.items[0]?.sequence).toBe(1)
+    expect(trimmed.unloadedTurnRevisions).toBe(1)
+    expect(streamItems(trimmed, [CAP + 1]).unloadedTurnRevisions).toBe(1)
+  })
+
   it('keeps item identity stable when a batch carries no journal change', () => {
     const hydrated = hydrate([item(0)])
     const unchanged = reduceStructuredAgentSession(hydrated, {
