@@ -85,7 +85,6 @@ import {
 import { getRuntimeEnvironmentRevision } from '@/runtime/runtime-environment-revision'
 
 const REMOTE_TERMINAL_INPUT_FLUSH_MS = 8
-let nextE2EInputTraceId = 0
 const REMOTE_TERMINAL_VIEWPORT_FLUSH_MS = 33
 const REMOTE_RUNTIME_MAX_PENDING_QUERY_REPLIES = 64
 const HOST_SESSION_ATTACH_POLL_MS = 150
@@ -210,19 +209,6 @@ export function createRemoteRuntimePtyTransport(
   let sameHandleEndReuseAttachedAt: number | null = null
   let attachGeneration = 0
   let subscriptionGeneration = 0
-  const inputTraceId = ++nextE2EInputTraceId
-  const traceE2EInput = (stage: string, details: Record<string, unknown>): void => {
-    if (
-      String(import.meta.env.VITE_EXPOSE_STORE) !== 'true' ||
-      !tabId ||
-      !isWebTerminalSurfaceTabId(tabId)
-    ) {
-      return
-    }
-    console.info(
-      `[paired-input-client] ${JSON.stringify({ stage, inputTraceId, tabId, handle, connected, attachmentReady, recovery: recovery.currentPhase, ...details })}`
-    )
-  }
 
   function setAttachmentReady(ready: boolean): void {
     attachmentReady = ready
@@ -287,7 +273,6 @@ export function createRemoteRuntimePtyTransport(
     }
     emitRecoveryState()
   })
-  traceE2EInput('created', {})
   let lastRecoveryStateKey = ''
   let pendingViewportClaim = false
   let pendingClaimInput: { text: string; queryReply: boolean }[] = []
@@ -1010,7 +995,6 @@ export function createRemoteRuntimePtyTransport(
     remotePtyId = toRemoteRuntimePtyId(hostHandle, currentRuntimeEnvironmentId)
     registerShutdownHandlers(remotePtyId)
     connected = true
-    traceE2EInput('adopted-host-mirror', { terminalHandle: hostHandle })
     desiredViewport = {
       cols: options.cols ?? 80,
       rows: options.rows ?? 24
@@ -1298,7 +1282,6 @@ export function createRemoteRuntimePtyTransport(
     unregisterShutdownHandlers(previousPtyId)
     registerShutdownHandlers(remotePtyId)
     connected = true
-    traceE2EInput('adopted-resolved-pane', { terminalHandle: terminal.handle })
     desiredViewport = {
       cols: options.cols ?? 80,
       rows: options.rows ?? 24
@@ -1470,19 +1453,10 @@ export function createRemoteRuntimePtyTransport(
     const targetHandle = handle
     const targetLifecycleEpoch = lifecycleEpoch
     if (!connected || !targetHandle || recoveryBlocksIo()) {
-      traceE2EInput('flush-rejected', { length: text.length, queryReply })
       return false
     }
     const stream = getCurrentMultiplexedStream(targetHandle)
-    const sent = stream?.sendInput(text) === true
-    traceE2EInput('flush', {
-      length: text.length,
-      queryReply,
-      streamId: stream?.streamId ?? null,
-      sent,
-      pendingViewportClaim
-    })
-    if (sent) {
+    if (stream?.sendInput(text)) {
       return true
     }
     if (pendingViewportClaim) {
@@ -1497,7 +1471,6 @@ export function createRemoteRuntimePtyTransport(
       ...(desiredViewport ? { viewport: desiredViewport, claimViewport: true as const } : {})
     })
       .then((result) => {
-        traceE2EInput('rpc-fallback', { accepted: result.send.accepted })
         if (
           connected &&
           lifecycleEpoch === targetLifecycleEpoch &&
@@ -1508,7 +1481,6 @@ export function createRemoteRuntimePtyTransport(
         }
       })
       .catch((error) => {
-        traceE2EInput('rpc-fallback-error', { error: runtimeTerminalErrorMessage(error) })
         if (lifecycleEpoch !== targetLifecycleEpoch || handle !== targetHandle) {
           return
         }
@@ -2062,7 +2034,6 @@ export function createRemoteRuntimePtyTransport(
           if (!isCurrentSubscription()) {
             return
           }
-          traceE2EInput('subscribed', { subscribedHandle })
           storedCallbacks.onOutputPauseChanged?.(
             desiredOutputPaused,
             nextStream.setOutputPaused(desiredOutputPaused)
@@ -2204,7 +2175,6 @@ export function createRemoteRuntimePtyTransport(
 
   const transport: PtyTransport = {
     async connect(options) {
-      traceE2EInput('connect-start', { sessionId: options.sessionId ?? null })
       cancelTerminalCreateRetryWait()
       const connectLifecycleEpoch = ++lifecycleEpoch
       const createEnvironmentId = currentRuntimeEnvironmentId
@@ -2456,7 +2426,6 @@ export function createRemoteRuntimePtyTransport(
     },
 
     attach(options) {
-      traceE2EInput('attach-start', { existingPtyId: options.existingPtyId })
       const attachLifecycleEpoch = ++lifecycleEpoch
       const generation = ++attachGeneration
       cancelTerminalCreateRetryWait()
@@ -2556,7 +2525,6 @@ export function createRemoteRuntimePtyTransport(
     },
 
     disconnect() {
-      traceE2EInput('disconnect', {})
       lifecycleEpoch += 1
       attachGeneration += 1
       cancelTerminalCreateRetryWait()
@@ -2591,7 +2559,6 @@ export function createRemoteRuntimePtyTransport(
     },
 
     detach() {
-      traceE2EInput('detach', {})
       // Why first: the successor transport owns the PTY after detach, and the batcher flushes
       // below can throw past the census drop — a stranded gauge outlives the transport.
       outputProcessor.disposePendingSideEffectGauge()
@@ -2618,16 +2585,13 @@ export function createRemoteRuntimePtyTransport(
 
     sendInput(data: string): boolean {
       if (!connected || !handle || recoveryBlocksIo()) {
-        traceE2EInput('input-rejected', { length: data.length })
         return false
       }
       if (!data) {
         return true
       }
       // Why: literal LF bytes from paste/programmatic input must survive; callers use \r or the enter flag for semantic Enter.
-      const queued = inputBatcher.push(data)
-      traceE2EInput('input-queued', { length: data.length, queued })
-      return queued
+      return inputBatcher.push(data)
     },
 
     // Why: query replies (CPR/DSR/DA/OSC) are read in raw mode with a short timeout; the 8ms debounce would miss it and echo the reply onto the prompt (#7329).

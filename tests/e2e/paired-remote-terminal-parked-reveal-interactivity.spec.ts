@@ -257,20 +257,10 @@ type ScenarioResult = {
   name: string
   restoredBuffer: boolean
   hostReceivedInput: boolean
-  decoyReceivedInput: boolean[]
   paintedLive: boolean
   paintedAfterFlip: boolean
   paneGrid: { cols: number; rows: number } | null
   ptyGrid: { cols: number; rows: number } | null
-  rpcProbe: { accepted: boolean | null; hostReceivedInput: boolean; error: string | null } | null
-  postConnectProbe: { hostReceivedInput: boolean; paintedLive: boolean } | null
-  inputRoute: {
-    activeTabId: string | null
-    activeTabType: string | null
-    focusedPaneTabIds: string[]
-    targetTextareaFocused: boolean
-    targetPaneDisplay: string | null
-  }
   diagnostics: unknown
 }
 
@@ -279,32 +269,15 @@ type ScenarioResult = {
  *  tab-flip workaround reveals it. */
 async function probeInteractivity(
   page: Page,
-  environmentId: string,
   worktreeId: string,
   target: HostTerminal,
-  decoys: HostTerminal[],
+  flipTo: HostTerminal,
   name: string
 ): Promise<ScenarioResult> {
   const token = `probe-${name}`
   // Why: a human types once the pane looks restored; typing earlier would race the reattach.
   const restoredBuffer = await waitForPaneMarker(page, target.webTabId, 'READY:', REVEAL_BUDGET_MS)
   await focusActiveTerminalInput(page)
-  const inputRoute = await page.evaluate((targetTabId) => {
-    const state = window.__store?.getState()
-    const focused = document.activeElement
-    const targetPane = window.__paneManagers?.get(targetTabId)?.getActivePane?.()
-    const focusedPaneTabIds = [...(window.__paneManagers?.entries() ?? [])]
-      .filter(([, manager]) => manager.getPanes().some((pane) => pane.container.contains(focused)))
-      .map(([tabId]) => tabId)
-    return {
-      activeTabId: state?.activeTabId ?? null,
-      activeTabType: state?.activeTabType ?? null,
-      focusedPaneTabIds,
-      targetTextareaFocused:
-        targetPane?.container.querySelector('.xterm-helper-textarea') === focused,
-      targetPaneDisplay: targetPane ? getComputedStyle(targetPane.container).display : null
-    }
-  }, target.webTabId)
   await page.keyboard.type(token)
   await page.keyboard.press('Enter')
   const paintedLive = await waitForPaneMarker(
@@ -315,63 +288,9 @@ async function probeInteractivity(
   )
   const paneGrid = await readActivePaneGrid(page, target.webTabId)
   const diagnostics = await readPaneDiagnostics(page, worktreeId, target.webTabId)
-  let rpcProbe: ScenarioResult['rpcProbe'] = null
-  let postConnectProbe: ScenarioResult['postConnectProbe'] = null
-  if (!paintedLive) {
-    const rpcMarker = `rpc-${token}`
-    try {
-      const response = await callEnvironment<{ send: { accepted: boolean } }>(
-        page,
-        environmentId,
-        'terminal.send',
-        {
-          terminal: target.terminal,
-          text: `${rpcMarker}\r`,
-          client: { id: `e2e-${name}`, type: 'desktop' }
-        }
-      )
-      const deadline = Date.now() + 3_000
-      while (Date.now() < deadline && !readSink(target.sinkPath).includes(`LINE:${rpcMarker}`)) {
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-      rpcProbe = {
-        accepted: response.send.accepted,
-        hostReceivedInput: readSink(target.sinkPath).includes(`LINE:${rpcMarker}`),
-        error: null
-      }
-    } catch (error) {
-      rpcProbe = { accepted: null, hostReceivedInput: false, error: String(error) }
-    }
-    await expect
-      .poll(
-        () =>
-          page.evaluate(
-            (id) =>
-              window.__paneManagers?.get(id)?.getActivePane?.()?.container.dataset
-                .ptyRecoveryState ?? null,
-            target.webTabId
-          ),
-        { timeout: 15_000 }
-      )
-      .toBe('connected')
-    const postConnectToken = `after-connect-${token}`
-    await focusActiveTerminalInput(page)
-    await page.keyboard.type(postConnectToken)
-    await page.keyboard.press('Enter')
-    const postConnectPaintedLive = await waitForPaneMarker(
-      page,
-      target.webTabId,
-      `LINE:${postConnectToken}`,
-      LIVE_PAINT_BUDGET_MS
-    )
-    postConnectProbe = {
-      hostReceivedInput: readSink(target.sinkPath).includes(`LINE:${postConnectToken}`),
-      paintedLive: postConnectPaintedLive
-    }
-  }
   let paintedAfterFlip = paintedLive
   if (!paintedLive) {
-    await openClientTab(page, worktreeId, decoys[1].webTabId)
+    await openClientTab(page, worktreeId, flipTo.webTabId)
     await openClientTab(page, worktreeId, target.webTabId)
     paintedAfterFlip = await waitForPaneMarker(
       page,
@@ -385,14 +304,10 @@ async function probeInteractivity(
     name,
     restoredBuffer,
     hostReceivedInput: sink.includes(`LINE:${token}`),
-    decoyReceivedInput: decoys.map((decoy) => readSink(decoy.sinkPath).includes(`LINE:${token}`)),
     paintedLive,
     paintedAfterFlip,
     paneGrid,
     ptyGrid: readPtyGridFromContent(sink),
-    rpcProbe,
-    postConnectProbe,
-    inputRoute,
     diagnostics
   }
 }
@@ -441,11 +356,6 @@ test('paired client keeps revealed remote terminals interactive', async ({
   const previousParkDelay = process.env.ORCA_E2E_TERMINAL_PARKING_DELAY_MS
   process.env.ORCA_E2E_TERMINAL_PARKING_DELAY_MS = String(PARK_DELAY_MS)
   const client = await launchPairedElectronClient(offer, testInfo, 'parked-reveal')
-  client.page.on('console', (message) => {
-    if (message.text().startsWith('[paired-input-client]')) {
-      console.log(message.text())
-    }
-  })
   const createdTerminals: string[] = []
   const results: ScenarioResult[] = []
   try {
@@ -509,14 +419,7 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
         logResult(
-          await probeInteractivity(
-            client.page,
-            client.environmentId,
-            worktreeId,
-            target,
-            decoys,
-            'hidden-mounted'
-          )
+          await probeInteractivity(client.page, worktreeId, target, decoys[1], 'hidden-mounted')
         )
       )
     }
@@ -532,14 +435,7 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
         logResult(
-          await probeInteractivity(
-            client.page,
-            client.environmentId,
-            worktreeId,
-            target,
-            decoys,
-            'cold-parked'
-          )
+          await probeInteractivity(client.page, worktreeId, target, decoys[1], 'cold-parked')
         )
       )
     }
@@ -569,14 +465,7 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
         logResult(
-          await probeInteractivity(
-            client.page,
-            client.environmentId,
-            worktreeId,
-            target,
-            decoys,
-            'reconnect-parked'
-          )
+          await probeInteractivity(client.page, worktreeId, target, decoys[1], 'reconnect-parked')
         )
       )
     }
