@@ -1,6 +1,7 @@
 import { expect, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import type * as GitUsernameModule from '../../git/git-username'
+import type * as LegacyWorkerRecoveryControllerModule from '../runtime-legacy-worker-terminal-recovery-controller'
 import { reviewHeadRemoteRefComponent } from '../../../shared/review-head-tracking-ref'
 
 // Why: durable review-head refs are scoped by remote identity (name + URL hash).
@@ -566,12 +567,36 @@ vi.mock('../../git/repo', async (importOriginal) => {
   }
 })
 
+const liveLegacyWorkerRecoveryControllers = vi.hoisted(() => new Set<{ dispose(): void }>())
+
+// Why: test runtimes are never torn down, so a deferred recovery's retry timer would otherwise
+// fire into a later test and consume that test's stubbed worktree listing.
+vi.mock('../runtime-legacy-worker-terminal-recovery-controller', async (importOriginal) => {
+  const actual = await importOriginal<typeof LegacyWorkerRecoveryControllerModule>()
+  const Controller = actual.RuntimeLegacyWorkerTerminalRecoveryController
+  class TrackedController extends Controller {
+    constructor(...args: ConstructorParameters<typeof Controller>) {
+      super(...args)
+      liveLegacyWorkerRecoveryControllers.add(this)
+    }
+  }
+  return { ...actual, RuntimeLegacyWorkerTerminalRecoveryController: TrackedController }
+})
+
+function disposeLiveLegacyWorkerRecoveryControllers(): void {
+  for (const controller of liveLegacyWorkerRecoveryControllers) {
+    controller.dispose()
+  }
+  liveLegacyWorkerRecoveryControllers.clear()
+}
+
 vi.mock('../../git/git-username', async () => {
   const actual = await vi.importActual<typeof GitUsernameModule>('../../git/git-username')
   return { ...actual, resolveLocalGitUsername: resolveLocalGitUsernameMock }
 })
 
 export {
+  disposeLiveLegacyWorkerRecoveryControllers,
   electronMocks,
   removeWorktreeLinkedPathsMock,
   findExistingWorktreeSymlinkPathsMock,

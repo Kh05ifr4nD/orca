@@ -15,7 +15,7 @@ const { createStackedHostedReviewMock, detectInstalledAgentsWithShellPathHydrati
 const { detectRemoteAgentsMock, electronMocks, ensurePathWithinWorkspaceMock } = mocks
 const { findExistingWorktreeSymlinkPathsMock, forceDeleteLocalBranchMock } = mocks
 const { forgetLocalWatcherRemovalSnapshotMock, forgetRemoteWatcherRemovalSnapshotMock } = mocks
-const { describeCreatedWorktree } = mocks
+const { describeCreatedWorktree, disposeLiveLegacyWorkerRecoveryControllers } = mocks
 const { getActiveMultiplexerMock, getDefaultTabsLaunch, getEffectiveHooks } = mocks
 const { getEffectiveHooksFromConfig, getGitHubPRCheckDetailsMock, getGitHubPRChecksMock } = mocks
 const { getGitHubPRCommentsMock, getGitHubPRFileContentsMock, getGitHubWorkItemByOwnerRepoMock } =
@@ -326,5 +326,6 @@ function resetRuntimeTestMocks(): void {
 
 beforeEach(resetRuntimeTestMocks)
 afterEach(resetRuntimeTestMocks)
+afterEach(disposeLiveLegacyWorkerRecoveryControllers)
 
 export { resetRuntimeTestMocks }

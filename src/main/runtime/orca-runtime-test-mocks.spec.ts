@@ -177,6 +177,8 @@ export {
   ensurePathWithinWorkspaceMock
 } from './orca-runtime-test-mocks/setup.spec'
 export const sshGitProviders = setup.sshGitProviders
+export const disposeLiveLegacyWorkerRecoveryControllers =
+  setup.disposeLiveLegacyWorkerRecoveryControllers
 export const sshProviderGenerations = setup.sshProviderGenerations
 export {
   getSshGitProviderMock,

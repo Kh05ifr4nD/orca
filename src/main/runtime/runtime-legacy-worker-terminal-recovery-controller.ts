@@ -19,6 +19,7 @@ export class RuntimeLegacyWorkerTerminalRecoveryController {
   private readonly retries = new Map<string, RecoveryRetry>()
   private readonly receiptEpochByPane = new Map<string, number>()
   private readonly recoveredPtys = new Set<string>()
+  private disposed = false
 
   constructor(private readonly ports: LegacyWorkerRecoveryPorts) {}
 
@@ -48,6 +49,14 @@ export class RuntimeLegacyWorkerTerminalRecoveryController {
       clearTimeout(retry.timer)
     }
     this.retries.delete(scopeKey)
+  }
+
+  // Why: the retry timer re-arms itself, so its owner's teardown is its only exit.
+  dispose(): void {
+    this.disposed = true
+    for (const scopeKey of this.retries.keys()) {
+      this.cancelScope(scopeKey)
+    }
   }
 
   updateRetry(
@@ -103,7 +112,7 @@ export class RuntimeLegacyWorkerTerminalRecoveryController {
   }
 
   private armRetry(scopeKey: string, retry: RecoveryRetry): void {
-    if (retry.timer) {
+    if (retry.timer || this.disposed) {
       return
     }
     const delayMs = Math.min(1_000 * 2 ** retry.attempt, 30_000)
