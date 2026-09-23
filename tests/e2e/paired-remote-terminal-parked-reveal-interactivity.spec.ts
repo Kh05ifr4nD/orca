@@ -257,10 +257,18 @@ type ScenarioResult = {
   name: string
   restoredBuffer: boolean
   hostReceivedInput: boolean
+  decoyReceivedInput: boolean[]
   paintedLive: boolean
   paintedAfterFlip: boolean
   paneGrid: { cols: number; rows: number } | null
   ptyGrid: { cols: number; rows: number } | null
+  inputRoute: {
+    activeTabId: string | null
+    activeTabType: string | null
+    focusedPaneTabIds: string[]
+    targetTextareaFocused: boolean
+    targetPaneDisplay: string | null
+  }
   diagnostics: unknown
 }
 
@@ -271,13 +279,29 @@ async function probeInteractivity(
   page: Page,
   worktreeId: string,
   target: HostTerminal,
-  flipTo: HostTerminal,
+  decoys: HostTerminal[],
   name: string
 ): Promise<ScenarioResult> {
   const token = `probe-${name}`
   // Why: a human types once the pane looks restored; typing earlier would race the reattach.
   const restoredBuffer = await waitForPaneMarker(page, target.webTabId, 'READY:', REVEAL_BUDGET_MS)
   await focusActiveTerminalInput(page)
+  const inputRoute = await page.evaluate((targetTabId) => {
+    const state = window.__store?.getState()
+    const focused = document.activeElement
+    const targetPane = window.__paneManagers?.get(targetTabId)?.getActivePane?.()
+    const focusedPaneTabIds = [...(window.__paneManagers?.entries() ?? [])]
+      .filter(([, manager]) => manager.getPanes().some((pane) => pane.container.contains(focused)))
+      .map(([tabId]) => tabId)
+    return {
+      activeTabId: state?.activeTabId ?? null,
+      activeTabType: state?.activeTabType ?? null,
+      focusedPaneTabIds,
+      targetTextareaFocused:
+        targetPane?.container.querySelector('.xterm-helper-textarea') === focused,
+      targetPaneDisplay: targetPane ? getComputedStyle(targetPane.container).display : null
+    }
+  }, target.webTabId)
   await page.keyboard.type(token)
   await page.keyboard.press('Enter')
   const paintedLive = await waitForPaneMarker(
@@ -290,7 +314,7 @@ async function probeInteractivity(
   const diagnostics = await readPaneDiagnostics(page, worktreeId, target.webTabId)
   let paintedAfterFlip = paintedLive
   if (!paintedLive) {
-    await openClientTab(page, worktreeId, flipTo.webTabId)
+    await openClientTab(page, worktreeId, decoys[1].webTabId)
     await openClientTab(page, worktreeId, target.webTabId)
     paintedAfterFlip = await waitForPaneMarker(
       page,
@@ -304,10 +328,12 @@ async function probeInteractivity(
     name,
     restoredBuffer,
     hostReceivedInput: sink.includes(`LINE:${token}`),
+    decoyReceivedInput: decoys.map((decoy) => readSink(decoy.sinkPath).includes(`LINE:${token}`)),
     paintedLive,
     paintedAfterFlip,
     paneGrid,
     ptyGrid: readPtyGridFromContent(sink),
+    inputRoute,
     diagnostics
   }
 }
@@ -419,7 +445,7 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
         logResult(
-          await probeInteractivity(client.page, worktreeId, target, decoys[1], 'hidden-mounted')
+          await probeInteractivity(client.page, worktreeId, target, decoys, 'hidden-mounted')
         )
       )
     }
@@ -434,9 +460,7 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await expectStillMounted(client.page, decoys[1].webTabId, 'cold-parked flip decoy')
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
-        logResult(
-          await probeInteractivity(client.page, worktreeId, target, decoys[1], 'cold-parked')
-        )
+        logResult(await probeInteractivity(client.page, worktreeId, target, decoys, 'cold-parked'))
       )
     }
 
@@ -465,7 +489,7 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await openClientTab(client.page, worktreeId, target.webTabId)
       results.push(
         logResult(
-          await probeInteractivity(client.page, worktreeId, target, decoys[1], 'reconnect-parked')
+          await probeInteractivity(client.page, worktreeId, target, decoys, 'reconnect-parked')
         )
       )
     }
