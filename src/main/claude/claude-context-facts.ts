@@ -9,6 +9,7 @@ import {
   type AgentSessionContextReport,
   type AgentSessionContextUsage
 } from '../../shared/agent-session-context-usage'
+import type { AgentJournalItemIdentity } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
   claudeContextResetKind,
@@ -24,8 +25,8 @@ import { writeClaudeTurnRow, type ClaudeTurnRowTarget } from './claude-turn-row-
 
 const CONVERSATION_FRAME_TYPES = new Set(['assistant', 'user', 'stream_event'])
 
-/** The turn a requested report describes; null when no turn was open to name. */
-export type ClaudeContextReportTarget = string | null
+/** The row of the turn a requested report describes; null when no turn was open to name. */
+export type ClaudeContextReportTarget = AgentJournalItemIdentity | null
 
 export class ClaudeContextFacts {
   private activity = 0
@@ -72,7 +73,7 @@ export class ClaudeContextFacts {
     this.lastResponse = null
     this.write({ used: { kind: 'unknown', capturedAt: observedAt } })
     if (reset === 'compaction') {
-      this.requestReport(this.turn.id)
+      this.requestReport(this.turn.identity)
     }
   }
 
@@ -109,7 +110,7 @@ export class ClaudeContextFacts {
   settle(message: Record<string, unknown>, end: ClaudeTurnEnd): void {
     const window = claudeContextWindowFromResult(message, this.mainModel)
     const facts = window ? { window: { ...window, capturedAt: end.completedAt } } : undefined
-    const settled = this.turn.id
+    const settled = this.turn.identity
     if (settled === null) {
       this.turn.settle(end)
       if (facts) {
@@ -128,7 +129,7 @@ export class ClaudeContextFacts {
       model: report.model,
       capturedAt: report.capturedAt
     }
-    writeClaudeTurnRow(this.sink, target === null ? { newest: true } : { turnId: target }, {
+    writeClaudeTurnRow(this.sink, target === null ? { newest: true } : { identity: target }, {
       contextUsage: { used: { kind: 'report', ...report }, window }
     })
   }

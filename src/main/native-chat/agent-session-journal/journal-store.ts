@@ -178,6 +178,10 @@ export class AgentSessionJournal {
     }
   }
 
+  /** One reduced item's body by its journal key, for a writer revising a row it can name. */
+  itemBody = (itemId: string): AgentJournalItemBody | null =>
+    this.state.items.get(itemId)?.body ?? null
+
   /** The turn this journal has published as running — the same read a client's snapshot gives,
    *  without materialising one. */
   activeTurnId = (): string | null =>

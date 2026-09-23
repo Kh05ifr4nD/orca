@@ -45,9 +45,15 @@ export type StructuredAgentSessionIdentityResolver = (
   journal: StructuredAgentSessionLifecycleJournal
 ) => AgentJournalItemIdentity | null
 
+/** What a revision reads: a keyed read for a row it can name, and the scan for one it cannot. */
+export type StructuredAgentSessionRevisionJournal = Pick<
+  AgentSessionJournal,
+  'epoch' | 'visitItems' | 'itemBody'
+>
+
 /** The row a revision rewrites and its whole new body, read from the journal at execution. */
 export type StructuredAgentSessionRevisionResolver = (
-  journal: StructuredAgentSessionLifecycleJournal
+  journal: StructuredAgentSessionRevisionJournal
 ) => { identity: AgentJournalItemIdentity; body: AgentJournalItemBody } | null
 
 /** A revision's body is derived from the row it revises, so coalescing one away would lose it. */

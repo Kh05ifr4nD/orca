@@ -20,15 +20,12 @@ import type {
 import { estimateStructuredAgentSessionItemBytes } from '../native-chat/agent-session-wire/structured-agent-session-event-sink-estimate'
 import type {
   StructuredAgentSessionEventSink,
-  StructuredAgentSessionLifecycleJournal,
+  StructuredAgentSessionRevisionJournal,
   StructuredAgentSessionRevisionOptions
 } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 
 /** The row a write revises: a known one, or the newest turn in the journal. */
-export type ClaudeTurnRowTarget =
-  | { identity: AgentJournalItemIdentity }
-  | { turnId: string }
-  | { newest: true }
+export type ClaudeTurnRowTarget = { identity: AgentJournalItemIdentity } | { newest: true }
 
 export type ClaudeTurnRowWrite = {
   /** The lifecycle fields this turn has now; the lifecycle writer owns all of them. */
@@ -114,23 +111,19 @@ function withoutLifecycle(turn: AgentJournalTurnItem) {
 }
 
 function findTurnRow(
-  journal: StructuredAgentSessionLifecycleJournal,
+  journal: StructuredAgentSessionRevisionJournal,
   target: ClaudeTurnRowTarget
 ): { itemId: string; body: AgentJournalTurnItem } | null {
-  const itemId = 'identity' in target ? agentJournalItemKey(target.identity) : null
+  if ('identity' in target) {
+    const itemId = agentJournalItemKey(target.identity)
+    const body = journal.itemBody(itemId)
+    return body?.kind === 'turn' ? { itemId, body } : null
+  }
+  // Only a write made while no turn is open scans.
   let found: { itemId: string; sequence: number; body: AgentJournalTurnItem } | null = null
-  journal.visitItems((candidate, sequence, body) => {
-    if (body.kind !== 'turn') {
-      return
-    }
-    const matches =
-      itemId !== null
-        ? candidate === itemId
-        : 'turnId' in target
-          ? body.turnId === target.turnId
-          : found === null || sequence >= found.sequence
-    if (matches) {
-      found = { itemId: candidate, sequence, body }
+  journal.visitItems((itemId, sequence, body) => {
+    if (body.kind === 'turn' && (found === null || sequence >= found.sequence)) {
+      found = { itemId, sequence, body }
     }
   })
   return found

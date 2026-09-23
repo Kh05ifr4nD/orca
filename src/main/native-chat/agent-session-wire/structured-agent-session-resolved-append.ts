@@ -6,7 +6,7 @@ import { estimateStructuredAgentSessionItemBytes } from './structured-agent-sess
 import type {
   StructuredAgentSessionAppendOptions,
   StructuredAgentSessionEventSink,
-  StructuredAgentSessionLifecycleJournal
+  StructuredAgentSessionRevisionJournal
 } from './structured-agent-session-event-sink'
 import { structuredAgentSessionJournalAppendOptions } from './structured-agent-session-journal-append-options'
 import type { StructuredAgentSessionSinkQueue } from './structured-agent-session-event-sink-queue'
@@ -25,7 +25,7 @@ export function createStructuredAgentSessionResolvedAppend(
 > {
   const submit = (
     reservedBytes: number,
-    resolve: (journal: StructuredAgentSessionLifecycleJournal) => ResolvedItem | null,
+    resolve: (journal: StructuredAgentSessionRevisionJournal) => ResolvedItem | null,
     options: StructuredAgentSessionAppendOptions,
     publish: boolean
   ) =>

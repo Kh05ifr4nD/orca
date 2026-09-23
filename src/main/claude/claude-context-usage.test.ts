@@ -7,6 +7,7 @@ import {
   claudeContextWindowFromResult,
   claudeTokenUsage
 } from './claude-context-usage'
+import { claudeTurnLifecycleIdentity } from './claude-turn-lifecycle-item'
 
 // Shape measured from Claude Code 2.1.270 / Agent SDK 0.3.251.
 const CONTROL_REPORT = {
@@ -165,6 +166,9 @@ describe('claudeTokenUsage', () => {
   })
 })
 
+const TURN_1 = claudeTurnLifecycleIdentity('claude-session', 'turn-1')
+const TURN_2 = claudeTurnLifecycleIdentity('claude-session', 'turn-2')
+
 function fakeTranslator() {
   const listeners = new Set<(target: ClaudeContextReportTarget) => void>()
   const annotations: [ClaudeContextReportTarget, AgentSessionContextReport][] = []
@@ -214,11 +218,11 @@ describe('bindClaudeContextUsageCapture', () => {
     const fake = fakeTranslator()
     const getContextUsage = vi.fn(async () => CONTROL_REPORT)
     bindClaudeContextUsageCapture({ getContextUsage }, fake.translator, { now: () => 99 })
-    fake.request('turn-1')
+    fake.request(TURN_1)
     await vi.waitFor(() => expect(fake.annotations).toHaveLength(1))
     expect(getContextUsage).toHaveBeenCalledWith({ timeoutMs: 5_000 })
     expect(fake.annotations[0]).toEqual([
-      'turn-1',
+      TURN_1,
       expect.objectContaining({ usedTokens: 18_600, capturedAt: 99 })
     ])
   })
@@ -227,7 +231,7 @@ describe('bindClaudeContextUsageCapture', () => {
     const fake = fakeTranslator()
     const answer = deferred()
     bindClaudeContextUsageCapture({ getContextUsage: () => answer.promise }, fake.translator, {})
-    fake.request('turn-1')
+    fake.request(TURN_1)
     fake.state.activity += 1
     answer.resolve(CONTROL_REPORT)
     await settle()
@@ -243,12 +247,12 @@ describe('bindClaudeContextUsageCapture', () => {
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise)
     bindClaudeContextUsageCapture({ getContextUsage }, fake.translator, { now: () => 5 })
-    fake.request('turn-1')
-    fake.request('turn-1')
+    fake.request(TURN_1)
+    fake.request(TURN_1)
     second.resolve({ ...CONTROL_REPORT, totalTokens: 9_000 })
     first.resolve(CONTROL_REPORT)
     await settle()
-    expect(fake.annotations).toEqual([['turn-1', expect.objectContaining({ usedTokens: 9_000 })]])
+    expect(fake.annotations).toEqual([[TURN_1, expect.objectContaining({ usedTokens: 9_000 })]])
   })
 
   it('leaves the row alone when the CLI cannot answer or the binding was released', async () => {
@@ -259,10 +263,10 @@ describe('bindClaudeContextUsageCapture', () => {
       .mockRejectedValueOnce(new Error('older CLI'))
       .mockReturnValueOnce(late.promise)
     const unbind = bindClaudeContextUsageCapture({ getContextUsage }, fake.translator, {})
-    fake.request('turn-1')
+    fake.request(TURN_1)
     await settle()
     expect(fake.annotations).toHaveLength(0)
-    fake.request('turn-2')
+    fake.request(TURN_2)
     unbind?.()
     late.resolve(CONTROL_REPORT)
     await settle()
