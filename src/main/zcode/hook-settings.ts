@@ -4,6 +4,7 @@ import {
   buildManagedCommandHook,
   createManagedCommandMatcher,
   getSharedManagedScriptPath,
+  hookDefinitionHasManagedCommand,
   isPlainObject,
   removeManagedCommands,
   wrapPosixHookCommand,
@@ -29,8 +30,6 @@ export const ZCODE_HOOK_EVENTS = [
   'Stop'
 ] as const
 
-export type ZCodeHookEvent = (typeof ZCODE_HOOK_EVENTS)[number]
-
 /**
  * ZCode's hook block, nested one level deeper than Claude's (`hooks.events.<Event>`).
  *
@@ -49,14 +48,10 @@ export type ZCodeConfig = {
   [key: string]: unknown
 }
 
-function getZCodeConfigDir(home: string): string {
+export function getZCodeConfigPath(): string {
   // Why: ZCode resolves `~/.zcode/cli` from `homedir()` on every platform
   // (`packages/adapters/src/config/file-config.adapter.ts`) — no APPDATA/XDG branch.
-  return join(home, '.zcode', 'cli')
-}
-
-export function getZCodeConfigPath(): string {
-  return join(getZCodeConfigDir(homedir()), 'config.json')
+  return join(homedir(), '.zcode', 'cli', 'config.json')
 }
 
 export function getZCodeRemoteConfigPath(remoteHome: string): string {
@@ -88,13 +83,14 @@ export function getZCodeRemoteManagedCommand(scriptPath: string): string {
   return wrapPosixHookCommand(scriptPath)
 }
 
-export function getZCodeManagedCommandMatcher(
+function getZCodeManagedCommandMatcher(
   scriptFileName = getZCodeManagedScriptFileName()
 ): (command: string | undefined) => boolean {
   return createManagedCommandMatcher(scriptFileName)
 }
 
-function readEvents(config: ZCodeConfig): Record<string, unknown> {
+/** The `hooks.events` block as a plain lookup, or empty when absent or malformed. */
+export function readZCodeEventMap(config: ZCodeConfig): Record<string, unknown> {
   const events = config.hooks?.events
   return isPlainObject(events) ? events : {}
 }
@@ -118,7 +114,7 @@ export function applyZCodeManagedHooks(
   command: string,
   scriptFileName = getZCodeManagedScriptFileName()
 ): ZCodeConfig {
-  const nextEvents = { ...readEvents(config) }
+  const nextEvents = { ...readZCodeEventMap(config) }
   const isManagedCommand = getZCodeManagedCommandMatcher(scriptFileName)
 
   for (const eventName of ZCODE_HOOK_EVENTS) {
@@ -143,13 +139,15 @@ export function removeZCodeManagedHooks(
   config: ZCodeConfig,
   scriptFileName = getZCodeManagedScriptFileName()
 ): { config: ZCodeConfig; changed: boolean } {
-  const events = readEvents(config)
+  const events = readZCodeEventMap(config)
   const nextEvents = { ...events }
   const isManagedCommand = getZCodeManagedCommandMatcher(scriptFileName)
   let changed = false
 
-  for (const eventName of Object.keys(nextEvents)) {
-    if (!Array.isArray(nextEvents[eventName])) {
+  for (const [eventName, value] of Object.entries(nextEvents)) {
+    // Why: leave a non-array value exactly as the user wrote it — emptying it below would
+    // delete a key Orca never owned.
+    if (!Array.isArray(value)) {
       continue
     }
     const definitions = readEventDefinitions(nextEvents, eventName)
@@ -175,29 +173,17 @@ export function removeZCodeManagedHooks(
 /** Events whose managed command is currently registered in the user's config. */
 export function readManagedZCodeHookEvents(
   config: ZCodeConfig,
-  isManagedCommand: (command: string | undefined) => boolean
+  scriptFileName = getZCodeManagedScriptFileName()
 ): Set<string> {
-  const present = new Set<string>()
-  const events = readEvents(config)
-  for (const eventName of ZCODE_HOOK_EVENTS) {
-    const hasManaged = readEventDefinitions(events, eventName).some((definition) => {
-      const hooks = definition.hooks
-      return (
-        Array.isArray(hooks) &&
-        hooks.some(
-          (hook) => isPlainObject(hook) && isManagedCommand(readCommandString(hook.command))
-        )
+  const isManagedCommand = getZCodeManagedCommandMatcher(scriptFileName)
+  const events = readZCodeEventMap(config)
+  return new Set(
+    ZCODE_HOOK_EVENTS.filter((eventName) =>
+      readEventDefinitions(events, eventName).some((definition) =>
+        hookDefinitionHasManagedCommand(definition, isManagedCommand)
       )
-    })
-    if (hasManaged) {
-      present.add(eventName)
-    }
-  }
-  return present
-}
-
-function readCommandString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
+    )
+  )
 }
 
 export function isZCodeHooksEnabled(config: ZCodeConfig): boolean {

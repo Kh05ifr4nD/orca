@@ -1,5 +1,5 @@
 import type { SFTPWrapper } from 'ssh2'
-import type { AgentHookInstallState, AgentHookInstallStatus } from '../../shared/agent-hook-types'
+import type { AgentHookInstallStatus } from '../../shared/agent-hook-types'
 import {
   buildWindowsAgentHookCurlPostCommand,
   writeHooksJson,
@@ -22,7 +22,6 @@ import {
   applyZCodeManagedHooks,
   getZCodeConfigPath,
   getZCodeManagedCommand,
-  getZCodeManagedCommandMatcher,
   getZCodeManagedScriptFileName,
   getZCodeManagedScriptPath,
   getZCodePosixManagedScriptFileName,
@@ -31,7 +30,8 @@ import {
   isZCodeHooksEnabled,
   readManagedZCodeHookEvents,
   removeZCodeManagedHooks,
-  ZCODE_HOOK_EVENTS
+  ZCODE_HOOK_EVENTS,
+  type ZCodeConfig
 } from './hook-settings'
 import {
   parseZCodeConfigText,
@@ -75,37 +75,33 @@ function getManagedScript(target: 'local' | 'posix' = 'local'): string {
   ].join('\n')
 }
 
+function zcodeHookError(configPath: string, detail: string): AgentHookInstallStatus {
+  return { agent: 'zcode', state: 'error', configPath, managedHooksPresent: false, detail }
+}
+
 function buildStatus(
-  config: Parameters<typeof readManagedZCodeHookEvents>[0],
+  config: ZCodeConfig,
   configPath: string,
   scriptFileName: string
 ): AgentHookInstallStatus {
   const base = { agent: 'zcode' as const, configPath }
-  const present = readManagedZCodeHookEvents(config, getZCodeManagedCommandMatcher(scriptFileName))
+  const present = readManagedZCodeHookEvents(config, scriptFileName)
   const missing = ZCODE_HOOK_EVENTS.filter((event) => !present.has(event))
   // Why: ZCode ships `hooks.enabled: false` by default, so registered events alone prove
   // nothing — an install that left the flag off would never deliver a single event.
   const hooksEnabled = isZCodeHooksEnabled(config)
 
-  let state: AgentHookInstallState
-  let detail: string | null
   if (missing.length === 0 && hooksEnabled) {
-    state = 'installed'
-    detail = null
-  } else if (present.size === 0) {
-    state = 'not_installed'
-    detail = null
-  } else {
-    state = 'partial'
-    detail =
-      [
-        missing.length > 0 ? `events: ${missing.join(', ')}` : null,
-        hooksEnabled ? null : '`hooks.enabled` is false, so ZCode runs no hooks'
-      ]
-        .filter(Boolean)
-        .join('; ') || null
+    return { ...base, state: 'installed', managedHooksPresent: true, detail: null }
   }
-  return { ...base, state, managedHooksPresent: present.size > 0, detail }
+  if (present.size === 0) {
+    return { ...base, state: 'not_installed', managedHooksPresent: false, detail: null }
+  }
+  const reasons = [
+    missing.length > 0 ? `events: ${missing.join(', ')}` : '',
+    hooksEnabled ? '' : '`hooks.enabled` is false, so ZCode runs no hooks'
+  ].filter(Boolean)
+  return { ...base, state: 'partial', managedHooksPresent: true, detail: reasons.join('; ') }
 }
 
 export class ZCodeHookService {
@@ -117,13 +113,7 @@ export class ZCodeHookService {
     const configPath = getZCodeConfigPath()
     const source = readZCodeConfigSource(configPath)
     if (!source) {
-      return {
-        agent: 'zcode',
-        state: 'error',
-        configPath,
-        managedHooksPresent: false,
-        detail: 'Could not read ZCode config.json'
-      }
+      return zcodeHookError(configPath, 'Could not read ZCode config.json')
     }
     return buildStatus(source.config, configPath, getZCodeManagedScriptFileName())
   }
@@ -133,13 +123,7 @@ export class ZCodeHookService {
     const scriptPath = getZCodeManagedScriptPath()
     const source = readZCodeConfigSource(configPath)
     if (!source) {
-      return {
-        agent: 'zcode',
-        state: 'error',
-        configPath,
-        managedHooksPresent: false,
-        detail: 'Could not read ZCode config.json'
-      }
+      return zcodeHookError(configPath, 'Could not read ZCode config.json')
     }
 
     const scriptFileName = getZCodeManagedScriptFileName()
@@ -163,13 +147,7 @@ export class ZCodeHookService {
       const body = await readTextFileRemote(sftp, remoteConfigPath)
       const config = body === null ? {} : parseZCodeConfigText(body, 'remote ZCode config.json')
       if (!config) {
-        return {
-          agent: 'zcode',
-          state: 'error',
-          configPath: remoteConfigPath,
-          managedHooksPresent: false,
-          detail: 'Could not parse remote ZCode config.json'
-        }
+        return zcodeHookError(remoteConfigPath, 'Could not parse remote ZCode config.json')
       }
 
       const command = getZCodeRemoteManagedCommand(remoteScriptPath)
@@ -187,13 +165,7 @@ export class ZCodeHookService {
         detail: null
       }
     } catch (err) {
-      return {
-        agent: 'zcode',
-        state: 'error',
-        configPath: remoteConfigPath,
-        managedHooksPresent: false,
-        detail: err instanceof Error ? err.message : String(err)
-      }
+      return zcodeHookError(remoteConfigPath, err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -201,13 +173,7 @@ export class ZCodeHookService {
     const configPath = getZCodeConfigPath()
     const source = readZCodeConfigSource(configPath)
     if (!source) {
-      return {
-        agent: 'zcode',
-        state: 'error',
-        configPath,
-        managedHooksPresent: false,
-        detail: 'Could not read ZCode config.json'
-      }
+      return zcodeHookError(configPath, 'Could not read ZCode config.json')
     }
     const { config: nextConfig, changed } = removeZCodeManagedHooks(
       source.config,
