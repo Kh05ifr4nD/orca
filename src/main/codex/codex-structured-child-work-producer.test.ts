@@ -9,9 +9,9 @@ import { agentChildWorkLiveness } from '../../shared/agent-status-child-work-liv
 import { reconcileAgentChildWorkEvidence } from '../../shared/agent-status-child-work-reconciliation'
 import {
   agentChildWorkOwnedLiveness,
-  deriveAgentChildDisplayState,
-  projectAgentChildWorkViews
-} from '../../shared/agent-status-child-work-view'
+  deriveAgentChildDisplayState
+} from '../../shared/agent-status-child-work-display'
+import { projectAgentChildWorkViews } from '../../shared/agent-status-child-work-view'
 import { createAgentStatusStore } from '../../shared/agent-status-store'
 import { makeStructuredAgentStatusSubject } from '../../shared/agent-status-subject'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
