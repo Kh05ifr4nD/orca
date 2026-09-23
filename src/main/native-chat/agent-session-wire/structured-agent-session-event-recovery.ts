@@ -23,6 +23,7 @@ export class StructuredAgentSessionEventRecovery {
       publishFence: (sessionId: string, session: StructuredAgentSessionHostSession) => void
       publishStatus?: (sessionId: string) => void
       hasResumeCapableHolder: (sessionId: string) => boolean
+      restartReleaseGrace: (sessionId: string) => void
       serialize: <T>(sessionId: string, task: () => Promise<T>) => Promise<T>
       now: () => number
       /** The one restart every asker shares; the holds put an unheld child on the idle clock. */

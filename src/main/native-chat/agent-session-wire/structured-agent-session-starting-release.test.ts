@@ -35,11 +35,13 @@ let host: StructuredAgentSessionHost
 let adapter: ClaudeStructuredSessionAdapter
 let claude: ReturnType<typeof fakeClaude>
 let landInit: () => void
+let lifecycle: Promise<void>[]
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-starting-release-'))
   resetHostTestOperationIds()
   claude = fakeClaude()
+  lifecycle = []
   const initLanded = new Promise<void>((resolve) => {
     landInit = resolve
   })
@@ -57,7 +59,7 @@ beforeEach(async () => {
     onEvent: (event) => {
       const mapped = structuredClaudeLifecycleEvent(event)
       if (mapped) {
-        void host.handleAdapterEvent(mapped)
+        lifecycle.push(host.handleAdapterEvent(mapped))
       }
     },
     // As the runtime wires it: a held prompt's outcome reaches the journal out of band.
@@ -88,6 +90,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   landInit()
   await adapter.closeAll()
   await host.flushAllStreamedEvents()
@@ -155,6 +158,35 @@ describe('a chat left while its Claude CLI is still starting', () => {
 
     expect(claude.connections[0].sent).toEqual([expect.objectContaining({ type: 'user' })])
     await vi.waitFor(() => expect(dispatchState(held)).toBe('accepted'))
+  })
+
+  it('gives the message it wrote at startup a full grace to open its turn', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    await attachStarting()
+    const held = await send('sent while starting')
+    const connection = claude.connections[0]
+    // Claude echoes a prompt only when it starts that turn, which a loaded machine delays.
+    connection.send = async (message) => {
+      connection.sent.push(message)
+    }
+    host.release(SESSION, SURFACE)
+    await vi.advanceTimersByTimeAsync(GRACE_MS * 3 - 1)
+    expect(host.hasSession(SESSION)).toBe(true)
+
+    // Startup lands just before the clock's next tick.
+    landInit()
+    await adapter.drainStartup(SESSION)
+    await Promise.all(lifecycle)
+    expect(connection.sent).toEqual([expect.objectContaining({ type: 'user' })])
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 1)
+
+    expect(host.hasSession(SESSION)).toBe(true)
+    expect(connection.closeCount).toBe(0)
+    connection.handlers.onMessage?.(connection.sent[0])
+    await host.flushStreamedEvents(SESSION)
+    await vi.advanceTimersByTimeAsync(GRACE_MS * 3)
+    expect(host.hasSession(SESSION)).toBe(true)
+    expect(dispatchState(held)).toBe('accepted')
   })
 
   it('is released after the grace once its turn has finished', async () => {

@@ -145,6 +145,7 @@ export class StructuredAgentSessionHost {
         this.subscribers.snapshot(sessionId, session.journal, session.fence),
       publishStatus: this.clientDelivery.publishStatusAndSettlement,
       hasResumeCapableHolder: (sessionId) => this.holds.hasResumeCapableHolder(sessionId),
+      restartReleaseGrace: (sessionId) => this.holds.renew(sessionId),
       // Tracked: a quit drains a queued restart before it evicts, so no child outlives it.
       serialize: (sessionId, task) => this.tasks.trackAttach(this.serialize(sessionId, task)),
       now: () => this.now(),
@@ -282,8 +283,7 @@ export class StructuredAgentSessionHost {
     }
   }
 
-  send = (...args: Parameters<StructuredConversationCommandController['send']>) =>
-    this.conversationCommands.send(...args)
+  send = this.conversationCommands.send
 
   waitForSendSettlement = this.clientDelivery.waitForSendSettlement
 

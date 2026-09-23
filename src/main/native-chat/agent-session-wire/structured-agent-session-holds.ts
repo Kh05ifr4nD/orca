@@ -139,7 +139,8 @@ export class StructuredAgentSessionHolds {
     return { ok: true }
   }
 
-  /** Journal activity; only an unheld session's pending release notices. */
+  /** Activity — a journal write, or a start reaching the work it held; only a pending release
+   *  notices, and it restarts its full window. */
   renew(sessionId: string): void {
     this.clock.renew(sessionId)
   }
