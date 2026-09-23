@@ -551,7 +551,7 @@ describe('parseWorkspaceSession', () => {
     }
   })
 
-  it('preserves a structured agent session tab and its active projection', () => {
+  it('preserves a structured agent session tab and drops the retired adoption key', () => {
     const result = parseWorkspaceSession({
       activeRepoId: null,
       activeWorktreeId: 'wt',
@@ -567,6 +567,7 @@ describe('parseWorkspaceSession', () => {
             worktreeId: 'wt',
             contentType: 'agent-session',
             agentSessionAgent: 'codex',
+            // Why: sessions saved by older builds still carry this key; they must keep loading.
             structuredSessionId: 'codex-session-1',
             label: 'Codex Chat',
             customLabel: null,
@@ -583,9 +584,9 @@ describe('parseWorkspaceSession', () => {
     if (result.ok) {
       expect(result.value.unifiedTabs?.wt[0]).toMatchObject({
         contentType: 'agent-session',
-        agentSessionAgent: 'codex',
-        structuredSessionId: 'codex-session-1'
+        agentSessionAgent: 'codex'
       })
+      expect(result.value.unifiedTabs?.wt[0]).not.toHaveProperty('structuredSessionId')
       expect(result.value.activeTabTypeByWorktree?.wt).toBe('agent-session')
     }
   })
