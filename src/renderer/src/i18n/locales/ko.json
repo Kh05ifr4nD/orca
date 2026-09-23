@@ -15031,6 +15031,10 @@
         "copySessionIdSuccess": "세션 ID를 복사했습니다",
         "copySessionIdError": "세션 ID를 복사하지 못했습니다"
       }
+    },
+    "agentChildRow": {
+      "ended": "종료됨",
+      "endedAgo": "{{value0}} 전에 종료됨"
     }
   },
   "dashboardPopout": {

@@ -14893,6 +14893,10 @@
         "copySessionIdSuccess": "セッション ID をコピーしました",
         "copySessionIdError": "セッション ID のコピーに失敗しました"
       }
+    },
+    "agentChildRow": {
+      "ended": "終了",
+      "endedAgo": "{{value0}}前に終了"
     }
   },
   "dashboardPopout": {
