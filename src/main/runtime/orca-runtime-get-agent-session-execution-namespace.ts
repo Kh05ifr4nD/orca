@@ -20,7 +20,7 @@ import {
 import type { AgentSessionLaunchArgs } from '../../shared/agent-session-record'
 import { resolveStartupShell } from '../../shared/tui-agent-startup-shell'
 import { resolveAgentSessionResumeArgs } from './agent-session-resume-args'
-import { structuredSessionTerminalViewEnv } from './structured-session-child-identity-env'
+import { withStructuredSessionTerminalViewEnv } from './structured-session-child-identity-env'
 
 export class OrcaRuntimeWithGetAgentSessionExecutionNamespace extends OrcaRuntimeWithResolveWorktreeRemovalTarget {
   protected getAgentSessionExecutionNamespace(
@@ -175,7 +175,7 @@ export class OrcaRuntimeWithGetAgentSessionExecutionNamespace extends OrcaRuntim
       command: startup.launchCommand,
       // Spawn env, not `agentEnv`: the launch config persists, and a relaunch from it would replay
       // the session id without the handoff that binds this terminal to the session.
-      env: { ...startup.env, ...structuredSessionTerminalViewEnv(handoffAuthority?.sessionId) },
+      env: withStructuredSessionTerminalViewEnv(startup.env, handoffAuthority?.sessionId),
       launchConfig: startup.launchConfig,
       startupCommandDelivery: startup.startupCommandDelivery,
       launchAgent: request.agent,
