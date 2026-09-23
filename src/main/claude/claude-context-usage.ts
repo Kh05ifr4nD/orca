@@ -58,6 +58,19 @@ function modelId(value: unknown): string | null {
  *  `modelUsage` is, and the newest main-thread response, which drops `[1m]`. */
 export type ClaudeMainThreadModel = { initModel: string | null; responseModel: string | null }
 
+/** The turn's init model; an init older than the newest response names a model the session has left. */
+function currentInitModel({ initModel, responseModel }: ClaudeMainThreadModel): string | null {
+  return initModel !== null &&
+    (responseModel === null || contextBaseModelId(initModel) === contextBaseModelId(responseModel))
+    ? initModel
+    : null
+}
+
+/** The main thread's model as `modelUsage` keys it, `[1m]` included, when the turn's init still names it. */
+export function claudeMainThreadModelKey(main: ClaudeMainThreadModel): string | null {
+  return modelId(currentInitModel(main))
+}
+
 /** The main thread's window, and the model it was measured for, from a
  *  result's per-model usage, which also counts subagents, side calls and models
  *  the session used before a switch. */
@@ -77,13 +90,9 @@ export function claudeContextWindowFromResult(
     const bases = [key, ...(canonicalModel ? [canonicalModel] : [])].map(contextBaseModelId)
     return [{ key, window, canonicalModel, bases }]
   })
-  const { initModel, responseModel } = main
-  // An init older than the newest response names a model the session has left.
-  const initIsCurrent =
-    initModel !== null &&
-    (responseModel === null || contextBaseModelId(initModel) === contextBaseModelId(responseModel))
-  const exact = initIsCurrent ? entries.filter((entry) => entry.key === initModel) : []
-  const names = [responseModel ?? (initIsCurrent ? initModel : null)].flatMap((model) =>
+  const initModel = currentInitModel(main)
+  const exact = initModel ? entries.filter((entry) => entry.key === initModel) : []
+  const names = [main.responseModel ?? initModel].flatMap((model) =>
     model ? [contextBaseModelId(model)] : []
   )
   const named =

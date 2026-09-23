@@ -84,7 +84,7 @@ describe('selectStructuredAgentContextUsage', () => {
     expect(
       selectStructuredAgentContextUsage([
         turn(1, { used: estimate(10_000), window: WINDOW }),
-        turn(2, { used: estimate(18_600, 'claude-fable-5-1') })
+        turn(2, { used: estimate(18_600, 'claude-fable-5-1[1m]') })
       ])
     ).toEqual({
       usedTokens: 18_600,
@@ -114,10 +114,11 @@ describe('selectStructuredAgentContextUsage', () => {
       turn(2, { used: estimate(150_000, model) })
     ]
     expect(selectStructuredAgentContextUsage(items('claude-sonnet-5'))).toBeNull()
-    // Responses drop the `[1m]` the window's key carries; the model is still the same.
-    expect(selectStructuredAgentContextUsage(items('claude-fable-5-1'))).toMatchObject({
+    expect(selectStructuredAgentContextUsage(items('Claude-Fable-5-1[1m]'))).toMatchObject({
       windowTokens: 1_000_000
     })
+    // The same model without `[1m]` runs on a 200k window, not this one.
+    expect(selectStructuredAgentContextUsage(items('claude-fable-5-1'))).toBeNull()
     // A provider-specific key names its model through the canonical id.
     const bedrock = { tokens: 200_000, model: 'us.anthropic.claude-sonnet-5-v1', capturedAt: 1 }
     expect(

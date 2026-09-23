@@ -14,6 +14,7 @@ import type { StructuredAgentSessionEventSink } from '../native-chat/agent-sessi
 import {
   claudeContextResetKind,
   claudeContextWindowFromResult,
+  claudeMainThreadModelKey,
   claudeTokenUsage,
   type ClaudeMainThreadModel
 } from './claude-context-usage'
@@ -95,13 +96,20 @@ export class ClaudeContextFacts {
     if (model) {
       this.mainModel = { ...this.mainModel, responseModel: model }
     }
-    const key = JSON.stringify([this.turn.id, usage, model])
+    // Responses drop `[1m]`; the init's exact key tells a 1M window from a 200k one of the same model.
+    const measured = claudeMainThreadModelKey(this.mainModel) ?? model
+    const key = JSON.stringify([this.turn.id, usage, measured])
     if (key === this.lastResponse) {
       return
     }
     this.lastResponse = key
     this.write({
-      used: { kind: 'estimate', usage, ...(model ? { model } : {}), capturedAt: observedAt }
+      used: {
+        kind: 'estimate',
+        usage,
+        ...(measured ? { model: measured } : {}),
+        capturedAt: observedAt
+      }
     })
   }
 

@@ -33,6 +33,9 @@ function frame(message: Record<string, unknown>, observedAt: number, startsTurn 
   }
 }
 
+const initFrame = (at: number) =>
+  frame({ type: 'system', subtype: 'init', uuid: `init-${at}`, model: 'claude-fable-5-1[1m]' }, at)
+
 const userFrame = (uuid: string, at: number) =>
   frame(
     { type: 'user', uuid, message: { role: 'user', content: [{ type: 'text', text: 'go' }] } },
@@ -143,6 +146,7 @@ describe('context usage across a restart', () => {
   it('resets the ring at a /compact that is the first thing after a restart, then reads the fresh report', async () => {
     const journal = await openJournal()
     const before = acquire(journal)
+    before.translator.handle(initFrame(900))
     before.translator.handle(userFrame('turn-a', 1_000))
     before.translator.handle(assistantFrame('reply-a', 2_000, 150_000))
     before.translator.handle(resultFrame(3_000))
@@ -173,9 +177,11 @@ describe('context usage across a restart', () => {
   it('keeps the last known size of a turn the child crashed in', async () => {
     const journal = await openJournal()
     const crashed = acquire(journal)
+    crashed.translator.handle(initFrame(900))
     crashed.translator.handle(userFrame('turn-a', 1_000))
     crashed.translator.handle(assistantFrame('reply-a', 2_000, 20_000))
     crashed.translator.handle(resultFrame(3_000))
+    crashed.translator.handle(initFrame(3900))
     crashed.translator.handle(userFrame('turn-b', 4_000))
     crashed.translator.handle(assistantFrame('reply-b', 5_000, 120_000))
     await crashed.settle()
@@ -196,6 +202,7 @@ describe('context usage across a restart', () => {
   it('never brings a settled turn back to running with a context write that ran late', async () => {
     const journal = await openJournal()
     const live = acquire(journal)
+    live.translator.handle(initFrame(900))
     live.translator.handle(userFrame('turn-a', 1_000))
     live.translator.handle(assistantFrame('reply-a', 2_000, 20_000))
     await live.settle()

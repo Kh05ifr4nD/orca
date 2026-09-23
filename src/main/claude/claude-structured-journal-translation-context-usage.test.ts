@@ -147,7 +147,8 @@ const MODEL_USAGE = {
 
 const turnIdentity = (turnId: string) => claudeTurnLifecycleIdentity('claude-session', turnId)
 
-function setup() {
+/** Every turn the CLI runs opens with an init naming the main model as `modelUsage` keys it. */
+function setup({ init = 'claude-fable-5-1[1m]' }: { init?: string | null } = {}) {
   const state = journal()
   const translator = createClaudeJournalTranslator({ sink: state.sink, coalesceMs: 0 })
   const requests: ClaudeContextReportTarget[] = []
@@ -155,6 +156,9 @@ function setup() {
   const handle = (event: Parameters<typeof translator.handle>[0]): void => {
     state.clock.now = event.type === 'message' ? (event.observedAt ?? 0) : 0
     translator.handle(event)
+  }
+  if (init) {
+    handle(initFrame(init, 500))
   }
   return { ...state, translator, requests, handle }
 }
@@ -170,7 +174,8 @@ describe('context usage on journal rows', () => {
         used: {
           kind: 'estimate',
           usage: { inputTokens: 18_600, outputTokens: 4 },
-          model: 'claude-fable-5-1',
+          // The init's exact key, not the response's `[1m]`-less name.
+          model: 'claude-fable-5-1[1m]',
           capturedAt: 2_000
         }
       }
@@ -273,7 +278,7 @@ describe('context usage on journal rows', () => {
   })
 
   it('names the main model from its responses when no init frame does', () => {
-    const t = setup()
+    const t = setup({ init: null })
     t.handle(userFrame('turn-a', 1_000))
     t.handle(assistantFrame('reply-a', 2_000, 20_000, undefined, 'claude-sonnet-5'))
     t.handle(
@@ -477,6 +482,33 @@ describe('context usage on journal rows', () => {
       windowTokens: 200_000,
       percentage: 75
     })
+    t.translator.dispose()
+  })
+
+  it('hides the ring after a switch between the 1M and 200k windows of one model', () => {
+    const t = setup()
+    const usage = {
+      'claude-fable-5-1[1m]': { contextWindow: 1_000_000 },
+      'claude-fable-5-1': { contextWindow: 200_000 }
+    }
+    t.handle(userFrame('turn-a', 1_000))
+    t.handle(assistantFrame('reply-a', 2_000, 150_000))
+    t.handle(resultFrame(3_000, usage))
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({ percentage: 15 })
+    // Responses name both the same; only the init says this turn runs on 200k.
+    t.handle(initFrame('claude-fable-5-1', 3_900))
+    t.handle(userFrame('turn-b', 4_000))
+    t.handle(assistantFrame('reply-b', 5_000, 160_000))
+    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
+    t.handle(resultFrame(6_000, usage))
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
+      windowTokens: 200_000,
+      percentage: 80
+    })
+    t.handle(initFrame('claude-fable-5-1[1m]', 6_900))
+    t.handle(userFrame('turn-c', 7_000))
+    t.handle(assistantFrame('reply-c', 8_000, 170_000))
+    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
     t.translator.dispose()
   })
 

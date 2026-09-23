@@ -76,13 +76,14 @@ export function contextBaseModelId(model: string): string {
     .toLowerCase()
 }
 
-/** Whether a response's model is one the window was measured for. */
+/** Whether an estimate's model is the one the window was measured for. The
+ *  `[1m]` suffix must agree too: it is what tells a 1M window from a 200k one. */
 export function contextWindowServesModel(
   window: AgentSessionContextWindow,
   model: string
 ): boolean {
-  const base = contextBaseModelId(model)
+  const id = model.trim().toLowerCase()
   return [window.model, window.canonicalModel].some(
-    (name) => name !== undefined && contextBaseModelId(name) === base
+    (name) => name !== undefined && name.trim().toLowerCase() === id
   )
 }
