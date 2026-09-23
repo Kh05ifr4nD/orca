@@ -202,9 +202,6 @@ export function NativeChatStructuredSession(
     props.target
   ])
 
-  const goalForBanner = prompt ? null : (controller.threadGoal?.goal ?? null)
-  const showGoalBanner = goalForBanner !== null && goalForBanner.status !== 'complete'
-
   return (
     <div
       ref={rootRef}
@@ -325,15 +322,13 @@ export function NativeChatStructuredSession(
         isVisible={props.isVisible}
         backgroundTasks={controller.backgroundTasks}
         stopBackgroundTask={controller.stopBackgroundTask}
-        dockedOnGoal={showGoalBanner}
       />
-      {showGoalBanner && goalForBanner ? (
+      {!prompt && controller.threadGoal?.goal ? (
         <NativeChatThreadGoalBanner
           key={props.sessionId}
-          goal={goalForBanner}
-          pending={controller.threadGoal?.pending ?? false}
+          goal={controller.threadGoal.goal}
+          pending={controller.threadGoal.pending}
           isVisible={props.isVisible}
-          cappedByTasks={controller.backgroundTasks.show}
           runningTurn={
             controller.turnId === null ? null : { startedAt: controller.workingStartedAt ?? null }
           }

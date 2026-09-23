@@ -5,7 +5,6 @@ import { AgentStateDot } from '@/components/AgentStateDot'
 import { Button } from '@/components/ui/button'
 import { useNow } from '@/hooks/use-now'
 import { translate } from '@/i18n/i18n'
-import { cn } from '@/lib/utils'
 import { backgroundTasksHeaderContent } from './background-task-header-content'
 import {
   backgroundTaskElapsedLabel,
@@ -153,9 +152,6 @@ export function NativeChatBackgroundTasksStatus(props: {
    *  and hold nothing open — and local state would collapse the list on every
    *  such gap. */
   expanded: boolean
-  /** A goal tab is directly underneath. Match that tab's width and keep a
-   *  square bottom so the list sits on the tab instead of rounding off above it. */
-  dockedOnGoal?: boolean
   onExpandedChange: (expanded: boolean) => void
   onStop: (taskId?: string) => void
 }): React.JSX.Element {
@@ -179,15 +175,13 @@ export function NativeChatBackgroundTasksStatus(props: {
   return (
     <div
       data-native-chat-background-tasks="true"
-      className="shrink-0 bg-background px-3 pt-2 sm:px-4"
+      className="group/tasks shrink-0 bg-background px-3 pt-2 sm:px-4"
     >
-      <div className={cn('mx-auto w-full max-w-4xl', props.dockedOnGoal && 'px-2')}>
+      {/* When the goal tab is the next sibling, take its width and share its top edge. */}
+      <div className="mx-auto w-full max-w-4xl group-has-[+[data-native-chat-thread-goal]]/tasks:px-2">
         <div
           ref={stripRef}
-          className={cn(
-            'overflow-hidden border border-border bg-muted/50 text-xs text-muted-foreground shadow-xs',
-            props.dockedOnGoal ? 'rounded-t-lg' : 'rounded-lg'
-          )}
+          className="overflow-hidden rounded-lg border border-border bg-muted/50 text-xs text-muted-foreground shadow-xs group-has-[+[data-native-chat-thread-goal]]/tasks:rounded-b-none group-has-[+[data-native-chat-thread-goal]]/tasks:shadow-none"
         >
           <div className="flex h-8 items-center px-1.5">
             <button
