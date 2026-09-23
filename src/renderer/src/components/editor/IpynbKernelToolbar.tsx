@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { translate } from '@/i18n/i18n'
+import { cn } from '@/lib/utils'
 import type {
   PythonEnvironment,
   PythonEnvironments
@@ -186,19 +187,18 @@ export function IpynbKernelToolbar({
         }}
       >
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="xs" disabled={settling && !pickerOpen}>
+          <Button type="button" variant="ghost" size="xs" disabled={settling}>
             {settling ? (
               <Loader2 className="size-3 animate-spin" />
             ) : kernel.status === 'ready' ? (
               <span
-                className={
-                  kernel.busy
-                    ? 'size-2 rounded-full bg-muted-foreground animate-pulse'
-                    : 'size-2 rounded-full bg-status-success'
-                }
+                className={cn(
+                  'size-2 rounded-full',
+                  kernel.busy ? 'animate-pulse bg-muted-foreground' : 'bg-status-success'
+                )}
               />
             ) : null}
-            <span className={kernel.status === 'dead' ? 'text-destructive' : undefined}>
+            <span className={cn(kernel.status === 'dead' && 'text-destructive')}>
               {kernelLabel(kernel)}
             </span>
             <ChevronDown className="size-3" />
