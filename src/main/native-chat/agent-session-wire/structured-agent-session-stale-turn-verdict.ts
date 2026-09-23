@@ -98,6 +98,10 @@ function settledLifecycle(
   if (verdict.state === 'interrupted') {
     settled.completedAt = verdict.completedAt
   }
+  // Observed facts, not a verdict: dropping them would revert the ring to an older turn's size.
+  if (lifecycle.contextUsage !== undefined) {
+    settled.contextUsage = lifecycle.contextUsage
+  }
   return settled
 }
 

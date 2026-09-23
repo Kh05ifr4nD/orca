@@ -5,7 +5,8 @@ import type { AgentSessionJournal } from '../agent-session-journal/journal-store
 import {
   runningTurnLifecycleRevisions,
   settleStaleSessionStateOnAcquire,
-  turnVerdictFromDeathEvidence
+  turnVerdictFromDeathEvidence,
+  UNVERIFIABLE_TURN_VERDICT
 } from './structured-agent-session-stale-turn-verdict'
 
 const THREAD = 'thread-1'
@@ -111,6 +112,31 @@ describe('running turn lifecycle revisions', () => {
         body: { kind: 'turn', turnId: 'turn-2', state: 'unverifiable', startedAt: 30 }
       })
     ])
+  })
+
+  it('keeps the context facts a running row carried when the host settles it', () => {
+    const contextUsage = {
+      response: {
+        usage: {
+          inputTokens: 1,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 90_000,
+          outputTokens: 5
+        },
+        capturedAt: 35
+      },
+      resetAt: 32
+    }
+    const running = lifecycleItem('turn-2', 'running', 2, { startedAt: 30 })
+    const items = [{ ...running, body: { ...running.body, contextUsage } }]
+    for (const verdict of [
+      { state: 'interrupted' as const, completedAt: 40 },
+      UNVERIFIABLE_TURN_VERDICT
+    ]) {
+      expect(runningTurnLifecycleRevisions(items, verdict)).toEqual([
+        expect.objectContaining({ body: expect.objectContaining({ contextUsage }) })
+      ])
+    }
   })
 
   it('revises a legacy status-form running row from an older host into a typed turn', () => {
