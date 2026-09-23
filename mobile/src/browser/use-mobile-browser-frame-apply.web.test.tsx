@@ -15,7 +15,11 @@ import {
   BrowserScreencastOpcode,
   type BrowserScreencastFrame
 } from '../transport/browser-screencast-protocol'
-import { useMobileBrowserFrameApply } from './use-mobile-browser-frame-apply'
+import {
+  BROWSER_FRAME_DECODE_WATCHDOG_MS,
+  useMobileBrowserFrameApply
+} from './use-mobile-browser-frame-apply'
+import { MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS } from './browser-screencast-request'
 import type { FrameLayer } from './mobile-browser-frame-state'
 
 // Both siblings, so what runs below is the module graph the page bundle resolves.
@@ -122,6 +126,9 @@ function mountApplyHook() {
   const frameUriRef: { current: string | null } = { current: null }
   const pendingFrameLayerRef: { current: FrameLayer | null } = { current: null }
   const visibleFrameLayerRef: { current: FrameLayer } = { current: 0 }
+  const pendingThrottledFrameRef: {
+    current: { frame: BrowserScreencastFrame; cacheKey: string } | null
+  } = { current: null }
   /** Every render-triggering call the frame path makes, which is what "no re-render" means here. */
   const stateWrites = { busy: 0, frameMetadata: 0, frameUri: 0 }
   const refs = {
@@ -134,7 +141,7 @@ function mountApplyHook() {
     frameUriRef,
     lastAppliedFrameAtRef: { current: 0 },
     pendingFrameLayerRef,
-    pendingThrottledFrameRef: { current: null },
+    pendingThrottledFrameRef,
     setBusy: () => {
       stateWrites.busy += 1
     },
@@ -218,57 +225,80 @@ describe('the page frame path', () => {
     expect([harness.layers[0].style.opacity, harness.layers[1].style.opacity]).toEqual(['1', '0'])
   })
 
-  it('repoints the pending layer at the newest frame while the previous one decodes', async () => {
+  /**
+   * A decoding layer is never re-pointed: on a phone that decodes slower than frames arrive, each
+   * new source would cancel the load before it reported and the pane would never flip.
+   */
+  it('holds the newest frame while a layer decodes and paints it once that decode settles', async () => {
+    vi.useFakeTimers()
+    try {
+      const harness = mountApplyHook()
+      await applyFrame(harness, frameAt(1))
+      await applyFrame(harness, frameAt(2))
+      await applyFrame(harness, frameAt(3))
+      await applyFrame(harness, frameAt(4))
+
+      expect(backgroundOf(harness.imageHosts[1])).toContain('frame-2')
+      expect(harness.refs.pendingThrottledFrameRef.current?.frame.seq).toBe(4)
+
+      await settleDecode('frame-2', true)
+      expect(harness.refs.visibleFrameLayerRef.current).toBe(1)
+
+      await act(async () => {
+        vi.advanceTimersByTime(MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS)
+        await Promise.resolve()
+      })
+      expect(backgroundOf(harness.imageHosts[0])).toContain('frame-4')
+      expect(harness.refs.pendingFrameLayerRef.current).toBe(0)
+
+      await settleDecode('frame-4', true)
+      expect(harness.refs.visibleFrameLayerRef.current).toBe(0)
+      expect(decodes.pending.map((decode) => decode.uri)).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives up on a decode that never reports and paints the newest held frame', async () => {
+    vi.useFakeTimers()
+    try {
+      const harness = mountApplyHook()
+      await applyFrame(harness, frameAt(1))
+      await applyFrame(harness, frameAt(2))
+      await applyFrame(harness, frameAt(3))
+
+      await act(async () => {
+        vi.advanceTimersByTime(BROWSER_FRAME_DECODE_WATCHDOG_MS)
+        await Promise.resolve()
+      })
+
+      expect(harness.refs.visibleFrameLayerRef.current).toBe(0)
+      expect(backgroundOf(harness.imageHosts[1])).toContain('frame-3')
+      await settleDecode('frame-3', true)
+      expect(harness.refs.visibleFrameLayerRef.current).toBe(1)
+      // The abandoned decode landing late must not flip the layer frame-3 now owns.
+      await settleDecode('frame-2', true)
+      expect(harness.refs.visibleFrameLayerRef.current).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flips straight to a layer that already holds the frame, which reloads nothing', async () => {
     const harness = mountApplyHook()
     await applyFrame(harness, frameAt(1))
     await applyFrame(harness, frameAt(2))
-
-    await applyFrame(harness, frameAt(3))
-
-    // Still one pending layer, now carrying the newest frame rather than the one it was given.
-    expect(harness.refs.pendingFrameLayerRef.current).toBe(1)
-    expect(backgroundOf(harness.imageHosts[1])).toContain('frame-3')
-
     await finishDecodes()
 
-    expect(harness.refs.visibleFrameLayerRef.current).toBe(1)
-    expect(harness.refs.pendingFrameLayerRef.current).toBeNull()
-  })
-
-  /**
-   * An older decode landing after a newer frame took the same layer must not flip it.
-   *
-   * The layer holds the newest frame's background by then, and that one has not been decoded yet:
-   * flipping on the older decode shows a layer the browser may not have painted. Ordered here
-   * rather than left to the harness, because settling both decodes ends in the same state either
-   * way and a test that only reads the end state passes with the guard deleted.
-   */
-  it('does not flip on a decode the layer has already moved past', async () => {
-    const harness = mountApplyHook()
+    // Layer 0 still holds frame 1, as a blinking caret sends it back.
     await applyFrame(harness, frameAt(1))
-    await applyFrame(harness, frameAt(2))
-    await applyFrame(harness, frameAt(3))
-
-    await settleDecode('frame-2', true)
 
     expect(harness.refs.visibleFrameLayerRef.current).toBe(0)
-    expect(harness.refs.pendingFrameLayerRef.current).toBe(1)
-
-    await settleDecode('frame-3', true)
-
-    expect(harness.refs.visibleFrameLayerRef.current).toBe(1)
     expect(harness.refs.pendingFrameLayerRef.current).toBeNull()
+    expect(decodes.pending).toEqual([])
   })
 
-  /**
-   * The same ordering, with the older decode failing rather than succeeding.
-   *
-   * Freeing the pending slot on a stale failure hands the newest frame's own decode a slot that no
-   * longer names its layer, so its flip is refused and the pane sits on an old frame with the new
-   * one decoded at opacity 0. Nothing recovers it: a page that has gone still sends no further
-   * frame to repaint with.
-   */
-  it('does not free the pending slot a newer frame is using when an older decode fails', async () => {
+  it('hands the layer an undecodable frame held to the newest waiting frame', async () => {
     const harness = mountApplyHook()
     await applyFrame(harness, frameAt(1))
     await applyFrame(harness, frameAt(2))

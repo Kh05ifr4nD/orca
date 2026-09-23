@@ -12,6 +12,7 @@ import { mobileBrowserPaneStyles as styles } from './mobile-browser-pane-styles'
 type BrowserLayerHandlersArgs = BrowserFrameLayerRefs & {
   browserImageRefs: { current: [Image | null, Image | null] }
   frameUriRef: { current: string | null }
+  onFrameLayerSettled: () => void
 }
 
 export function useMobileBrowserPaneLayers(args: BrowserLayerHandlersArgs) {
@@ -19,6 +20,7 @@ export function useMobileBrowserPaneLayers(args: BrowserLayerHandlersArgs) {
     browserImageRefs,
     browserLayerRefs,
     frameUriRef,
+    onFrameLayerSettled,
     pendingFrameLayerRef,
     visibleFrameLayerRef
   } = args
@@ -65,8 +67,9 @@ export function useMobileBrowserPaneLayers(args: BrowserLayerHandlersArgs) {
         { browserLayerRefs, pendingFrameLayerRef, visibleFrameLayerRef },
         layer
       )
+      onFrameLayerSettled()
     },
-    [browserLayerRefs, pendingFrameLayerRef, visibleFrameLayerRef]
+    [browserLayerRefs, onFrameLayerSettled, pendingFrameLayerRef, visibleFrameLayerRef]
   )
 
   const handleBrowserImageLayer0Load = useCallback(
@@ -84,8 +87,9 @@ export function useMobileBrowserPaneLayers(args: BrowserLayerHandlersArgs) {
         { browserLayerRefs, pendingFrameLayerRef, visibleFrameLayerRef },
         layer
       )
+      onFrameLayerSettled()
     },
-    [browserLayerRefs, pendingFrameLayerRef, visibleFrameLayerRef]
+    [browserLayerRefs, onFrameLayerSettled, pendingFrameLayerRef, visibleFrameLayerRef]
   )
 
   const handleBrowserImageLayer0Error = useCallback(

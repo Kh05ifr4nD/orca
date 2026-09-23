@@ -201,41 +201,42 @@ export function MobileBrowserPane({
 
   const binaryScreencastGranted = useBrowserBinaryScreencastGrant()
 
-  const { frameGeometry, pageParams, sendBrowserRequest } = useMobileBrowserStream({
-    appActive,
-    binaryScreencastGranted,
-    browserImageRefs,
-    browserLayerRefs,
-    browserViewMode,
-    busyRef,
-    cacheKey,
-    client,
-    frameMetadata,
-    frameMetadataRef,
-    frameMountedRef,
-    frameThrottleTimerRef,
-    frameUriRef,
-    lastAppliedFrameAtRef,
-    lastStreamCacheKeyRef,
-    lastZoomResetUrlRef,
-    layout,
-    pendingFrameLayerRef,
-    pendingThrottledFrameRef,
-    resetBrowserZoomState,
-    screencastSupported,
-    setAddressValue,
-    setBusy,
-    setDialog,
-    setError,
-    setFrameMetadata,
-    setFrameUri,
-    setZoom,
-    streamGenerationRef,
-    tab,
-    visibleFrameLayerRef,
-    worktreeId,
-    zoomRef
-  })
+  const { drainQueuedFrame, frameGeometry, pageParams, sendBrowserRequest } =
+    useMobileBrowserStream({
+      appActive,
+      binaryScreencastGranted,
+      browserImageRefs,
+      browserLayerRefs,
+      browserViewMode,
+      busyRef,
+      cacheKey,
+      client,
+      frameMetadata,
+      frameMetadataRef,
+      frameMountedRef,
+      frameThrottleTimerRef,
+      frameUriRef,
+      lastAppliedFrameAtRef,
+      lastStreamCacheKeyRef,
+      lastZoomResetUrlRef,
+      layout,
+      pendingFrameLayerRef,
+      pendingThrottledFrameRef,
+      resetBrowserZoomState,
+      screencastSupported,
+      setAddressValue,
+      setBusy,
+      setDialog,
+      setError,
+      setFrameMetadata,
+      setFrameUri,
+      setZoom,
+      streamGenerationRef,
+      tab,
+      visibleFrameLayerRef,
+      worktreeId,
+      zoomRef
+    })
 
   const navigateToAddress = useCallback(async () => {
     const url = normalizeBrowserUrl(addressValue)
@@ -291,6 +292,7 @@ export function MobileBrowserPane({
     browserImageRefs,
     browserLayerRefs,
     frameUriRef,
+    onFrameLayerSettled: drainQueuedFrame,
     pendingFrameLayerRef,
     visibleFrameLayerRef
   })

@@ -1,5 +1,6 @@
 import { useCallback, useRef, type Dispatch, type SetStateAction } from 'react'
 import type { RpcClient } from '../transport/rpc-client'
+import { isRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import type { BrowserScreencastFrameMetadata } from '../transport/browser-screencast-protocol'
 import {
   browserDialogAccept,
@@ -117,34 +118,42 @@ export function useMobileBrowserCommands(args: MobileBrowserCommandArgs) {
       if (!client || !base) {
         return
       }
+      let clickMayHaveLanded = false
       const clickResult = await sendBrowserRequest(
-        async (rpc, page, options) =>
-          browserPointerClick.interpret(
-            await browserPointerClick.request(
-              rpc,
-              {
-                ...page,
-                x: point.x,
-                y: point.y,
-                button,
-                modifiers: pointerModifiers,
-                ...(button === 'left'
-                  ? {
-                      radius: computeBrowserTouchClickRadiusCss(
-                        layoutRef.current,
-                        frameMetadataRef.current,
-                        zoomRef.current,
-                        TOUCH_CLICK_RADIUS_DIP
-                      )
-                    }
-                  : {})
-              },
-              options
+        async (rpc, page, options) => {
+          try {
+            return browserPointerClick.interpret(
+              await browserPointerClick.request(
+                rpc,
+                {
+                  ...page,
+                  x: point.x,
+                  y: point.y,
+                  button,
+                  modifiers: pointerModifiers,
+                  ...(button === 'left'
+                    ? {
+                        radius: computeBrowserTouchClickRadiusCss(
+                          layoutRef.current,
+                          frameMetadataRef.current,
+                          zoomRef.current,
+                          TOUCH_CLICK_RADIUS_DIP
+                        )
+                      }
+                    : {})
+                },
+                options
+              )
             )
-          ),
+          } catch (error) {
+            clickMayHaveLanded = isRpcDeliveryUnknown(error)
+            throw error
+          }
+        },
         { suppressError: true, timeoutMs: 5_000 }
       )
-      if (clickResult !== null || pointerModifiers.length > 0) {
+      // Why: a timed-out click may still run on the host; replaying it as move/down/up double-taps.
+      if (clickResult !== null || clickMayHaveLanded || pointerModifiers.length > 0) {
         return
       }
       try {

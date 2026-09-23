@@ -115,7 +115,7 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     worktreeId
   })
 
-  const { applyFrameThrottled, clearFrameThrottle } = useMobileBrowserFrameApply({
+  const { applyFrameThrottled, clearFrameThrottle, drainQueuedFrame } = useMobileBrowserFrameApply({
     browserImageRefs,
     browserLayerRefs,
     busyRef,
@@ -288,5 +288,5 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     worktreeId
   ])
 
-  return { frameGeometry, pageParams, sendBrowserRequest }
+  return { drainQueuedFrame, frameGeometry, pageParams, sendBrowserRequest }
 }
