@@ -33,7 +33,7 @@ export type StructuredAgentSessionHoldsDeps = {
   serialize: <T>(sessionId: string, task: () => Promise<T>) => Promise<T>
   /** Whether evicting this session would actually free anything. */
   hasProviderChild: (sessionId: string) => boolean
-  isTurnActive: (sessionId: string) => boolean
+  hasOwedWork: (sessionId: string) => boolean
   evict: (sessionId: string) => Promise<void>
   onError?: (input: { sessionId: string; error: unknown }) => void
   graceMs?: number
@@ -52,7 +52,7 @@ export class StructuredAgentSessionHolds {
 
   constructor(private readonly deps: StructuredAgentSessionHoldsDeps) {
     const clockDeps: StructuredAgentSessionReleaseClockDeps = {
-      isTurnActive: deps.isTurnActive,
+      hasOwedWork: deps.hasOwedWork,
       isHeld: (sessionId) => this.holders.isHeld(sessionId),
       evict: (sessionId) => this.deps.evict(sessionId),
       ...(deps.onError ? { onError: deps.onError } : {}),

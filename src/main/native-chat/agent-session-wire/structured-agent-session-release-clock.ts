@@ -8,14 +8,15 @@
 // already asked for must finish: stopping the child mid-answer strands the open turn marker.
 //
 // So the clock arms when the last holder leaves, every journal write while it is armed starts it
-// again, and a tick that finds a turn still running re-arms instead of evicting. The child goes
-// only after a full window with no holder and no activity. Quit still stops every child at once.
+// again, and a tick that finds work still owed — a turn running, or a message sent but not yet
+// taken by the provider — re-arms instead of evicting. The child goes only after a full window
+// with no holder and no owed work. Quit still stops every child at once.
 
 export const STRUCTURED_AGENT_SESSION_RELEASE_GRACE_MS = 30 * 60_000
 
 export type StructuredAgentSessionReleaseClockDeps = {
-  /** Never evict mid-turn; a true answer re-arms the clock instead. */
-  isTurnActive: (sessionId: string) => boolean
+  /** Never evict while work is owed; a true answer re-arms the clock instead. */
+  hasOwedWork: (sessionId: string) => boolean
   /** Re-checked at fire time: a holder may have arrived while the timer ran. */
   isHeld: (sessionId: string) => boolean
   evict: (sessionId: string) => Promise<void>
@@ -72,7 +73,7 @@ export class StructuredAgentSessionReleaseClock {
     if (this.deps.isHeld(sessionId)) {
       return
     }
-    if (this.deps.isTurnActive(sessionId)) {
+    if (this.deps.hasOwedWork(sessionId)) {
       this.arm(sessionId)
       return
     }

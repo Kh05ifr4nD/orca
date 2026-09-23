@@ -50,3 +50,23 @@ describe('a Claude chat whose first start died before initialize', () => {
     )
   })
 })
+
+describe('a Claude chat whose CLI exits the moment it is spawned', () => {
+  // Before the spawn returns, the start time of a dead pid is unreadable; during that read, the
+  // child is found closed afterwards. Both must answer with what the CLI said.
+  it.each(['spawn', 'start-time-read'] as const)(
+    "refuses the create with the CLI's own diagnostic when it exits at %s",
+    async (at) => {
+      const diagnostic = 'claude stream-json exited (code 1): claude: not signed in'
+      claude.behave(SESSION, { exitsDuringSpawn: { diagnostic, at } })
+      const host = await claude.install()
+
+      const created = await host.attach(CALLER, claude.attachParams(SESSION, null))
+
+      expect(created).toMatchObject({
+        ok: false,
+        refusal: { message: expect.stringContaining('not signed in'), ownerVerdict: 'exited' }
+      })
+    }
+  )
+})

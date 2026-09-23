@@ -1,6 +1,6 @@
-// Every provider's lifecycle events share one recovery chain in the runtime. A Claude child
-// proving its start must not make that chain, or the session's own serialized operations,
-// wait on the CLI: the host records what the child proved from what the adapter already holds.
+// A Claude child proving its start must not wait on another session's exit recovery, and must
+// not make that recovery, or the session's own serialized operations, wait on the CLI: the host
+// records what the child proved from what the adapter already holds.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { waitForStructuredAgentSessionRecovery } from './structured-agent-session-runtime'
@@ -54,5 +54,62 @@ describe('a Claude child proving its start', () => {
       closed = true
     })
     await vi.waitFor(() => expect(closed).toBe(true))
+  })
+
+  it("flips to ready while another session's exit recovery is still acquiring", async () => {
+    const host = await claude.install()
+    await expect(host.attach(CALLER, claude.attachParams(HEALTHY, null))).resolves.toMatchObject({
+      ok: true
+    })
+    await host.hold(HEALTHY, 'surface-1')
+    await waitForStructuredAgentSessionRecovery()
+
+    // Its exit recovery reacquires, and that spawn never returns.
+    claude.behave(HEALTHY, { spawnHangs: true })
+    claude.child(HEALTHY).exit(new Error('claude stream-json exited (code 1): crashed'))
+    await vi.waitFor(() =>
+      expect(host.deps.store.getRecord(HEALTHY)?.lease.claimStatus).toBe('released')
+    )
+
+    await expect(host.attach(CALLER, claude.attachParams(STALLED, null))).resolves.toMatchObject({
+      ok: true
+    })
+    await vi.waitFor(() =>
+      expect(host.deps.store.getRecord(STALLED)?.options).toEqual({
+        model: 'claude-sonnet-5',
+        effort: 'high'
+      })
+    )
+  })
+
+  it('is drained by the runtime before teardown proceeds', async () => {
+    const host = await claude.install()
+    const store = host.deps.store
+    const replaceSessionOptions = store.replaceSessionOptions.bind(store)
+    let landWrite = (): void => {}
+    const writeHeld = new Promise<void>((resolve) => {
+      landWrite = resolve
+    })
+    let writing = false
+    vi.spyOn(store, 'replaceSessionOptions').mockImplementation(async (input) => {
+      writing = true
+      await writeHeld
+      return replaceSessionOptions(input)
+    })
+    await expect(host.attach(CALLER, claude.attachParams(HEALTHY, null))).resolves.toMatchObject({
+      ok: true
+    })
+    await vi.waitFor(() => expect(writing).toBe(true))
+
+    let drained = false
+    const recovery = waitForStructuredAgentSessionRecovery().then(() => {
+      drained = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(drained).toBe(false)
+
+    landWrite()
+    await recovery
+    expect(store.getRecord(HEALTHY)?.options).toEqual({ model: 'claude-sonnet-5', effort: 'high' })
   })
 })

@@ -211,4 +211,43 @@ describe('Claude structured session publishes before the CLI answers initialize'
     ])
     await adapter.closeAll()
   })
+
+  it('withdraws the prompts still held when Stop lands while startup is writing them', async () => {
+    const claude = fakeClaude({ initDelayMs: SLOW_INIT_MS })
+    const { adapter, late } = startingAdapter(claude)
+    await adapter.acquire(ACQUIRE)
+    const connection = claude.connections[0]
+    const send = connection.send
+    let landFirstWrite = (): void => {}
+    const firstWrite = new Promise<void>((resolve) => {
+      landFirstWrite = resolve
+    })
+    let writes = 0
+    connection.send = async (message, beforeDispatch) => {
+      writes += 1
+      if (writes === 1) {
+        await firstWrite
+      }
+      return send(message, beforeDispatch)
+    }
+    await adapter.dispatch(PROMPT)
+    await adapter.dispatch({ ...PROMPT, clientMessageId: 'client-2' })
+
+    await vi.advanceTimersByTimeAsync(SLOW_INIT_MS)
+    // Startup has landed and is writing the first held prompt.
+    expect(writes).toBe(1)
+    const cancelled = adapter.cancelTurn({ sessionId: 'session-1', turnId: 'turn-1', fence: 7 })
+    await vi.advanceTimersByTimeAsync(0)
+    landFirstWrite()
+    await vi.advanceTimersByTimeAsync(5_000)
+    await adapter.drainStartup('session-1')
+
+    expect(connection.sent.filter((message) => message.type === 'user')).toHaveLength(1)
+    expect(late).toContainEqual(
+      expect.objectContaining({ clientMessageId: 'client-2', state: 'rejected' })
+    )
+    // Stop withdrew something, so it answers as a cancel whatever the interrupt made of the turn.
+    await expect(cancelled).resolves.toEqual({ cancelled: true })
+    await adapter.closeAll()
+  })
 })

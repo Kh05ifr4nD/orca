@@ -6,8 +6,8 @@
 // the same record write a user's option change takes. Bookkeeping never gates the user: a failed
 // write is reported and the session stays usable.
 //
-// This runs on the chain every session's exit recovery shares, and under the session's own
-// serialized step, so it asks the provider nothing: the event carries what the child proved.
+// This runs under the session's own serialized step, which its close and sends wait on, so it
+// asks the provider nothing: the event carries what the child proved.
 
 import { agentSessionLeaseAdmitsWriter } from '../../../shared/agent-session-lease-adjudication'
 import type { StructuredAgentSessionStartedEvent } from './structured-agent-session-adapter'

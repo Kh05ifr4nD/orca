@@ -191,10 +191,14 @@ export function createStructuredAgentSessionHolds(
     },
     evict: close,
     hasProviderChild: (sessionId) => hasProviderChild(context, sessionId),
-    isTurnActive: (sessionId) => {
+    // A send pending while the child is still starting is held for that start; evicting would
+    // refuse it. Any other pending send may wait on an echo that never comes, so eviction retires it.
+    hasOwedWork: (sessionId) => {
       const session = context.sessions.get(sessionId)
       return session
-        ? activeStructuredAgentSessionTurnId(session.journal.snapshot().items) !== null
+        ? activeStructuredAgentSessionTurnId(session.journal.snapshot().items) !== null ||
+            (session.providerChildPhase === 'starting' &&
+              session.journal.pendingSubmissions().length > 0)
         : false
     },
     onError: (error) => context.deps.onEventSinkError?.(error),

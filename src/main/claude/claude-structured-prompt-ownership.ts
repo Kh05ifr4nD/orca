@@ -11,7 +11,10 @@ import {
 } from './claude-structured-control-actions'
 import type { ClaudeLateDispatchSettlement } from './claude-structured-dispatch'
 import type { ClaudeSession } from './claude-structured-session-state'
-import { rejectClaudeStartupWrites } from './claude-structured-session-startup-gate'
+import {
+  claudeStartupHoldsWrites,
+  rejectClaudeStartupWrites
+} from './claude-structured-session-startup-gate'
 import { DISPATCH_REJECTED_CANCELLED } from '../../shared/structured-agent-session-dispatch-rejection'
 
 /** Conservative user-facing window: below the 30s control deadline, trading
@@ -100,9 +103,14 @@ export async function cancelClaudeStructuredTurn(input: {
   const session = requireSession(sessions, request.sessionId)
   const acquisitionGeneration = session.acquisitionGeneration
   const prompt = request.prompt
-  // Nothing held before startup was written, so Stop withdraws it without an interrupt.
-  if (!prompt && session.startup.state === 'pending' && session.fence === request.fence) {
-    return { cancelled: rejectClaudeStartupWrites(session, DISPATCH_REJECTED_CANCELLED) }
+  // A held prompt was never written, so Stop withdraws it; the drain only writes what it still
+  // holds. Before startup lands nothing was written, so there is nothing to interrupt either.
+  let withdrewHeld = false
+  if (!prompt && claudeStartupHoldsWrites(session) && session.fence === request.fence) {
+    withdrewHeld = rejectClaudeStartupWrites(session, DISPATCH_REJECTED_CANCELLED)
+    if (session.startup.state === 'pending') {
+      return { cancelled: withdrewHeld }
+    }
   }
   if (prompt && session.fence !== request.fence) {
     return { cancelled: false }
@@ -185,7 +193,7 @@ export async function cancelClaudeStructuredTurn(input: {
     } else if (claim) {
       session.prompts.releaseClaim(claim)
     }
-    return result
+    return withdrewHeld ? { ...result, cancelled: true } : result
   } catch (error) {
     if (claim && !interruptConfirmed) {
       session.prompts.releaseClaim(claim)

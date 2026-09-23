@@ -67,6 +67,8 @@ export async function acquireClaudeSession({
   let liveSession: ClaudeSession | null = null
   let observedLeafUuid: string | null = null,
     expectedProviderSessionId: string | null = null
+  // The CLI's own account of why it ended (stderr included): the only reason a user can act on.
+  let childEnded: Error | null = null
   // Frames are admitted only after launch resolution proves the provider session
   // this acquisition owns. Keep the check ahead of every stateful consumer.
   const initProof = createClaudeInitProof()
@@ -174,8 +176,12 @@ export async function acquireClaudeSession({
           onMessage,
           canUseTool,
           onUserDialog,
-          onFault: (error) => initProof.reject(error),
+          onFault: (error) => {
+            childEnded ??= error
+            initProof.reject(error)
+          },
           onExit: (error) => {
+            childEnded ??= error
             initProof.reject(error)
             callbacks.handleExit(sessionId, attempt, error)
           }
@@ -216,10 +222,16 @@ export async function acquireClaudeSession({
     const process = await claudeProcessIdentity(
       { ...input, pid: connection.pid },
       deps.readProcessStartTime
-    )
+    ).catch((error: unknown) => {
+      // A child that already ended explains why its start time could not be read.
+      throw childEnded ?? error
+    })
     acquisitions.assertCurrent(sessionId, attempt)
     if (connection.closed) {
-      throw new Error(`claude stream-json for session ${sessionId} exited while being acquired`)
+      throw (
+        childEnded ??
+        new Error(`claude stream-json for session ${sessionId} exited while being acquired`)
+      )
     }
     const publication = createClaudeSessionPublication({
       connection,

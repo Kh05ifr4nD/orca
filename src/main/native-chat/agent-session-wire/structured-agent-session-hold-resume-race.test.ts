@@ -29,7 +29,7 @@ function resumeHarness() {
     resume,
     serialize: keyedSerialize(),
     hasProviderChild: () => child,
-    isTurnActive: () => turnActive,
+    hasOwedWork: () => turnActive,
     evict,
     graceMs: GRACE_MS
   })
@@ -212,7 +212,7 @@ describe('a surface leaving while its structured session resumes', () => {
       },
       serialize: keyedSerialize(),
       hasProviderChild: () => child,
-      isTurnActive: () => false,
+      hasOwedWork: () => false,
       evict: async () => {},
       graceMs: GRACE_MS
     })
@@ -245,7 +245,7 @@ describe('a surface leaving while its structured session resumes', () => {
       resume,
       serialize: keyedSerialize(),
       hasProviderChild: () => child,
-      isTurnActive: () => false,
+      hasOwedWork: () => false,
       evict: async () => {},
       graceMs: GRACE_MS
     })
