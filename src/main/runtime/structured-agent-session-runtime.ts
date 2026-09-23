@@ -233,8 +233,6 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       }),
       ...(deps.openCodexConnection ? { openConnection: deps.openCodexConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
-      onBackgroundTasksChanged: (sessionId, state) =>
-        host?.publishBackgroundTaskState(sessionId, state),
       onChildWorkEvidence: (sessionId, evidence) =>
         host?.publishChildWorkEvidence(sessionId, evidence),
       onDispatchSettledLate,
@@ -294,8 +292,6 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
           }
         })
       },
-      onBackgroundTasksChanged: (sessionId, state) =>
-        host?.publishBackgroundTaskState(sessionId, state),
       onChildWorkEvidence: (sessionId, evidence) =>
         host?.publishChildWorkEvidence(sessionId, evidence),
       onDispatchSettledLate,

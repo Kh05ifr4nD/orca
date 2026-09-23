@@ -32,7 +32,7 @@ const TESTER = 'thread-tester'
 const LINTER = 'thread-linter'
 
 type Frame = { method: string; params: Record<string, unknown> }
-type Delivery = { kind: 'journal' | 'legacy' | 'evidence'; detail: string }
+type Delivery = { kind: 'journal' | 'publish' | 'evidence'; detail: string }
 
 const turn = (
   method: 'turn/started' | 'turn/completed',
@@ -91,8 +91,6 @@ async function producer() {
     openConnection: codex.openConnection,
     readProcessStartTime: async () => 1_700_000_000_000,
     now: () => 1_700_000_000_500,
-    onBackgroundTasksChanged: (_sessionId, state) =>
-      deliveries.push({ kind: 'legacy', detail: String(state?.tasks?.length ?? 0) }),
     onChildWorkEvidence: (sessionId, evidence) => {
       expect(sessionId).toBe('session-1')
       deliveries.push({ kind: 'evidence', detail: evidence.map((edge) => edge.type).join(',') })
@@ -103,7 +101,8 @@ async function producer() {
     appendItem: (identity) =>
       deliveries.push({ kind: 'journal', detail: JSON.stringify(identity) }),
     appendTombstone: () => {},
-    publish: () => {}
+    // Production's journal publication is what republishes the parent's own row.
+    publish: () => deliveries.push({ kind: 'publish', detail: '' })
   }
   await adapter.acquire({
     identity: identityFor('session-1'),
@@ -132,7 +131,7 @@ async function producer() {
 }
 
 describe('Codex structured child-work producer', () => {
-  it('delivers evidence only after the journal wrote the frame and the legacy row republished', async () => {
+  it('delivers evidence only after the journal wrote and published the frame', async () => {
     const { send, records } = await producer()
     send(turn('turn/started', THREAD_ID, 'p1'))
     send(turn('turn/started', REVIEWER, 'r1'))
@@ -140,7 +139,9 @@ describe('Codex structured child-work producer', () => {
     const kinds = deliveries.map((delivery) => delivery.kind)
     // The frame's own rows, then the parent's republished row, and only then its children.
     expect(kinds.filter((kind) => kind === 'journal').length).toBeGreaterThan(0)
-    expect(kinds.slice(kinds.indexOf('legacy'))).toEqual(['legacy', 'evidence'])
+    expect(kinds.lastIndexOf('publish')).toBeGreaterThan(kinds.lastIndexOf('journal'))
+    expect(kinds.at(-1)).toBe('evidence')
+    expect(kinds.filter((kind) => kind === 'evidence')).toHaveLength(1)
     expect(records()).toEqual([
       expect.objectContaining({ description: 'review', membership: 'live' })
     ])

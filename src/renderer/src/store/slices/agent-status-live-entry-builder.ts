@@ -2,7 +2,6 @@ import type { AppState } from '../types'
 import { resolveAgentStatusLiveEntryMainAgent } from './agent-status-live-entry-main-agent'
 import {
   AGENT_STATE_HISTORY_MAX,
-  agentSubagentsEqual,
   type MigrationUnsupportedPtyEntry,
   type AgentStateHistoryEntry,
   type AgentStatusEntry
@@ -30,6 +29,7 @@ import { registryEntryMatchesStatus } from './agent-status-launch-config'
 import { findAgentPaneWorktreeId, getTabIdFromPaneKey } from './agent-status-pane-key-tab-binding'
 import { mergeCurrentOrchestrationContext } from './agent-status-orchestration-context'
 import { deriveAgentStatusLiveFacts } from './agent-status-live-facts'
+import { liveEntryChildFields } from './agent-status-live-entry-children'
 
 export type AgentStatusLiveEntryBuild = {
   entry: AgentStatusEntry
@@ -260,9 +260,7 @@ export function buildAgentStatusLiveEntry(
     ...(lastCompletedAssistantMessage ? { lastCompletedAssistantMessage } : {}),
     orchestration,
     ...(payload.subagentObservation ? { subagentObservation: payload.subagentObservation } : {}),
-    subagents: agentSubagentsEqual(existing?.subagents, payload.subagents)
-      ? existing?.subagents
-      : payload.subagents,
+    ...liveEntryChildFields(existing, payload),
     ...(mainAgent ? { mainAgent } : {}),
     ...(providerSession ? { providerSession } : {}),
     ...(metadata?.terminalResumeEligible === false

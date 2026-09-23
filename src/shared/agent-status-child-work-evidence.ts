@@ -81,6 +81,10 @@ export type AgentChildWorkInventoryEvidence = {
 /** The session's own turn is over: work bound to it can no longer be running. */
 export type AgentChildWorkTurnEndedEvidence = { type: 'turn-ended'; observedAt: number }
 
+/** The session's own next turn began. Settled children are kept, with their outcome, until then;
+ *  a settled child that still owns live work stays so that work keeps an owner. */
+export type AgentChildWorkTurnStartedEvidence = { type: 'turn-started'; observedAt: number }
+
 /** The provider session is gone; its children go with it. */
 export type AgentChildWorkSessionEndedEvidence = { type: 'session-ended'; observedAt: number }
 
@@ -90,4 +94,5 @@ export type AgentChildWorkEvidence =
   | AgentChildWorkEndedEvidence
   | AgentChildWorkInventoryEvidence
   | AgentChildWorkTurnEndedEvidence
+  | AgentChildWorkTurnStartedEvidence
   | AgentChildWorkSessionEndedEvidence

@@ -148,28 +148,23 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     })
 
   private emit(session: ClaudeSession | null, event: ClaudeStructuredSessionEvent): void {
-    const backgroundTasksChanged =
-      event.type === 'ended'
-        ? (session?.backgroundTasks.clear() ?? false)
-        : event.type === 'message'
-          ? (session?.backgroundTasks.observe(event.message, event.startsTurn === true) ?? false)
-          : false
+    // The tracker's roster serves this provider's own stops; the host's child records, fed by the
+    // evidence drained below, are what every surface reads.
+    if (event.type === 'ended') {
+      session?.backgroundTasks.clear()
+    } else if (event.type === 'message') {
+      session?.backgroundTasks.observe(event.message, event.startsTurn === true)
+    }
     if (event.type === 'message' && session?.commands.observe(event.message)) {
       session.events?.publish()
     }
     observeClaudeCompaction(this.compactions, event, session?.translator)
     this.deps.onEvent?.(event)
-    if (backgroundTasksChanged) {
-      this.deps.onBackgroundTasksChanged?.(
-        event.sessionId,
-        session ? backgroundTaskState(session) : null
-      )
-    }
     this.publishChildWork(event.sessionId, session, event.type === 'message' ? event.message : null)
   }
 
-  /** After the journal handled the frame and the parent's own row was republished: the host
-   *  never holds a child record ahead of the rows that frame wrote, and never before its parent. */
+  /** After the journal handled the frame, which republished the parent's own row: the host never
+   *  holds a child record ahead of the rows that frame wrote, and never before its parent. */
   private publishChildWork(
     sessionId: string,
     session: ClaudeSession | null | undefined,
@@ -235,6 +230,10 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     const session = this.sessions.get(sessionId)
     return session ? backgroundTaskState(session) : undefined
   }
+  backgroundTaskStops: NonNullable<StructuredAgentSessionAdapter['backgroundTaskStops']> = (
+    sessionId
+  ) =>
+    this.sessions.has(sessionId) ? { supportsTaskStop: true, supportsStopAll: true } : undefined
   readCommands: NonNullable<StructuredAgentSessionAdapter['readCommands']> = (sessionId) =>
     this.sessions.get(sessionId)?.commands.commands
   answerPrompt: StructuredAgentSessionAdapter['answerPrompt'] = (request) =>
@@ -270,9 +269,6 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       exits: this.exits,
       onExitProven: (sessionId, exit) => this.settleUnexpectedExit(sessionId, exit),
       ...(this.deps.persistHandle ? { persistHandle: this.deps.persistHandle } : {}),
-      ...(this.deps.onBackgroundTasksChanged
-        ? { onBackgroundTasksChanged: this.deps.onBackgroundTasksChanged }
-        : {}),
       ...(this.deps.onEvent ? { onEvent: this.deps.onEvent } : {})
     })
 
@@ -289,9 +285,6 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       sessions: this.sessions,
       acquisitions: this.acquisitions,
       ...(this.deps.persistHandle ? { persistHandle: this.deps.persistHandle } : {}),
-      ...(this.deps.onBackgroundTasksChanged
-        ? { onBackgroundTasksChanged: this.deps.onBackgroundTasksChanged }
-        : {}),
       ...(this.deps.onEvent ? { onEvent: this.deps.onEvent } : {})
     })
 
