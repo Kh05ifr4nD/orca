@@ -49,7 +49,10 @@ export function useNativeChatMessageRail({
 
   const previousItemsRef = useRef<readonly NativeChatRailItem[]>([])
   const loadedItems = buildNativeChatRailItems(slots, previousItemsRef.current)
-  previousItemsRef.current = loadedItems
+  // Written after commit so a discarded render cannot become the next one's baseline.
+  useEffect(() => {
+    previousItemsRef.current = loadedItems
+  }, [loadedItems])
   const items = useMemo(
     () => mergeNativeChatRailOutline(outline, loadedItems),
     [outline, loadedItems]

@@ -38,8 +38,6 @@ export function useNativeChatRailHistoryJump({
   jumpToLoaded: (item: NativeChatRailItem) => void
 }): { pendingId: string | null; jump: (item: NativeChatRailItem) => void } {
   const [pending, setPending] = useState<PendingJump | null>(null)
-  const loadEarlierRef = useRef(loadEarlier)
-  loadEarlierRef.current = loadEarlier
   // The lane's message list when the last page was requested; a page that lands
   // without changing it made no progress.
   const pagedFromRef = useRef<unknown>(undefined)
@@ -78,10 +76,10 @@ export function useNativeChatRailHistoryJump({
     const settle = (): void =>
       setPending((current) => (current === next ? { ...next, loading: false } : current))
     // A rejected page is the lane's own error to surface; the jump just stops trying.
-    void Promise.resolve(loadEarlierRef.current()).then(settle, () =>
+    void Promise.resolve(loadEarlier()).then(settle, () =>
       setPending((current) => (current === next ? null : current))
     )
-  }, [hasMore, items, jumpToLoaded, loadingEarlier, messages, pending])
+  }, [hasMore, items, jumpToLoaded, loadEarlier, loadingEarlier, messages, pending])
 
   return { pendingId: pending?.messageId ?? null, jump }
 }
