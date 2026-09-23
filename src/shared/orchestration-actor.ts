@@ -1,4 +1,5 @@
 import { isAgentSessionId } from './agent-session-record'
+import { STRUCTURED_WORKER_HANDLE_PREFIX } from './structured-worker-handle'
 
 /**
  * An orchestration party that is not a terminal, as `(kind, id)`. Stored in the `…_actor` columns
@@ -13,7 +14,7 @@ import { isAgentSessionId } from './agent-session-record'
 // Terminal handles (`term_` from the PTY runtime, `structworker_` from structured-worker-identity)
 // share the session-id charset. A handle is never a session, so one handed to the codec by mistake
 // must not become a durable session actor.
-const TERMINAL_HANDLE_PREFIXES = ['term_', 'structworker_'] as const
+const TERMINAL_HANDLE_PREFIXES = ['term_', STRUCTURED_WORKER_HANDLE_PREFIX] as const
 
 function isOrchestrationSessionId(id: string): boolean {
   return isAgentSessionId(id) && !TERMINAL_HANDLE_PREFIXES.some((prefix) => id.startsWith(prefix))
