@@ -234,17 +234,26 @@ repaint, an inferred answer) keeps it only while `mainAgent` is unchanged. A chi
 sticky permission prompt still records the main agent's own progress and background
 evidence in the held row, and pushes the held row to subscribers when `mainAgent` changes.
 
-Two combining rules remain outside the shared fold and are named so a reader
-does not mistake them for drift:
+One combining rule remains outside the shared fold and is named so a reader
+does not mistake it for drift: Codex keeps `codexRosterEffectiveState` for its
+combined `state` (a waiting child wins, a settled root with any live child
+reads `working`, never monitoring) and publishes `mainAgent` from its root record;
+moving that combine onto the fold needs a waiting-child input the fold does
+not have yet.
 
-- Codex keeps `codexRosterEffectiveState` for its combined `state` (a waiting
-  child wins, a settled root with any live child reads `working`, never
-  monitoring) and publishes `mainAgent` from its root record; moving that combine
-  onto the fold needs a waiting-child input the fold does not have yet.
-- A cancelled turn with a still-running shell reads `done` in the hook lane
-  and `monitoring` in the structured lane. The parity table in
-  `src/shared/main-agent-status-parity.test.ts` pins this as a known
-  divergence; the cancel policy that removes it flips that row.
+How the main agent's turn ended is not a fold input. A cancel is a verdict on
+the main agent, carried as `mainAgent.outcome: 'cancellation'` (and, for
+readers that predate `mainAgent`, as the row's `interrupted` flag on a `done`
+row); it never retires a shell, scheduled check or subagent the turn left
+running. That work leaves the row only when its own inventory omits it or the
+session ends, so a cancelled turn with a still-running shell reads
+`monitoring` in every lane, and the parity table in
+`src/shared/main-agent-status-parity.test.ts` drives that story through all of
+them. In the Claude hook lane the same rule governs the cancel Orca infers
+from Ctrl+C: the inference is admitted when the row's `mainAgent.state` is
+`working` (a Ctrl+C at the idle prompt of a row held open by child work
+cancels nothing) and the synthesized row is the fold of the cancelled main
+agent with the child work the row already evidences.
 
 ## PR 1b: the runtime's retained row store is deleted
 
