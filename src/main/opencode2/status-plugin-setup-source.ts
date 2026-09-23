@@ -1,5 +1,13 @@
 export function getOpenCode2SetupSource(): string[] {
   return String.raw`
+// Why: OpenCode owns a form under a session id, and Orca retires a blocker when
+// that session goes idle. An owner that is not a real session has no idle, so a
+// blocker minted for it can only ever be retired by an exact reply — add an id
+// here to drop forms Orca could otherwise strand. OpenCode's own schema calls
+// "global" a temporary MCP-elicitation sentinel it intends to replace with real
+// session ids; when it does, this set stops matching and those forms block.
+const NON_SESSION_FORM_OWNERS = new Set(["global"]);
+
 async function setupOpenCode2Status(ctx) {
   const controller = new AbortController();
   const client = { session: { get: (input, options) => ctx.session.get(input, options) } };
@@ -24,11 +32,18 @@ async function setupOpenCode2Status(ctx) {
       } else if (type === "permission.asked") {
         properties = { ...properties, permission: properties.action, patterns: properties.resources };
       } else if (type === "form.created") {
-        type = "question.asked";
         const form = properties.form;
+        // Why: block on every form whose owner is a real session. "metadata" is
+        // optional in OpenCode's schema and its "kind" is a convention no
+        // producer is obliged to stamp, so an unknown shape must surface a
+        // blocker the user can clear rather than vanish while OpenCode waits.
+        if (!form || NON_SESSION_FORM_OWNERS.has(form.sessionID)) continue;
+        // A malformed form must not throw: that would kill the subscription.
+        const fields = Array.isArray(form.fields) ? form.fields : [];
+        type = "question.asked";
         properties = {
           ...form,
-          questions: form.fields.map((field) => ({
+          questions: fields.map((field) => ({
             header: field.title || form.title,
             question: field.description || field.title || form.title,
             options: (field.options || []).map((option) => ({ label: option.label || option.value, description: option.description || "" })),
@@ -36,6 +51,8 @@ async function setupOpenCode2Status(ctx) {
           })),
         };
       } else if (type === "form.replied" || type === "form.cancelled") {
+        // A resolution for an ignored form is inert: the blocker key carries the
+        // form id, so it simply matches nothing.
         type = type === "form.replied" ? "question.replied" : "question.rejected";
         properties = { ...properties, requestID: properties.id };
       } else if (type === "session.text.started" || type === "session.text.delta" || type === "session.text.ended") {
