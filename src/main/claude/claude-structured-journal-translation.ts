@@ -32,7 +32,11 @@ import {
 } from './claude-turn-opening'
 import { claudeTurnEndForResult } from './claude-turn-lifecycle-item'
 import { ClaudeOpenTurn } from './claude-open-turn'
-import { ClaudeContextFacts, type ClaudeContextReportTarget } from './claude-context-facts'
+import {
+  ClaudeContextFacts,
+  type ClaudeContextReportPart,
+  type ClaudeContextReportTarget
+} from './claude-context-facts'
 import { claudeSessionStateEndsTurn } from './claude-session-state-turn-over'
 import { ClaudeJournalPrompts } from './claude-structured-journal-prompts'
 import { journalClaudeMessage, type ClaudeMessageJournalContext } from './claude-message-journaling'
@@ -64,10 +68,11 @@ export type ClaudeJournalTranslator = {
   subscribeContextUsageRequests: (
     listener: (target: ClaudeContextReportTarget) => void
   ) => () => void
-  /** Record a requested breakdown on the turn its request named. */
+  /** Record a requested breakdown, or only its window, on the turn its request named. */
   recordContextReport: (
     target: ClaudeContextReportTarget,
-    report: AgentSessionContextReport
+    report: AgentSessionContextReport,
+    part: ClaudeContextReportPart
   ) => void
   /** After a write that can change the model or its window; the ring waits for the new window. */
   modelMayHaveChanged: () => void
@@ -320,7 +325,7 @@ export function createClaudeJournalTranslator(
     },
     markContextActivity: () => context.markActivity(),
     subscribeContextUsageRequests: (listener) => context.subscribeReportRequests(listener),
-    recordContextReport: (target, report) => context.recordReport(target, report),
+    recordContextReport: (target, report, part) => context.recordReport(target, report, part),
     modelMayHaveChanged: () => context.modelMayHaveChanged(),
     dispose: () => {
       streamedText.flush()

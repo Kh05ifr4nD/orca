@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentSessionContextReport } from '../../shared/agent-session-context-usage'
-import type { ClaudeContextReportTarget } from './claude-context-facts'
+import type { ClaudeContextReportPart, ClaudeContextReportTarget } from './claude-context-facts'
 import {
   bindClaudeContextUsageCapture,
   claudeContextReportFromControl,
@@ -200,7 +200,11 @@ const TURN_2 = claudeTurnLifecycleIdentity('claude-session', 'turn-2')
 
 function fakeTranslator() {
   const listeners = new Set<(target: ClaudeContextReportTarget) => void>()
-  const annotations: [ClaudeContextReportTarget, AgentSessionContextReport][] = []
+  const annotations: [
+    ClaudeContextReportTarget,
+    AgentSessionContextReport,
+    ClaudeContextReportPart
+  ][] = []
   const state = { activity: 0 }
   const request = (target: ClaudeContextReportTarget): void => {
     for (const listener of listeners) {
@@ -222,9 +226,10 @@ function fakeTranslator() {
       },
       recordContextReport: (
         target: ClaudeContextReportTarget,
-        report: AgentSessionContextReport
+        report: AgentSessionContextReport,
+        part: ClaudeContextReportPart
       ) => {
-        annotations.push([target, report])
+        annotations.push([target, report, part])
       }
     }
   }
@@ -252,11 +257,12 @@ describe('bindClaudeContextUsageCapture', () => {
     expect(getContextUsage).toHaveBeenCalledWith({ timeoutMs: 5_000 })
     expect(fake.annotations[0]).toEqual([
       TURN_1,
-      expect.objectContaining({ usedTokens: 18_600, capturedAt: 99 })
+      expect.objectContaining({ usedTokens: 18_600, capturedAt: 99 }),
+      'report'
     ])
   })
 
-  it('drops an answer the conversation moved past while it was in flight', async () => {
+  it('keeps only the window of an answer the conversation moved past while it was in flight', async () => {
     const fake = fakeTranslator()
     const answer = deferred()
     bindClaudeContextUsageCapture({ getContextUsage: () => answer.promise }, fake.translator, {})
@@ -264,7 +270,9 @@ describe('bindClaudeContextUsageCapture', () => {
     fake.state.activity += 1
     answer.resolve(CONTROL_REPORT)
     await settle()
-    expect(fake.annotations).toHaveLength(0)
+    expect(fake.annotations).toEqual([
+      [TURN_1, expect.objectContaining({ windowTokens: 1_000_000 }), 'window']
+    ])
   })
 
   it('drops an answer a newer request superseded, keeping the newer one', async () => {
@@ -279,9 +287,14 @@ describe('bindClaudeContextUsageCapture', () => {
     fake.request(TURN_1)
     fake.request(TURN_1)
     second.resolve({ ...CONTROL_REPORT, totalTokens: 9_000 })
+    await settle()
+    // Superseded, not merely overtaken by activity: not even its window lands.
+    fake.state.activity += 1
     first.resolve(CONTROL_REPORT)
     await settle()
-    expect(fake.annotations).toEqual([[TURN_1, expect.objectContaining({ usedTokens: 9_000 })]])
+    expect(fake.annotations).toEqual([
+      [TURN_1, expect.objectContaining({ usedTokens: 9_000 }), 'report']
+    ])
   })
 
   it('leaves the row alone when the CLI cannot answer or the binding was released', async () => {

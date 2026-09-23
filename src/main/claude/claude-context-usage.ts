@@ -181,10 +181,10 @@ export type ClaudeContextUsageTarget = Pick<
 
 /**
  * Ask the CLI for its breakdown whenever the translator says one is due, and
- * record the answer on the turn the request named, or the newest when none was open. An answer is dropped when
- * conversation activity or a newer request followed the ask, since it may no
- * longer describe the context; a failure (an older CLI, a closed child, a
- * timeout) leaves the row as it was.
+ * record the answer on the turn the request named, or the newest when none was open. A
+ * newer request drops the answer, since every model or window change asks
+ * anew; conversation activity after the ask drops only its used count. A
+ * failure (an older CLI, a closed child, a timeout) leaves the row as it was.
  */
 export function bindClaudeContextUsageCapture(
   connection: ClaudeContextUsageReader,
@@ -203,13 +203,19 @@ export function bindClaudeContextUsageCapture(
       .getContextUsage({ timeoutMs: options.timeoutMs ?? CLAUDE_CONTEXT_USAGE_TIMEOUT_MS })
       .then(
         (answer) => {
-          if (!bound || request !== requests || activity !== translator.contextActivity) {
+          if (!bound || request !== requests) {
             return
           }
           const report = claudeContextReportFromControl(answer, options.now?.() ?? Date.now())
-          if (report) {
-            translator.recordContextReport(target, report)
+          if (!report) {
+            return
           }
+          // Activity moves what is used, never the window the CLI runs; a model change asks anew.
+          if (activity !== translator.contextActivity) {
+            translator.recordContextReport(target, report, 'window')
+            return
+          }
+          translator.recordContextReport(target, report, 'report')
         },
         () => {}
       )

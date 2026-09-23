@@ -29,6 +29,9 @@ const CONVERSATION_FRAME_TYPES = new Set(['assistant', 'user', 'stream_event'])
 /** The row of the turn a requested report describes; null when no turn was open to name. */
 export type ClaudeContextReportTarget = AgentJournalItemIdentity | null
 
+/** How much of an answer still holds: all of it, or only the window of the model the CLI runs. */
+export type ClaudeContextReportPart = 'report' | 'window'
+
 /** The model may have changed since the newest window, so no estimate can be divided by it. */
 const STALE = Symbol('stale-window')
 
@@ -38,6 +41,8 @@ export class ClaudeContextFacts {
   private mainModel: ClaudeMainThreadModel = { initModel: null, responseModel: null }
   /** The response model the newest window serves; null adopts the next one. Every window write resets it. */
   private servedModel: string | null | typeof STALE = null
+  /** A report measured the window since the turn's init and the last model write, so the result's inference cannot beat it. */
+  private windowReported = false
   /** The last response fact written, so a response's per-block frames revise its row once. */
   private lastResponse: string | null = null
   private readonly requestListeners = new Set<(target: ClaudeContextReportTarget) => void>()
@@ -69,6 +74,7 @@ export class ClaudeContextFacts {
     if (initModel) {
       // The turn's init is the newest word on the model; its own responses follow it.
       this.mainModel = { initModel, responseModel: null }
+      this.windowReported = false
     }
     const reset = claudeContextResetKind(message)
     if (reset) {
@@ -79,6 +85,7 @@ export class ClaudeContextFacts {
   /** A write that can change the main thread's model or window: hold estimates until a new window lands. */
   modelMayHaveChanged(observedAt: number = Date.now()): void {
     this.servedModel = STALE
+    this.windowReported = false
     this.forget(observedAt, true)
   }
 
@@ -120,7 +127,9 @@ export class ClaudeContextFacts {
   /** End the turn a root result settles, with the window its per-model usage
    *  reports, then ask for the breakdown. */
   settle(message: Record<string, unknown>, end: ClaudeTurnEnd): void {
-    const tokens = claudeContextWindowFromResult(message, this.mainModel)
+    const tokens = this.windowReported
+      ? null
+      : claudeContextWindowFromResult(message, this.mainModel)
     const facts = tokens === null ? undefined : { window: { tokens, capturedAt: end.completedAt } }
     if (facts) {
       this.servedModel = null
@@ -137,12 +146,20 @@ export class ClaudeContextFacts {
     this.requestReport(settled)
   }
 
-  /** Record a requested report on the turn it was asked for; its window serves later estimates. */
-  recordReport(target: ClaudeContextReportTarget, report: AgentSessionContextReport): void {
+  /** Record a requested report on the turn it was asked for; its window serves later estimates.
+   *  `window` keeps only the window, for an answer the conversation moved past. */
+  recordReport(
+    target: ClaudeContextReportTarget,
+    report: AgentSessionContextReport,
+    part: ClaudeContextReportPart
+  ): void {
     const window = { tokens: report.windowTokens, capturedAt: report.capturedAt }
     this.servedModel = null
+    this.windowReported = true
+    const contextUsage: AgentSessionContextUsage =
+      part === 'report' ? { used: { kind: 'report', ...report }, window } : { window }
     writeClaudeTurnRow(this.sink, target === null ? { newest: true } : { identity: target }, {
-      contextUsage: { used: { kind: 'report', ...report }, window }
+      contextUsage
     })
   }
 

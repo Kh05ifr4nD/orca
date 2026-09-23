@@ -171,20 +171,22 @@ describe('the context ring across a model change', () => {
     s.handle(assistantFrame('reply-b3', 7_000, 130_000, undefined, SONNET))
     expect(s.unknownWrites()).toBe(1)
     expect(s.turnRow('turn-b')?.body).toMatchObject({ contextUsage: { used: { kind: 'unknown' } } })
-    // Asked mid-turn, the answer describes a context the turn has moved past.
+    // The turn moved past the count it asked for, but not past the window: the next response restores the ring.
     await s.reply(answer(SONNET, 121_000, 200_000), requests)
-    expect(s.ring()).toBeNull()
-
-    s.handle(resultFrame(8_000, PLAN_USAGE))
     expect(s.turnRow('turn-b')?.body).toMatchObject({
       contextUsage: { window: { tokens: 200_000 }, used: { kind: 'unknown' } }
     })
-    await s.reply(answer(SONNET, 131_000, 200_000))
-    expect(s.ring()).toMatchObject({ usedTokens: 131_000, windowTokens: 200_000, estimated: false })
+    s.handle(assistantFrame('reply-b4', 7_500, 140_000, undefined, SONNET))
+    expect(s.ring()).toMatchObject({ usedTokens: 140_000, windowTokens: 200_000, percentage: 70 })
+
+    s.handle(resultFrame(8_000, PLAN_USAGE))
+    expect(s.ring()).toMatchObject({ usedTokens: 140_000, windowTokens: 200_000 })
+    await s.reply(answer(SONNET, 141_000, 200_000))
+    expect(s.ring()).toMatchObject({ usedTokens: 141_000, windowTokens: 200_000, estimated: false })
     s.translator.dispose()
   })
 
-  it('clears the hold at the turn result when the report a mid-turn write asked for is dropped', async () => {
+  it('clears the hold at the turn result when the report a mid-turn write asked for never answers', async () => {
     const s = session(SONNET)
     s.handle(userFrame('turn-a', 1_000))
     s.handle(assistantFrame('reply-a', 2_000, 50_000, undefined, SONNET))
@@ -193,25 +195,83 @@ describe('the context ring across a model change', () => {
     s.handle(userFrame('turn-b', 4_000))
     s.handle(assistantFrame('reply-b1', 5_000, 60_000, undefined, SONNET))
 
-    // A permission-mode write mid-turn; the next response moves the context before the report lands.
+    // A permission-mode write mid-turn whose report never comes back.
     s.translator.modelMayHaveChanged()
-    const dropped = s.pending.length - 1
+    const unanswered = s.pending.length - 1
     s.handle(assistantFrame('reply-b2', 6_000, 70_000, undefined, SONNET))
     expect(s.ring()).toBeNull()
-    await s.reply(answer(SONNET, 71_000, 200_000), dropped)
     s.handle(assistantFrame('reply-b3', 7_000, 80_000, undefined, SONNET))
     expect(s.ring()).toBeNull()
     expect(s.unknownWrites()).toBe(1)
-    expect(s.pending).toHaveLength(dropped + 1)
+    expect(s.pending).toHaveLength(unanswered + 1)
 
     s.handle(resultFrame(8_000, { [SONNET]: { contextWindow: 200_000 } }))
-    // The report the result asks for is dropped too: the user sent at once.
-    s.translator.markContextActivity()
-    await s.reply(answer(SONNET, 81_000, 200_000))
+    // The report the result asks for fails too.
+    await s.reply(undefined)
     expect(s.ring()).toBeNull()
     s.handle(userFrame('turn-c', 9_000))
     s.handle(assistantFrame('reply-c', 10_000, 90_000, undefined, SONNET))
     expect(s.ring()).toMatchObject({ usedTokens: 90_000, windowTokens: 200_000, percentage: 45 })
+    s.translator.dispose()
+  })
+
+  it('keeps the window of a switch the user sends straight after', async () => {
+    const s = session(SONNET)
+    s.handle(userFrame('turn-a', 1_000))
+    s.handle(assistantFrame('reply-a', 2_000, 150_000, undefined, SONNET))
+    s.handle(resultFrame(3_000, { [SONNET]: { contextWindow: 200_000 } }))
+    await s.reply(answer(SONNET, 151_000, 200_000))
+
+    s.translator.modelMayHaveChanged()
+    const switched = s.pending.length - 1
+    // The send lands before the switch's report does.
+    s.translator.markContextActivity()
+    s.handle(initFrame(`${SONNET}[1m]`, 3_900))
+    s.handle(userFrame('turn-b', 4_000))
+    await s.reply(answer(`${SONNET}[1m]`, 151_000, 1_000_000), switched)
+    // Its count describes the context before the send, so only the window lands.
+    expect(s.ring()).toBeNull()
+    expect(s.turnRow('turn-b')?.body).toMatchObject({
+      contextUsage: { window: { tokens: 1_000_000 } }
+    })
+    expect(readAgentJournalTurn(s.turnRow('turn-b')!.body)?.contextUsage?.used).toBeUndefined()
+    s.handle(assistantFrame('reply-b', 5_000, 160_000, undefined, SONNET))
+    expect(s.ring()).toMatchObject({ usedTokens: 160_000, windowTokens: 1_000_000, percentage: 16 })
+    s.translator.dispose()
+  })
+
+  it('does not let a turn result undo the window a mid-turn switch between 1M and 200k reported', async () => {
+    const s = session(`${SONNET}[1m]`)
+    s.handle(userFrame('turn-a', 1_000))
+    s.handle(assistantFrame('reply-a', 2_000, 140_000, undefined, SONNET))
+    s.handle(resultFrame(3_000, { [`${SONNET}[1m]`]: { contextWindow: 1_000_000 } }))
+    await s.reply(answer(`${SONNET}[1m]`, 141_000, 1_000_000))
+    s.handle(initFrame(`${SONNET}[1m]`, 3_900))
+    s.handle(userFrame('turn-b', 4_000))
+    s.handle(assistantFrame('reply-b1', 5_000, 145_000, undefined, SONNET))
+
+    s.translator.modelMayHaveChanged()
+    const switched = s.pending.length - 1
+    s.handle(assistantFrame('reply-b2', 6_000, 150_000, undefined, SONNET))
+    await s.reply(answer(SONNET, 151_000, 200_000), switched)
+    s.handle(assistantFrame('reply-b3', 7_000, 160_000, undefined, SONNET))
+    expect(s.ring()).toMatchObject({ usedTokens: 160_000, windowTokens: 200_000, percentage: 80 })
+
+    // The result keys both windows, and the turn's init still names the 1M one.
+    s.handle(
+      resultFrame(8_000, {
+        [`${SONNET}[1m]`]: { contextWindow: 1_000_000 },
+        [SONNET]: { contextWindow: 200_000 }
+      })
+    )
+    expect(s.ring()).toMatchObject({ usedTokens: 160_000, windowTokens: 200_000, percentage: 80 })
+    // The user sends before the result's report lands; its window still does.
+    s.translator.markContextActivity()
+    await s.reply(answer(SONNET, 161_000, 200_000))
+    s.handle(initFrame(SONNET, 8_900))
+    s.handle(userFrame('turn-c', 9_000))
+    s.handle(assistantFrame('reply-c', 10_000, 170_000, undefined, SONNET))
+    expect(s.ring()).toMatchObject({ usedTokens: 170_000, windowTokens: 200_000, percentage: 85 })
     s.translator.dispose()
   })
 })

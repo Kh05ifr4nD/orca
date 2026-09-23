@@ -72,7 +72,8 @@ describe('context usage on journal rows', () => {
       claudeContextReportFromControl(
         { model: 'claude-fable-5-1[1m]', totalTokens: 20_000, rawMaxTokens: 1_000_000 },
         3_500
-      )!
+      )!,
+      'report'
     )
     expect(t.scans.count).toBe(0)
     t.handle(compactBoundary(4_000))
@@ -296,9 +297,9 @@ describe('context usage on journal rows', () => {
       3_500
     )
     expect(report).not.toBeNull()
-    t.translator.recordContextReport(turnIdentity('turn-a'), report!)
+    t.translator.recordContextReport(turnIdentity('turn-a'), report!, 'report')
     const before = t.appends.length
-    t.translator.recordContextReport(turnIdentity('never-a-turn'), report!)
+    t.translator.recordContextReport(turnIdentity('never-a-turn'), report!, 'report')
     expect(t.appends).toHaveLength(before)
     t.handle(compactBoundary(4_000))
     for (const entry of t.appends) {
@@ -307,7 +308,7 @@ describe('context usage on journal rows', () => {
     const replayed: AgentJournalRenderItem[] = JSON.parse(JSON.stringify(t.items()))
     expect(selectStructuredAgentContextUsage(replayed)).toBeNull()
     const reportAfterCompaction = { ...report!, usedTokens: 40_000, capturedAt: 4_500 }
-    t.translator.recordContextReport(null, reportAfterCompaction)
+    t.translator.recordContextReport(null, reportAfterCompaction, 'report')
     const restarted: AgentJournalRenderItem[] = JSON.parse(JSON.stringify(t.items()))
     expect(restarted.every((row) => isAdmissibleAgentJournalItemBody(row.body))).toBe(true)
     expect(selectStructuredAgentContextUsage(restarted)).toMatchObject({
