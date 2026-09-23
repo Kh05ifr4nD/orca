@@ -44,6 +44,17 @@ describe('orchestration actor codec', () => {
     expect(parseOrchestrationActor(value)).toBeNull()
   })
 
+  it.each([
+    ['a PTY terminal handle', 'term_4f2c9a1b-7d3e-4a5f-8b6c-9d0e1f2a3b4c'],
+    ['a short PTY terminal handle', 'term_4f2c9a'],
+    ['a structured-worker handle', 'structworker_4f2c9a1b-7d3e-4a5f-8b6c-9d0e1f2a3b4c']
+  ])('never turns %s into a session actor', (_label, handle) => {
+    // Handles share the session-id charset, so the predicate alone would accept them.
+    expect(normalizeOrchestrationActor(handle)).toBeNull()
+    expect(sessionOrchestrationActor(handle)).toBeNull()
+    expect(parseOrchestrationActor(`session:${handle}`)).toBeNull()
+  })
+
   it('validates a session id with the session-record predicate', () => {
     expect(sessionOrchestrationActor(SESSION_ID)).toEqual({ kind: 'session', id: SESSION_ID })
     expect(sessionOrchestrationActor('has space in it')).toBeNull()

@@ -10,8 +10,17 @@ import { isAgentSessionId } from './agent-session-record'
  * session record when needed. PTY agents have no actor: a pane outlives the agent in it, so a
  * pane-keyed actor would be inherited by the pane's next occupant.
  */
+// Terminal handles (`term_` from the PTY runtime, `structworker_` from structured-worker-identity)
+// share the session-id charset. A handle is never a session, so one handed to the codec by mistake
+// must not become a durable session actor.
+const TERMINAL_HANDLE_PREFIXES = ['term_', 'structworker_'] as const
+
+function isOrchestrationSessionId(id: string): boolean {
+  return isAgentSessionId(id) && !TERMINAL_HANDLE_PREFIXES.some((prefix) => id.startsWith(prefix))
+}
+
 const ACTOR_ID_PREDICATES = {
-  session: isAgentSessionId
+  session: isOrchestrationSessionId
 } as const satisfies Record<string, (id: string) => boolean>
 
 export type OrchestrationActorKind = keyof typeof ACTOR_ID_PREDICATES
@@ -40,12 +49,12 @@ export function parseOrchestrationActor(
 }
 
 export function sessionOrchestrationActor(sessionId: string): OrchestrationActor | null {
-  return isAgentSessionId(sessionId) ? { kind: 'session', id: sessionId } : null
+  return isOrchestrationSessionId(sessionId) ? { kind: 'session', id: sessionId } : null
 }
 
 /**
  * For input already known to name a session: its address, or its bare Orca session id. Not for a
- * recipient slot, where a bare string is a terminal handle.
+ * recipient slot, where a bare string names a terminal; handle-shaped ids are refused regardless.
  */
 export function normalizeOrchestrationActor(value: string): OrchestrationActor | null {
   return parseOrchestrationActor(value) ?? sessionOrchestrationActor(value)
