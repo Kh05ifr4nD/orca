@@ -6,8 +6,8 @@ import type { AgentSessionContextUsage } from '../../shared/agent-session-contex
 import {
   claudeContextResetKind,
   claudeContextWindowFromResult,
-  claudeModelUsageTotals,
-  claudeTokenUsage
+  claudeTokenUsage,
+  type ClaudeMainThreadModel
 } from './claude-context-usage'
 import type { ClaudeOpenTurn } from './claude-open-turn'
 import { claudeRecord, claudeText } from './claude-structured-item-translation'
@@ -18,12 +18,10 @@ const CONVERSATION_FRAME_TYPES = new Set(['assistant', 'user', 'stream_event'])
 
 export class ClaudeContextFacts {
   private activity = 0
-  /** Model that served the newest main-thread response: whose window the result's usage should report. */
-  private mainModel: string | null = null
+  /** Whose window a result's per-model usage should report. */
+  private mainModel: ClaudeMainThreadModel = { initModel: null, responseModel: null }
   /** The last response fact written, so a response's per-block frames revise its row once. */
   private lastResponse: string | null = null
-  /** The previous result's cumulative per-model totals, to see which models a result moved. */
-  private modelTotals: ReadonlyMap<string, number> = new Map()
   private readonly requestListeners = new Set<(turnId: string) => void>()
 
   constructor(private readonly turn: ClaudeOpenTurn) {}
@@ -42,6 +40,14 @@ export class ClaudeContextFacts {
   observe(message: Record<string, unknown>, observedAt: number): void {
     if (CONVERSATION_FRAME_TYPES.has(String(message.type)) && isRootClaudeFrame(message)) {
       this.markActivity()
+    }
+    const initModel =
+      message.type === 'system' && message.subtype === 'init' && isRootClaudeFrame(message)
+        ? claudeText(message.model)
+        : null
+    if (initModel) {
+      // The turn's init is the newest word on the model; its own responses follow it.
+      this.mainModel = { initModel, responseModel: null }
     }
     const reset = claudeContextResetKind(message)
     if (!reset) {
@@ -69,7 +75,9 @@ export class ClaudeContextFacts {
       return
     }
     const model = claudeText(response?.model)
-    this.mainModel = model ?? this.mainModel
+    if (model) {
+      this.mainModel = { ...this.mainModel, responseModel: model }
+    }
     const turnId = this.turn.latestId
     const key = JSON.stringify([turnId, usage, model])
     if (turnId === null || key === this.lastResponse) {
@@ -84,11 +92,7 @@ export class ClaudeContextFacts {
   /** End the turn a root result settles, with the window its per-model usage
    *  reports, then ask for the breakdown. */
   settle(message: Record<string, unknown>, end: ClaudeTurnEnd): void {
-    const tokens = claudeContextWindowFromResult(message, {
-      model: this.mainModel,
-      previousTotals: this.modelTotals
-    })
-    this.modelTotals = claudeModelUsageTotals(message)
+    const tokens = claudeContextWindowFromResult(message, this.mainModel)
     const facts = tokens === null ? undefined : { window: { tokens, capturedAt: end.completedAt } }
     const wasOpen = this.turn.isOpen
     this.turn.settle(end, facts)

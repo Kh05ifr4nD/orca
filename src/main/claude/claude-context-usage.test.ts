@@ -82,16 +82,14 @@ describe('claudeContextWindowFromResult', () => {
 
   it('reads the entry of the model that served the main thread, not a larger one', () => {
     const modelUsage = {
-      'claude-fable-5-1[1m]': { contextWindow: 1_000_000, inputTokens: 10 },
-      'claude-sonnet-5': { contextWindow: 200_000, inputTokens: 10 }
+      'claude-fable-5-1[1m]': { contextWindow: 1_000_000 },
+      'claude-sonnet-5': { contextWindow: 200_000 }
     }
-    const previousTotals = new Map<string, number>()
-    expect(
-      claudeContextWindowFromResult({ modelUsage }, { model: 'claude-sonnet-5', previousTotals })
-    ).toBe(200_000)
-    expect(
-      claudeContextWindowFromResult({ modelUsage }, { model: 'claude-fable-5-1', previousTotals })
-    ).toBe(1_000_000)
+    const byResponse = (responseModel: string) =>
+      claudeContextWindowFromResult({ modelUsage }, { initModel: null, responseModel })
+    expect(byResponse('claude-sonnet-5')).toBe(200_000)
+    // Responses drop the `[1m]` the usage is keyed with.
+    expect(byResponse('claude-fable-5-1')).toBe(1_000_000)
     // A provider-specific key is matched through the canonical id it reports.
     expect(
       claudeContextWindowFromResult(
@@ -104,29 +102,36 @@ describe('claudeContextWindowFromResult', () => {
             'claude-fable-5-1[1m]': { contextWindow: 1_000_000 }
           }
         },
-        { model: 'claude-sonnet-5', previousTotals }
+        { initModel: null, responseModel: 'claude-sonnet-5' }
       )
     ).toBe(200_000)
   })
 
-  it('picks the entry this result moved when the model runs with and without [1m]', () => {
+  it('reads the exact entry the turn init names when the model runs with and without [1m]', () => {
     const modelUsage = {
-      'claude-fable-5-1[1m]': { contextWindow: 1_000_000, inputTokens: 500 },
-      'claude-fable-5-1': { contextWindow: 200_000, inputTokens: 40 }
+      'claude-fable-5-1[1m]': { contextWindow: 1_000_000 },
+      'claude-fable-5-1': { contextWindow: 200_000 }
     }
-    const main = { model: 'claude-fable-5-1' }
+    const responseModel = 'claude-fable-5-1'
     expect(
       claudeContextWindowFromResult(
         { modelUsage },
-        { ...main, previousTotals: new Map([['claude-fable-5-1[1m]', 500]]) }
+        { initModel: 'claude-fable-5-1', responseModel }
       )
     ).toBe(200_000)
     expect(
       claudeContextWindowFromResult(
         { modelUsage },
-        { ...main, previousTotals: new Map([['claude-fable-5-1', 40]]) }
+        { initModel: 'claude-fable-5-1[1m]', responseModel }
       )
     ).toBe(1_000_000)
+    // An init the newest response contradicts names a model the session has left.
+    expect(
+      claudeContextWindowFromResult(
+        { modelUsage: { ...modelUsage, 'claude-sonnet-5': { contextWindow: 300_000 } } },
+        { initModel: 'claude-fable-5-1[1m]', responseModel: 'claude-sonnet-5' }
+      )
+    ).toBe(300_000)
   })
 
   it('is null when no entry reports a usable window', () => {

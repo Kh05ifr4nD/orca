@@ -46,25 +46,6 @@ export function claudeTokenUsage(value: unknown): AgentSessionTokenUsage | null 
   return total > 0 ? usage : null
 }
 
-/** Cumulative token total per `modelUsage` key, to tell which models a result's calls touched. */
-export function claudeModelUsageTotals(message: Record<string, unknown>): Map<string, number> {
-  const totals = new Map<string, number>()
-  if (isRecord(message.modelUsage)) {
-    for (const [key, usage] of Object.entries(message.modelUsage)) {
-      if (isRecord(usage)) {
-        totals.set(
-          key,
-          positiveCount(usage.inputTokens) +
-            positiveCount(usage.outputTokens) +
-            positiveCount(usage.cacheReadInputTokens) +
-            positiveCount(usage.cacheCreationInputTokens)
-        )
-      }
-    }
-  }
-  return totals
-}
-
 /** `claude-opus-5[1m]` and `Claude-Opus-5` name the same model; the suffix picks a window, not a model. */
 function baseModelId(model: string): string {
   return model
@@ -73,42 +54,42 @@ function baseModelId(model: string): string {
     .toLowerCase()
 }
 
+/** What names the main loop's model: the turn's `system/init`, keyed exactly as
+ *  `modelUsage` is, and the newest main-thread response, which drops `[1m]`. */
+export type ClaudeMainThreadModel = { initModel: string | null; responseModel: string | null }
+
 /** The main thread's window from a result's per-model usage, which also counts
- *  subagents, side calls and models used earlier in the session. The entry is the
- *  one named by the model that served the newest main-thread response; among
- *  entries sharing that model (`[1m]` or not), the one this result's calls moved. */
+ *  subagents, side calls and models the session used before a switch. */
 export function claudeContextWindowFromResult(
   message: Record<string, unknown>,
-  mainThread: { model: string | null; previousTotals: ReadonlyMap<string, number> } = {
-    model: null,
-    previousTotals: new Map()
-  }
+  main: ClaudeMainThreadModel = { initModel: null, responseModel: null }
 ): number | null {
   if (!isRecord(message.modelUsage)) {
     return null
   }
-  const totals = claudeModelUsageTotals(message)
-  const main = mainThread.model ? baseModelId(mainThread.model) : null
-  const entries: { window: number; named: boolean; moved: boolean }[] = []
-  for (const [key, usage] of Object.entries(message.modelUsage)) {
+  const entries = Object.entries(message.modelUsage).flatMap(([key, usage]) => {
     const window = isRecord(usage) ? positiveCount(usage.contextWindow) : 0
     if (!isRecord(usage) || window === 0) {
-      continue
+      return []
     }
-    const canonical = typeof usage.canonicalModel === 'string' ? usage.canonicalModel : null
-    entries.push({
-      window,
-      named:
-        main !== null &&
-        (baseModelId(key) === main || (canonical !== null && baseModelId(canonical) === main)),
-      moved: totals.get(key) !== mainThread.previousTotals.get(key)
-    })
-  }
-  const named = entries.filter((entry) => entry.named)
+    const canonical = typeof usage.canonicalModel === 'string' ? [usage.canonicalModel] : []
+    return [{ key, window, bases: [key, ...canonical].map(baseModelId) }]
+  })
+  const { initModel, responseModel } = main
+  // An init older than the newest response names a model the session has left.
+  const initIsCurrent =
+    initModel !== null &&
+    (responseModel === null || baseModelId(initModel) === baseModelId(responseModel))
+  const exact = initIsCurrent ? entries.filter((entry) => entry.key === initModel) : []
+  const names = [responseModel ?? (initIsCurrent ? initModel : null)].flatMap((model) =>
+    model ? [baseModelId(model)] : []
+  )
+  const named =
+    exact.length > 0
+      ? exact
+      : entries.filter((entry) => entry.bases.some((base) => names.includes(base)))
   // Nothing names the main thread's model: the largest window is usually the main loop's.
-  const candidates = named.length > 0 ? named : entries
-  const moved = candidates.filter((entry) => entry.moved)
-  const pool = moved.length > 0 ? moved : candidates
+  const pool = named.length > 0 ? named : entries
   const largest = Math.max(0, ...pool.map((entry) => entry.window))
   return largest > 0 ? largest : null
 }

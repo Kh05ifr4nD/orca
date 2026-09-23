@@ -101,6 +101,9 @@ const resultFrame = (at: number, modelUsage: Record<string, unknown> = {}) =>
     at
   )
 
+const initFrame = (model: string, at: number) =>
+  frame({ type: 'system', subtype: 'init', uuid: `init-${at}`, model }, at)
+
 const compactBoundary = (at: number) =>
   frame(
     {
@@ -170,11 +173,13 @@ describe('context usage on journal rows', () => {
       const body = t.turnRow(turnId)?.body
       return body?.kind === 'turn' ? body.contextUsage?.window?.tokens : undefined
     }
+    t.handle(initFrame('claude-fable-5-1[1m]', 900))
     t.handle(userFrame('turn-a', 1_000))
     t.handle(assistantFrame('reply-a', 2_000, 18_600))
     t.handle(resultFrame(3_000, { 'claude-fable-5-1[1m]': entry(1_000_000, 18_600) }))
     expect(windowOf('turn-a')).toBe(1_000_000)
     // The user moved to a 200k model; the 1M entry stays in the cumulative usage.
+    t.handle(initFrame('claude-sonnet-5', 3_900))
     t.handle(userFrame('turn-b', 4_000))
     t.handle(assistantFrame('reply-b', 5_000, 20_000, undefined, 'claude-sonnet-5'))
     t.handle(
@@ -184,7 +189,8 @@ describe('context usage on journal rows', () => {
       })
     )
     expect(windowOf('turn-b')).toBe(200_000)
-    // Same model without `[1m]`: the entry this result moved is the main thread's.
+    // Same model without `[1m]`: only the turn's init tells the two entries apart.
+    t.handle(initFrame('claude-fable-5-1', 6_900))
     t.handle(userFrame('turn-c', 7_000))
     t.handle(assistantFrame('reply-c', 8_000, 21_000))
     t.handle(
@@ -196,6 +202,7 @@ describe('context usage on journal rows', () => {
     )
     expect(windowOf('turn-c')).toBe(200_000)
     // A subagent on a larger-window model leaves the main thread's window alone.
+    t.handle(initFrame('claude-sonnet-5', 9_900))
     t.handle(userFrame('turn-d', 10_000))
     t.handle(assistantFrame('reply-d', 11_000, 22_000, undefined, 'claude-sonnet-5'))
     t.handle(assistantFrame('child-d', 11_500, 9_000, 'toolu_task', 'claude-fable-5-1'))
@@ -210,6 +217,22 @@ describe('context usage on journal rows', () => {
     expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
       usedTokens: 22_000,
       windowTokens: 200_000
+    })
+    t.translator.dispose()
+  })
+
+  it('names the main model from its responses when no init frame does', () => {
+    const t = setup()
+    t.handle(userFrame('turn-a', 1_000))
+    t.handle(assistantFrame('reply-a', 2_000, 20_000, undefined, 'claude-sonnet-5'))
+    t.handle(
+      resultFrame(3_000, {
+        'claude-fable-5-1[1m]': { contextWindow: 1_000_000 },
+        'claude-sonnet-5': { contextWindow: 200_000 }
+      })
+    )
+    expect(t.turnRow('turn-a')?.body).toMatchObject({
+      contextUsage: { window: { tokens: 200_000 } }
     })
     t.translator.dispose()
   })
