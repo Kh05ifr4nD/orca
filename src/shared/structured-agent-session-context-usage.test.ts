@@ -141,6 +141,17 @@ describe('selectStructuredAgentContextUsage', () => {
     ).toMatchObject({ usedTokens: 29_400, estimated: false })
   })
 
+  it('states nothing for a used kind a newer host writes', () => {
+    const future = { kind: 'forecast', capturedAt: 4_000 }
+    expect(
+      selectStructuredAgentContextUsage([
+        turn(1, { used: estimate(18_600), window: WINDOW }),
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a row from a newer host, which no local type admits.
+        turn(2, { used: future as unknown as AgentSessionContextUsage['used'] })
+      ])
+    ).toBeNull()
+  })
+
   it('is null for a journal with neither', () => {
     expect(
       selectStructuredAgentContextUsage([

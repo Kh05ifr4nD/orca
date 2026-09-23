@@ -39,10 +39,7 @@ export function selectStructuredAgentContextUsage(
     }
   }
   const fact = used?.fact
-  if (!fact || fact.kind === 'unknown') {
-    return null
-  }
-  if (fact.kind === 'report') {
+  if (fact?.kind === 'report') {
     return {
       usedTokens: fact.usedTokens,
       windowTokens: fact.windowTokens,
@@ -50,6 +47,10 @@ export function selectStructuredAgentContextUsage(
       estimated: false,
       categories: fact.categories
     }
+  }
+  // `unknown`, or a kind a newer host writes that this client cannot measure.
+  if (fact?.kind !== 'estimate') {
+    return null
   }
   const usedTokens = contextTokensFromUsage(fact.usage)
   // Another model's window would state a wrong share; wait for this model's.
