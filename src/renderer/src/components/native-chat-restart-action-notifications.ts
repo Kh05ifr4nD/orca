@@ -116,11 +116,20 @@ export function restartChatsNotContinued(
 export function announceRestartResults(
   requested: readonly string[],
   results: readonly RestartContinuationOutcome[],
-  /** The host's own failure list after the action; an older host sends none. */
-  hostFailed: readonly string[],
+  /** The host's own failure list after the action; undefined from an older host. */
+  hostFailed: readonly string[] | undefined,
   actions: RestartFailureActions
 ): void {
   const notContinued = restartChatsNotContinued(requested, results)
   announceContinued(new Set(requested).size - notContinued.length)
-  announceNotContinued(notContinued, new Set(hostFailed), actions)
+  const failed = new Set(hostFailed)
+  // A host that lists failures has already dropped chats that moved on by themselves or that the
+  // user answered; counting those would report a failure nothing on screen can show.
+  announceNotContinued(
+    hostFailed === undefined
+      ? notContinued
+      : notContinued.filter((sessionId) => failed.has(sessionId)),
+    failed,
+    actions
+  )
 }

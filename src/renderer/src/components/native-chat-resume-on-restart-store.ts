@@ -1,5 +1,10 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
+import {
+  getStructuredAgentSessionStatusFeed,
+  type StructuredAgentSessionStatusFeedOwner
+} from '@/runtime/structured-agent-session-status-feed'
+import type { AgentSessionStatusSummary } from '../../../shared/agent-session-wire'
 import { useAppStore } from '../store'
 import {
   announceRestartDismissUnconfirmed,
@@ -49,9 +54,98 @@ const LAUNCH_READ_RETRY_DELAYS_MS = [100, 250, 500] as const
  *  actually moves the offer. */
 function publish(next: NativeChatRestartOffer): void {
   offer = next
+  syncFailedChatWatch()
   for (const listener of listeners) {
     listener()
   }
+}
+
+/**
+ * Re-reads the host once a failed chat shows new activity, so a reply the user sent there retires
+ * its entry here too. The host stays the judge; this only asks again.
+ *
+ * Held only while something failed. Keyed on status and prompt rather than every summary, so an
+ * agent streaming in a failed chat costs one re-read, not one per tool call.
+ */
+const FAILED_CHAT_REFRESH_DELAY_MS = 500
+let failedChatWatch: {
+  feed: StructuredAgentSessionStatusFeedOwner
+  seen: Map<string, string>
+  release: () => void
+} | null = null
+let failedChatRefresh: ReturnType<typeof setTimeout> | null = null
+
+function failedChatActivityKey(summary: AgentSessionStatusSummary): string {
+  return `${summary.status ?? ''}\u0000${summary.latestPrompt}`
+}
+
+function syncFailedChatWatch(): void {
+  const failedIds = new Set(offer.failed.map((failure) => failure.sessionId))
+  if (failedIds.size === 0) {
+    releaseFailedChatWatch()
+    return
+  }
+  if (!failedChatWatch) {
+    const feed = getStructuredAgentSessionStatusFeed(LOCAL)
+    const unsubscribe = feed.subscribe(noticeFailedChatActivity)
+    const deactivate = feed.activate()
+    failedChatWatch = {
+      feed,
+      seen: new Map(),
+      release: () => {
+        unsubscribe()
+        deactivate()
+      }
+    }
+  }
+  const { feed, seen } = failedChatWatch
+  for (const sessionId of seen.keys()) {
+    if (!failedIds.has(sessionId)) {
+      seen.delete(sessionId)
+    }
+  }
+  // What the feed already holds is what this listing answered.
+  for (const sessionId of failedIds) {
+    const summary = feed.getSnapshot().get(sessionId)
+    if (summary && !seen.has(sessionId)) {
+      seen.set(sessionId, failedChatActivityKey(summary))
+    }
+  }
+}
+
+function noticeFailedChatActivity(): void {
+  if (!failedChatWatch) {
+    return
+  }
+  const { feed, seen } = failedChatWatch
+  const snapshot = feed.getSnapshot()
+  let changed = false
+  for (const failure of offer.failed) {
+    const summary = snapshot.get(failure.sessionId)
+    if (!summary) {
+      continue
+    }
+    const key = failedChatActivityKey(summary)
+    if (seen.get(failure.sessionId) !== key) {
+      seen.set(failure.sessionId, key)
+      changed ||= summary.updatedAt > offer.listedAt
+    }
+  }
+  if (changed && failedChatRefresh === null) {
+    failedChatRefresh = setTimeout(() => {
+      failedChatRefresh = null
+      void refreshNativeChatRestartOffer()
+    }, FAILED_CHAT_REFRESH_DELAY_MS)
+  }
+}
+
+function releaseFailedChatWatch(): void {
+  if (failedChatRefresh !== null) {
+    clearTimeout(failedChatRefresh)
+    failedChatRefresh = null
+  }
+  failedChatWatch?.release()
+  failedChatWatch = null
 }
 
 export function getNativeChatRestartOffer(): NativeChatRestartOffer {
@@ -151,7 +245,7 @@ export async function continueNativeChatRestartOffer(
     announceRestartResults(
       reported,
       result.continued,
-      failed.map((failure) => failure.sessionId),
+      Array.isArray(result.failed) ? failed.map((failure) => failure.sessionId) : undefined,
       failureToastActions
     )
     if (Array.isArray(result.sessions)) {
@@ -244,6 +338,7 @@ export function useNativeChatRestartOffer(enabled: boolean): NativeChatRestartOf
 
 /** @internal - tests need a clean module between cases. */
 export function _resetNativeChatRestartOffer(): void {
+  releaseFailedChatWatch()
   offer = EMPTY
   launch = undefined
   listeners.clear()

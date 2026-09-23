@@ -15,7 +15,9 @@ import { NativeChatResumeStatusSegment } from './NativeChatResumeStatusSegment'
 
 const rpc = vi.hoisted(() => vi.fn())
 vi.mock('@/runtime/structured-agent-session-client', () => ({
-  callStructuredAgentSession: rpc
+  callStructuredAgentSession: rpc,
+  // A failed row opens the status feed; these cases never drive it.
+  subscribeStructuredAgentSessionStatus: () => new Promise(() => {})
 }))
 vi.mock('sonner', () => ({ toast: vi.fn() }))
 
