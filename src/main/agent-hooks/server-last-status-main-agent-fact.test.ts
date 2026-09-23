@@ -184,6 +184,36 @@ describe('The main agent fact across a restart', () => {
     }
   )
 
+  it('does not restore a settled main agent from a row that does not say whether a shell ran', async () => {
+    const receivedAt = recentTs()
+    writeEntry({
+      receivedAt,
+      stateStartedAt: receivedAt - 5_000,
+      payload: {
+        state: 'working',
+        prompt: 'unknown shell',
+        agentType: 'claude',
+        mainAgent: { state: 'done', stateStartedAt: receivedAt - 2_000 },
+        subagents: [{ id: 'achild', state: 'working', startedAt: receivedAt - 4_000 }]
+      }
+    })
+    const server = new AgentHookServer()
+    await server.start({ env: 'production', userDataPath })
+    try {
+      await postHookEvent(
+        server,
+        buildBody({ hook_event_name: 'SubagentStop', agent_id: 'achild' })
+      )
+
+      expect(server.getStatusSnapshot()[0]).toMatchObject({
+        state: 'working',
+        restoredUnconfirmed: true
+      })
+    } finally {
+      server.stop()
+    }
+  })
+
   it('prefers a persisted main agent over the legacy flag when a row carries both', async () => {
     const receivedAt = recentTs()
     const mainAgent = { state: 'done', outcome: 'cancellation', stateStartedAt: receivedAt - 2_000 }
