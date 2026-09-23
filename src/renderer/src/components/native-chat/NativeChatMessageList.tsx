@@ -264,12 +264,19 @@ export function NativeChatMessageList({
     loadEarlier,
     jumpToLoaded: jumpToLoadedRailItem
   })
-  const jumpThroughHistory = railHistoryJump.jump
-  // A tick with no slot is older history: page it in, then jump.
+  const { jump: jumpThroughHistory, cancel: cancelHistoryJump } = railHistoryJump
+  // A tick with no slot is older history: page it in, then jump. Picking a loaded
+  // one supersedes a jump still paging, which would otherwise land later and win.
   const selectRailItem = useCallback(
-    (item: NativeChatRailItem) =>
-      item.slotIndex === null ? jumpThroughHistory(item) : jumpToLoadedRailItem(item),
-    [jumpThroughHistory, jumpToLoadedRailItem]
+    (item: NativeChatRailItem) => {
+      if (item.slotIndex === null) {
+        jumpThroughHistory(item)
+        return
+      }
+      cancelHistoryJump()
+      jumpToLoadedRailItem(item)
+    },
+    [cancelHistoryJump, jumpThroughHistory, jumpToLoadedRailItem]
   )
   // Pinning the target mounts it in the same commit, so the row exists by the time
   // layout runs. Routed through `scrollMessageToTop` rather than the virtualizer

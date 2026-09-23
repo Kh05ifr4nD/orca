@@ -62,12 +62,17 @@ const ROW_HEIGHT_BY_TEXT = new Map(
 
 /** A lane that pages older history in the way the structured lane does: the page
  *  lands, then the returned promise settles. The outline is the unloaded prompts. */
-function PagedTranscript(): React.JSX.Element {
+function PagedTranscript({
+  holdPage
+}: {
+  /** Awaited before a page lands, to keep it in flight. */
+  holdPage?: () => Promise<void>
+}): React.JSX.Element {
   const [loaded, setLoaded] = useState(PAGE)
   const loadEarlier = useCallback(async () => {
-    await Promise.resolve()
+    await (holdPage?.() ?? Promise.resolve())
     setLoaded((current) => Math.min(TOTAL, current + PAGE))
-  }, [])
+  }, [holdPage])
   const messages = useMemo(() => HISTORY.slice(TOTAL - loaded), [loaded])
   const railOutline = useMemo<NativeChatRailOutlineEntry[]>(
     () =>
@@ -271,5 +276,38 @@ describe('jumping from the rail while following the end', () => {
     // The failure mode: the jump cancelled itself a few pixels above the end.
     expect(distanceFromBottom()).toBeGreaterThan(100)
     expect(Math.abs(rowOffsetFromViewportTop(prompt))).toBeLessThanOrEqual(2)
+  })
+
+  it('lets a later pick of a loaded message win over a jump still paging', async () => {
+    let releaseFirstPage: (() => void) | null = null
+    let held = false
+    const holdPage = (): Promise<void> => {
+      if (held) {
+        return Promise.resolve()
+      }
+      held = true
+      return new Promise<void>((resolve) => {
+        releaseFirstPage = resolve
+      })
+    }
+    render(<PagedTranscript holdPage={holdPage} />)
+    await settle(10)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Your messages' }))
+    await frame()
+    fireEvent.click(screen.getByRole('button', { name: 'prompt-5' }))
+    await frame()
+    // Anti-vacuous: the older page is in flight.
+    expect(releaseFirstPage).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Your messages' }))
+    await frame()
+    fireEvent.click(screen.getByRole('button', { name: 'prompt-45' }))
+    await settle(40)
+    act(() => releaseFirstPage?.())
+    await settle(60)
+
+    // The superseded jump would have kept paging and pulled the reader to prompt-5.
+    expect(screen.queryByText('prompt-5')).toBeNull()
+    expect(Math.abs(rowOffsetFromViewportTop('prompt-45'))).toBeLessThanOrEqual(2)
   })
 })

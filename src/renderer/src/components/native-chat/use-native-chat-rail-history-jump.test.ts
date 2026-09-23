@@ -166,19 +166,47 @@ describe('rail jump through unloaded history', () => {
     expect(jumpToLoaded).toHaveBeenCalledWith(expect.objectContaining({ id: 'm25' }))
   })
 
-  it('runs one jump at a time', async () => {
+  it('runs one jump at a time, aimed at the latest pick', async () => {
     const { lane, useLaneRailJump } = createLane({ total: 40, pageSize: 10, initiallyLoaded: 10 })
+    lane.holdPages()
     const jumpToLoaded = vi.fn()
     const { result } = renderHook(() => useLaneRailJump(jumpToLoaded))
 
-    act(() => {
-      result.current.jump(outlineItem('m15'))
-      result.current.jump(outlineItem('m2'))
-    })
-    expect(result.current.pendingId).toBe('m15')
+    act(() => result.current.jump(outlineItem('m25')))
+    await waitFor(() => expect(lane.loadEarlier).toHaveBeenCalledTimes(1))
+    // Picked while the first page is still in flight: no second page is asked for.
+    act(() => result.current.jump(outlineItem('m2')))
+    expect(result.current.pendingId).toBe('m2')
+    expect(lane.loadEarlier).toHaveBeenCalledTimes(1)
+    for (let page = 0; page < 3; page += 1) {
+      await act(async () => {
+        lane.releasePage()
+        await Promise.resolve()
+      })
+    }
+
     await waitFor(() => expect(jumpToLoaded).toHaveBeenCalledTimes(1))
-    expect(jumpToLoaded).toHaveBeenCalledWith(expect.objectContaining({ id: 'm15' }))
-    expect(lane.loadEarlier).toHaveBeenCalledTimes(2)
+    expect(jumpToLoaded).toHaveBeenCalledWith(expect.objectContaining({ id: 'm2' }))
+    expect(lane.loadEarlier).toHaveBeenCalledTimes(3)
+  })
+
+  it('stops paging once cancelled', async () => {
+    const { lane, useLaneRailJump } = createLane({ total: 40, pageSize: 10, initiallyLoaded: 10 })
+    lane.holdPages()
+    const jumpToLoaded = vi.fn()
+    const { result } = renderHook(() => useLaneRailJump(jumpToLoaded))
+
+    act(() => result.current.jump(outlineItem('m2')))
+    await waitFor(() => expect(lane.loadEarlier).toHaveBeenCalledTimes(1))
+    act(() => result.current.cancel())
+    await act(async () => {
+      lane.releasePage()
+      await Promise.resolve()
+    })
+
+    expect(result.current.pendingId).toBeNull()
+    expect(lane.loadEarlier).toHaveBeenCalledTimes(1)
+    expect(jumpToLoaded).not.toHaveBeenCalled()
   })
 
   it('abandons the jump when the list unmounts mid-page', async () => {
