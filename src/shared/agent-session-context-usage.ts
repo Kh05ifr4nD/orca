@@ -58,7 +58,15 @@ export type AgentSessionContextUsed =
   | ({ kind: 'report' } & AgentSessionContextReport)
   /** The newest main-thread response, whatever its blocks: its input is the
    *  live context size. A subagent's measures its own window. */
-  | { kind: 'estimate'; usage: AgentSessionTokenUsage; model?: string; capturedAt: number }
+  | {
+      kind: 'estimate'
+      usage: AgentSessionTokenUsage
+      /** The model as the window's key names it, `[1m]` included, when the turn's init names it. */
+      model?: string
+      /** The response's own model id, which drops `[1m]`. */
+      responseModel?: string
+      capturedAt: number
+    }
   /** Compaction or a conversation reset: unknown until a response or report restates it. */
   | { kind: 'unknown'; capturedAt: number }
 
@@ -76,14 +84,21 @@ export function contextBaseModelId(model: string): string {
     .toLowerCase()
 }
 
-/** Whether an estimate's model is the one the window was measured for. The
- *  `[1m]` suffix must agree too: it is what tells a 1M window from a 200k one. */
-export function contextWindowServesModel(
+/** Whether an estimate was measured on the window's model. An exact key must
+ *  match `[1m]` included, since that is what tells a 1M window from a 200k one;
+ *  a response's id drops the suffix, so it can only name the base model. */
+export function contextWindowServesEstimate(
   window: AgentSessionContextWindow,
-  model: string
+  estimate: { model?: string; responseModel?: string }
 ): boolean {
-  const id = model.trim().toLowerCase()
-  return [window.model, window.canonicalModel].some(
-    (name) => name !== undefined && name.trim().toLowerCase() === id
-  )
+  const names = [window.model, window.canonicalModel].flatMap((name) => (name ? [name] : []))
+  if (estimate.model !== undefined) {
+    const id = estimate.model.trim().toLowerCase()
+    return names.some((name) => name.trim().toLowerCase() === id)
+  }
+  if (estimate.responseModel !== undefined) {
+    const base = contextBaseModelId(estimate.responseModel)
+    return names.some((name) => contextBaseModelId(name) === base)
+  }
+  return true
 }

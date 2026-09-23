@@ -96,18 +96,20 @@ export class ClaudeContextFacts {
     if (model) {
       this.mainModel = { ...this.mainModel, responseModel: model }
     }
-    // Responses drop `[1m]`; the init's exact key tells a 1M window from a 200k one of the same model.
-    const measured = claudeMainThreadModelKey(this.mainModel) ?? model
-    const key = JSON.stringify([this.turn.id, usage, measured])
-    if (key === this.lastResponse) {
+    // Responses drop `[1m]`; only the init's key tells a 1M window from a 200k one of the same model.
+    // Plan mode can run the turn on a model the init does not name, leaving the response's id alone.
+    const key = claudeMainThreadModelKey(this.mainModel)
+    const dedupe = JSON.stringify([this.turn.id, usage, key, model])
+    if (dedupe === this.lastResponse) {
       return
     }
-    this.lastResponse = key
+    this.lastResponse = dedupe
     this.write({
       used: {
         kind: 'estimate',
         usage,
-        ...(measured ? { model: measured } : {}),
+        ...(key ? { model: key } : {}),
+        ...(model ? { responseModel: model } : {}),
         capturedAt: observedAt
       }
     })

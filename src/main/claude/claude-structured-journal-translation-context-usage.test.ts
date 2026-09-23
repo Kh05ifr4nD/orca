@@ -512,6 +512,51 @@ describe('context usage on journal rows', () => {
     t.translator.dispose()
   })
 
+  it('keeps the ring through plan-mode turns that run on a model the init does not name', () => {
+    // Shape measured from Claude Code 2.1.280 with `--model opusplan`: the init names the
+    // resting model while plan mode runs the turn on Opus's 1M window.
+    const t = setup({ init: 'claude-sonnet-5' })
+    const usage = {
+      'claude-sonnet-5': { contextWindow: 200_000 },
+      'claude-opus-5-5[1m]': { contextWindow: 1_000_000 }
+    }
+    t.handle(userFrame('turn-a', 1_000))
+    t.handle(assistantFrame('reply-a', 2_000, 50_000, undefined, 'claude-sonnet-5'))
+    t.handle(resultFrame(3_000, { 'claude-sonnet-5': usage['claude-sonnet-5'] }))
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({ percentage: 25 })
+    // Plan mode: the resting model's 200k window cannot state an Opus response's share.
+    t.handle(initFrame('claude-sonnet-5', 3_900))
+    t.handle(userFrame('turn-b', 4_000))
+    t.handle(assistantFrame('reply-b', 5_000, 100_000, undefined, 'claude-opus-5-5'))
+    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
+    t.handle(resultFrame(6_000, usage))
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
+      windowTokens: 1_000_000,
+      percentage: 10
+    })
+    t.translator.recordContextReport(
+      turnIdentity('turn-b'),
+      claudeContextReportFromControl(
+        { model: 'claude-opus-5-5[1m]', totalTokens: 101_000, rawMaxTokens: 1_000_000 },
+        6_500
+      )!
+    )
+    t.handle(initFrame('claude-sonnet-5', 6_900))
+    t.handle(userFrame('turn-c', 7_000))
+    t.handle(assistantFrame('reply-c', 8_000, 120_000, undefined, 'claude-opus-5-5'))
+    expect(selectStructuredAgentContextUsage(t.items())).toMatchObject({
+      usedTokens: 120_000,
+      windowTokens: 1_000_000,
+      estimated: true
+    })
+    // Out of plan mode, the resting model's window is not the newest one.
+    t.handle(initFrame('claude-sonnet-5', 8_900))
+    t.handle(userFrame('turn-d', 9_000))
+    t.handle(assistantFrame('reply-d', 10_000, 130_000, undefined, 'claude-sonnet-5'))
+    expect(selectStructuredAgentContextUsage(t.items())).toBeNull()
+    t.translator.dispose()
+  })
+
   it('keeps the size a turn reached when the child ends it without a result', () => {
     const t = setup()
     t.handle(userFrame('turn-a', 1_000))

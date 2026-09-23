@@ -44,6 +44,7 @@ const Used = z.discriminatedUnion('kind', [
     kind: z.literal('estimate'),
     usage: TokenUsage,
     model: ModelId.optional(),
+    responseModel: ModelId.optional(),
     capturedAt: CapturedAt
   }),
   z.object({ kind: z.literal('unknown'), capturedAt: CapturedAt })

@@ -5,7 +5,7 @@
 
 import {
   contextTokensFromUsage,
-  contextWindowServesModel,
+  contextWindowServesEstimate,
   type AgentSessionContextUsageCategory,
   type AgentSessionContextUsed,
   type AgentSessionContextWindow
@@ -54,7 +54,7 @@ export function selectStructuredAgentContextUsage(
   }
   const usedTokens = contextTokensFromUsage(fact.usage)
   // Another model's window would state a wrong share; wait for this model's.
-  if (!window || (fact.model !== undefined && !contextWindowServesModel(window.fact, fact.model))) {
+  if (!window || !contextWindowServesEstimate(window.fact, fact)) {
     return null
   }
   return {

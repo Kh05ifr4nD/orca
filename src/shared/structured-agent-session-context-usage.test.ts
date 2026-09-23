@@ -31,7 +31,11 @@ const WINDOW: AgentSessionContextWindow = {
   capturedAt: 2_000
 }
 
-function estimate(usedTokens: number, model?: string): AgentSessionContextUsage['used'] {
+function estimate(
+  usedTokens: number,
+  model?: string,
+  responseModel?: string
+): AgentSessionContextUsage['used'] {
   return {
     kind: 'estimate',
     usage: {
@@ -41,6 +45,7 @@ function estimate(usedTokens: number, model?: string): AgentSessionContextUsage[
       outputTokens: 4
     },
     ...(model ? { model } : {}),
+    ...(responseModel ? { responseModel } : {}),
     capturedAt: 1
   }
 }
@@ -127,6 +132,21 @@ describe('selectStructuredAgentContextUsage', () => {
         turn(2, { used: estimate(50_000, 'claude-sonnet-5') })
       ])
     ).toMatchObject({ windowTokens: 200_000, percentage: 25 })
+  })
+
+  it('matches only the base model when no init named the exact key', () => {
+    const items = (responseModel: string, model?: string) => [
+      turn(1, { window: WINDOW }),
+      turn(2, { used: estimate(150_000, model, responseModel) })
+    ]
+    expect(selectStructuredAgentContextUsage(items('claude-fable-5-1'))).toMatchObject({
+      windowTokens: 1_000_000
+    })
+    expect(selectStructuredAgentContextUsage(items('claude-sonnet-5'))).toBeNull()
+    // An exact key outranks the response's id.
+    expect(
+      selectStructuredAgentContextUsage(items('claude-fable-5-1', 'claude-fable-5-1'))
+    ).toBeNull()
   })
 
   it('hides the pre-compaction size until the next response or report restates it', () => {
