@@ -234,17 +234,18 @@ repaint, an inferred answer) keeps it only while `mainAgent` is unchanged. A chi
 sticky permission prompt still records the main agent's own progress and background
 evidence in the held row, and pushes the held row to subscribers when `mainAgent` changes.
 
-Two combining rules remain outside the shared fold and are named so a reader
-does not mistake them for drift:
-
-- Codex keeps `codexRosterEffectiveState` for its combined `state` (a waiting
-  child wins, a settled root with any live child reads `working`, never
-  monitoring) and publishes `mainAgent` from its root record; moving that combine
-  onto the fold needs a waiting-child input the fold does not have yet.
-- A cancelled turn with a still-running shell reads `done` in the hook lane
-  and `monitoring` in the structured lane. The parity table in
-  `src/shared/main-agent-status-parity.test.ts` pins this as a known
-  divergence; the cancel policy that removes it flips that row.
+Every lane, Codex included, combines through the fold. A child blocked on a
+human is a fold input (`childWorkLiveness: 'waiting'`, derived from the child's
+own `waiting` or `blocked` state) and makes the row wait whatever the main
+agent is doing, unless the main agent is itself asking. The Claude hook lane
+still holds a child's permission wait on the displaced main agent record
+(`waitingAgentId`, `stateBeforeWait`) rather than on the child, but publishes
+the displaced state as `mainAgent`, so its rows match Codex. One known
+divergence remains, pinned by name in the parity table
+(`src/shared/main-agent-status-parity.test.ts`) so a reader does not mistake
+it for drift: a cancelled turn with a still-running shell reads `done` in the
+hook lane and `monitoring` in the structured lane; the cancel policy that
+removes it flips that row.
 
 ## PR 1b: the runtime's retained row store is deleted
 
