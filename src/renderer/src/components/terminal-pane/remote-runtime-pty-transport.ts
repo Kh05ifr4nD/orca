@@ -221,6 +221,7 @@ export function createRemoteRuntimePtyTransport(
       `[paired-input-client] ${JSON.stringify({ stage, tabId, handle, connected, attachmentReady, recovery: recovery.currentPhase, ...details })}`
     )
   }
+  traceE2EInput('created', {})
 
   function setAttachmentReady(ready: boolean): void {
     attachmentReady = ready
@@ -1007,6 +1008,7 @@ export function createRemoteRuntimePtyTransport(
     remotePtyId = toRemoteRuntimePtyId(hostHandle, currentRuntimeEnvironmentId)
     registerShutdownHandlers(remotePtyId)
     connected = true
+    traceE2EInput('adopted-host-mirror', { terminalHandle: hostHandle })
     desiredViewport = {
       cols: options.cols ?? 80,
       rows: options.rows ?? 24
@@ -1294,6 +1296,7 @@ export function createRemoteRuntimePtyTransport(
     unregisterShutdownHandlers(previousPtyId)
     registerShutdownHandlers(remotePtyId)
     connected = true
+    traceE2EInput('adopted-resolved-pane', { terminalHandle: terminal.handle })
     desiredViewport = {
       cols: options.cols ?? 80,
       rows: options.rows ?? 24
@@ -2057,6 +2060,7 @@ export function createRemoteRuntimePtyTransport(
           if (!isCurrentSubscription()) {
             return
           }
+          traceE2EInput('subscribed', { subscribedHandle })
           storedCallbacks.onOutputPauseChanged?.(
             desiredOutputPaused,
             nextStream.setOutputPaused(desiredOutputPaused)
@@ -2198,6 +2202,7 @@ export function createRemoteRuntimePtyTransport(
 
   const transport: PtyTransport = {
     async connect(options) {
+      traceE2EInput('connect-start', { sessionId: options.sessionId ?? null })
       cancelTerminalCreateRetryWait()
       const connectLifecycleEpoch = ++lifecycleEpoch
       const createEnvironmentId = currentRuntimeEnvironmentId
@@ -2449,6 +2454,7 @@ export function createRemoteRuntimePtyTransport(
     },
 
     attach(options) {
+      traceE2EInput('attach-start', { existingPtyId: options.existingPtyId })
       const attachLifecycleEpoch = ++lifecycleEpoch
       const generation = ++attachGeneration
       cancelTerminalCreateRetryWait()
@@ -2548,6 +2554,7 @@ export function createRemoteRuntimePtyTransport(
     },
 
     disconnect() {
+      traceE2EInput('disconnect', {})
       lifecycleEpoch += 1
       attachGeneration += 1
       cancelTerminalCreateRetryWait()
@@ -2582,6 +2589,7 @@ export function createRemoteRuntimePtyTransport(
     },
 
     detach() {
+      traceE2EInput('detach', {})
       // Why first: the successor transport owns the PTY after detach, and the batcher flushes
       // below can throw past the census drop — a stranded gauge outlives the transport.
       outputProcessor.disposePendingSideEffectGauge()
