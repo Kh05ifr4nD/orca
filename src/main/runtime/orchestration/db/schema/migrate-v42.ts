@@ -1,5 +1,4 @@
 import type { OrchestrationDb } from '../orchestration-db'
-import { backfillStructuredWorkerActors } from './structured-worker-actor-backfill'
 
 const ACTOR_COLUMNS = [
   ['runs', 'coordinator_actor'],
@@ -10,7 +9,8 @@ const ACTOR_COLUMNS = [
 /**
  * Orchestration actor columns (`session:<id>`, see orchestration-actor): who a Run's coordinator
  * and a Dispatch's assignee and creator are when that party is a structured session. PTY rows keep
- * NULL and keep their handle and pane-key identity.
+ * NULL and keep their handle and pane-key identity. Existing structured-worker rows get their actor
+ * from `backfillStructuredWorkerActors`, which runs after migrate on every open.
  *
  * Dev databases stamped v42 by an earlier prototype hold `*_principal` columns instead. They are
  * unsupported: the version-skew probe finds the actor columns missing and replays the chain, which
@@ -54,5 +54,4 @@ export function migrateV42(this: OrchestrationDb, current: number): void {
       VALUES (NEW.id, COALESCE(NEW.coordinator_handle, NEW.coordinator_actor));
     END;
   `)
-  backfillStructuredWorkerActors(this.db)
 }

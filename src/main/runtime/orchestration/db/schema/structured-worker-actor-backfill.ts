@@ -30,9 +30,9 @@ const RECORDED_WORKER_SESSIONS_SQL = `
  * Both markers are minted only for a local, non-WSL session (`structuredWorkerHostScope`), so the
  * rows carrying them were written by this host.
  *
- * Runs in the v42 migration and on every open, because a binary rolled back past v42 keeps writing
- * structured-worker rows without an actor after user_version is already 42. It fills NULLs only,
- * so an actor a writer recorded is never rewritten.
+ * Runs after migrate on every open, not only once at v42: a binary rolled back past v42 keeps
+ * writing structured-worker rows without an actor after user_version is already 42. It fills NULLs
+ * only, so an actor a writer recorded is never rewritten.
  */
 export function backfillStructuredWorkerActors(db: Database.Database): void {
   let recordedSessions: Map<string, Set<string>> | undefined

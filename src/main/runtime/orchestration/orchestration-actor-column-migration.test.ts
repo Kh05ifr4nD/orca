@@ -249,6 +249,35 @@ describe('orchestration actor column migration', () => {
     }
   })
 
+  it('upgrades a database from before the coordinator cache through the static triggers', () => {
+    const path = tempDbPath()
+    const seed = new OrchestrationDb(path)
+    const rows = seedStructuredAndPtyRows(seed)
+    seed.close()
+    stripActorSchema(path, 27)
+    const raw = new Database(path)
+    raw.exec(`
+      DROP TRIGGER trg_runs_remember_coordinator_insert;
+      DROP TRIGGER trg_runs_remember_coordinator_update;
+      DROP TABLE run_coordinator_handles;
+    `)
+    raw.close()
+
+    // createTables installs its static triggers before this chain's v40 step inserts into runs, so
+    // a static form naming coordinator_actor would fail to prepare here.
+    const db = new OrchestrationDb(path)
+    try {
+      expect(db.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+      for (const sql of coordinatorTriggerSql(db.db)) {
+        expect(sql).toContain('COALESCE(NEW.coordinator_handle, NEW.coordinator_actor)')
+      }
+      expect(db.getRunRaw(rows.structuredRunId)?.coordinator_actor).toBe(SESSION_ACTOR)
+      expect(coordinatorAddresses(db.db, [rows.ptyRunId])).toEqual([`${rows.ptyRunId} term_coord`])
+    } finally {
+      db.close()
+    }
+  })
+
   it('lets a v41 binary read and write a v42 database with actors in it', () => {
     const path = tempDbPath()
     const seed = new OrchestrationDb(path)
