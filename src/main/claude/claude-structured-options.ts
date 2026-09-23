@@ -144,6 +144,9 @@ export async function setClaudeStructuredOption(
     if (CONTEXT_WINDOW_KEYS.has(input.key) && input.value !== held) {
       session.translator?.modelMayHaveChanged()
     }
+    if (input.key === 'model') {
+      session.translator?.modelWritten(input.value)
+    }
     if (
       input.key === 'model' &&
       session.options.get('fastMode') === 'true' &&

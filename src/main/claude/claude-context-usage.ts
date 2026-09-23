@@ -60,6 +60,16 @@ function contextBaseModelId(model: string): string {
     .toLowerCase()
 }
 
+/** The window a configured model's name implies before one is measured; null when the name does not say. */
+export function claudeContextWindowHint(model: string): number | null {
+  const name = model.trim()
+  if (name === '' || name === 'default') {
+    return null
+  }
+  // As the CLI's own `/context` measures it: 200k for every name without `[1m]`; `default` resolves per account.
+  return /\[1m\]$/iu.test(name) ? 1_000_000 : 200_000
+}
+
 /** What names the main loop's model: the turn's `system/init`, keyed exactly as
  *  `modelUsage` is, and the newest main-thread response, which drops `[1m]`. */
 export type ClaudeMainThreadModel = { initModel: string | null; responseModel: string | null }

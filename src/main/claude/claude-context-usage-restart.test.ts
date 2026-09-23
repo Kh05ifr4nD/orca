@@ -251,4 +251,41 @@ describe('context usage across a restart', () => {
     })
     live.release()
   })
+
+  it("reads a new session's implied window the same from its loaded rows and from the host", async () => {
+    const journal = await openJournal()
+    const live = acquire(journal)
+    live.translator.modelWritten('opus[1m]')
+    live.translator.handle(initFrame(900))
+    live.translator.handle(userFrame('turn-a', 1_000))
+    live.translator.handle(assistantFrame('reply-a', 2_000, 150_000))
+    await live.settle()
+    const expected = { usedTokens: 150_000, windowTokens: 1_000_000, percentage: 15 }
+    expect(ring(journal)).toMatchObject(expected)
+    expect(journal.contextUsage()).toMatchObject({ window: { tokens: 1_000_000 } })
+    // A client whose loaded page lacks the turn reads the host's answer.
+    expect(selectStructuredAgentContextUsage([], journal.contextUsage())).toMatchObject(expected)
+    live.release()
+  })
+
+  it('keeps the window a restarted journal holds over the one the model name implies', async () => {
+    const journal = await openJournal()
+    const before = acquire(journal)
+    before.translator.handle(initFrame(900))
+    before.translator.handle(userFrame('turn-a', 1_000))
+    before.translator.handle(assistantFrame('reply-a', 2_000, 150_000))
+    before.translator.handle(resultFrame(3_000))
+    await before.settle()
+    before.release()
+
+    const after = acquire(journal)
+    after.translator.modelWritten('fable')
+    after.translator.handle(initFrame(9_900))
+    after.translator.handle(userFrame('turn-b', 10_000))
+    after.translator.handle(assistantFrame('reply-b', 11_000, 160_000))
+    await after.settle()
+    expect(ring(journal)).toMatchObject({ usedTokens: 160_000, windowTokens: 1_000_000 })
+    expect(journal.contextUsage().window).toEqual({ tokens: 1_000_000, capturedAt: 3_000 })
+    after.release()
+  })
 })

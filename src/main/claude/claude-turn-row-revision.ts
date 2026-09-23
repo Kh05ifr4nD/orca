@@ -7,7 +7,8 @@ import {
   MAX_CONTEXT_CATEGORIES,
   MAX_CONTEXT_CATEGORY_NAME_CHARS,
   MAX_CONTEXT_MODEL_ID_CHARS,
-  type AgentSessionContextUsage
+  type AgentSessionContextUsage,
+  type AgentSessionContextWindow
 } from '../../shared/agent-session-context-usage'
 import {
   agentJournalItemKey,
@@ -17,6 +18,7 @@ import type {
   AgentJournalItemIdentity,
   AgentJournalTurnItem
 } from '../../shared/agent-session-journal-types'
+import { readAgentJournalTurn } from '../../shared/agent-session-turn-record'
 import { estimateStructuredAgentSessionItemBytes } from '../native-chat/agent-session-wire/structured-agent-session-event-sink-estimate'
 import type {
   StructuredAgentSessionEventSink,
@@ -32,6 +34,8 @@ export type ClaudeTurnRowWrite = {
   lifecycle?: AgentJournalTurnItem
   /** Context parts, each replacing its namesake on the row. */
   contextUsage?: AgentSessionContextUsage
+  /** A window written only while no row in the journal holds one. */
+  windowIfNoneHeld?: AgentSessionContextWindow
 }
 
 function jsonBytes(value: unknown): number {
@@ -105,6 +109,23 @@ function withoutLifecycle(turn: AgentJournalTurnItem) {
   return kept
 }
 
+/** The write with its fallback window resolved against every row, since any of them may hold the newest. */
+function withFallbackWindow(
+  journal: StructuredAgentSessionRevisionJournal,
+  { windowIfNoneHeld, ...write }: ClaudeTurnRowWrite
+): ClaudeTurnRowWrite {
+  if (!windowIfNoneHeld || write.contextUsage?.window) {
+    return write
+  }
+  let held = false
+  journal.visitItems((_itemId, _sequence, body) => {
+    held ||= readAgentJournalTurn(body)?.contextUsage?.window !== undefined
+  })
+  return held
+    ? write
+    : { ...write, contextUsage: { ...write.contextUsage, window: windowIfNoneHeld } }
+}
+
 function findTurnRow(
   journal: StructuredAgentSessionRevisionJournal,
   target: ClaudeTurnRowTarget
@@ -163,7 +184,7 @@ export function writeClaudeTurnRow(
     (journal) => {
       const row = findTurnRow(journal, target)
       const identity = known ?? (row ? parseAgentJournalItemKey(row.itemId) : null)
-      const body = reviseTurnBody(row?.body ?? null, write)
+      const body = reviseTurnBody(row?.body ?? null, withFallbackWindow(journal, write))
       if (!identity || !body) {
         return null
       }

@@ -1,20 +1,23 @@
 // Where the Claude CLI's context facts land in the journal, and when a fresh
 // `/context` breakdown is worth asking for. The facts live on turn rows and are
 // written to the open turn, else the newest turn the journal holds; this keeps
-// only what tells a late answer it is stale, whose window a result reports, and
-// whether the newest window still serves the model responding.
+// only what tells a late answer it is stale, whose window a result reports,
+// whether the newest window still serves the model responding, and the window a
+// written model's name implies until one is measured.
 
 import {
   contextTokensFromUsage,
   MAX_CONTEXT_MODEL_ID_CHARS,
   type AgentSessionContextReport,
-  type AgentSessionContextUsage
+  type AgentSessionContextUsage,
+  type AgentSessionContextWindow
 } from '../../shared/agent-session-context-usage'
 import type { AgentJournalItemIdentity } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
   claudeContextResetKind,
   claudeContextWindowFromResult,
+  claudeContextWindowHint,
   claudeTokenUsage,
   type ClaudeMainThreadModel
 } from './claude-context-usage'
@@ -43,6 +46,10 @@ export class ClaudeContextFacts {
   private servedModel: string | null | typeof STALE = null
   /** A report measured the window since the turn's init and the last model write, so the result's inference cannot beat it. */
   private windowReported = false
+  /** The window the last written model's name implies, until another write can change the model. */
+  private windowHint: number | null = null
+  /** Nothing this writer wrote proves the journal holds a window, so the hint may be the only one. */
+  private journalMayLackWindow = true
   /** The last response fact written, so a response's per-block frames revise its row once. */
   private lastResponse: string | null = null
   private readonly requestListeners = new Set<(target: ClaudeContextReportTarget) => void>()
@@ -86,7 +93,13 @@ export class ClaudeContextFacts {
   modelMayHaveChanged(observedAt: number = Date.now()): void {
     this.servedModel = STALE
     this.windowReported = false
+    this.windowHint = null
     this.forget(observedAt, true)
+  }
+
+  /** A model write the child applied; its name sizes estimates until a window is measured. */
+  modelWritten(model: string): void {
+    this.windowHint = claudeContextWindowHint(model)
   }
 
   /** A frame after it is journaled, so a response lands on the turn it opened.
@@ -107,11 +120,18 @@ export class ClaudeContextFacts {
     if (model) {
       this.mainModel = { ...this.mainModel, responseModel: model }
     }
+    const hint: AgentSessionContextWindow | null =
+      this.windowHint === null ? null : { tokens: this.windowHint, capturedAt: observedAt }
+    let window: AgentSessionContextWindow | undefined
     if (this.servedModel === STALE) {
-      return
-    }
-    // An approved plan hands the turn to another model mid-turn; only a response says so.
-    if (model && this.servedModel !== null && model !== this.servedModel) {
+      // Only a written model's name says which window serves now; anything else waits for the report.
+      if (!hint) {
+        return
+      }
+      window = hint
+      this.servedModel = null
+    } else if (model && this.servedModel !== null && model !== this.servedModel) {
+      // An approved plan hands the turn to another model mid-turn; only a response says so.
       this.modelMayHaveChanged(observedAt)
       return
     }
@@ -121,7 +141,14 @@ export class ClaudeContextFacts {
       return
     }
     this.lastResponse = dedupe
-    this.write({ used: { kind: 'estimate', usage, capturedAt: observedAt } })
+    const windowIfNoneHeld = !window && this.journalMayLackWindow ? hint : null
+    if (window || windowIfNoneHeld) {
+      this.journalMayLackWindow = false
+    }
+    this.write(
+      { used: { kind: 'estimate', usage, capturedAt: observedAt }, ...(window ? { window } : {}) },
+      windowIfNoneHeld ?? undefined
+    )
   }
 
   /** End the turn a root result settles, with the window its per-model usage
@@ -133,6 +160,7 @@ export class ClaudeContextFacts {
     const facts = tokens === null ? undefined : { window: { tokens, capturedAt: end.completedAt } }
     if (facts) {
       this.servedModel = null
+      this.journalMayLackWindow = false
     }
     const settled = this.turn.identity
     if (settled === null) {
@@ -156,6 +184,7 @@ export class ClaudeContextFacts {
     const window = { tokens: report.windowTokens, capturedAt: report.capturedAt }
     this.servedModel = null
     this.windowReported = true
+    this.journalMayLackWindow = false
     const contextUsage: AgentSessionContextUsage =
       part === 'report' ? { used: { kind: 'report', ...report }, window } : { window }
     writeClaudeTurnRow(
@@ -176,11 +205,19 @@ export class ClaudeContextFacts {
   }
 
   /** The open turn's row, else the newest turn the journal holds when the write runs. */
-  private write(contextUsage: AgentSessionContextUsage): void {
+  private write(
+    contextUsage: AgentSessionContextUsage,
+    windowIfNoneHeld?: AgentSessionContextWindow
+  ): void {
     const identity = this.turn.identity
     const target: ClaudeTurnRowTarget = identity ? { identity } : { newest: true }
     // A context fact often lands with no later frame to publish it, so it publishes itself.
-    writeClaudeTurnRow(this.sink, target, { contextUsage }, { publish: true })
+    writeClaudeTurnRow(
+      this.sink,
+      target,
+      { contextUsage, ...(windowIfNoneHeld ? { windowIfNoneHeld } : {}) },
+      { publish: true }
+    )
   }
 
   /** The context no longer holds what the journal says; a report asked for before now describes the old one. */

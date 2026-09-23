@@ -104,6 +104,7 @@ function sessionHoldingTurn(turnId: string | null): ReturnType<typeof sessionFor
     subscribeContextUsageRequests: () => () => {},
     recordContextReport: () => {},
     modelMayHaveChanged: () => {},
+    modelWritten: () => {},
     pendingStreamedBlocks: 0,
     dispose: vi.fn()
   }
@@ -284,6 +285,7 @@ describe('Claude turn ownership', () => {
         subscribeContextUsageRequests: () => () => {},
         recordContextReport: () => {},
         modelMayHaveChanged: () => {},
+        modelWritten: () => {},
         pendingStreamedBlocks: 0,
         dispose: vi.fn()
       }

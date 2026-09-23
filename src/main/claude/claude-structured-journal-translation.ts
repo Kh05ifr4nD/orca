@@ -76,6 +76,8 @@ export type ClaudeJournalTranslator = {
   ) => void
   /** After a write that can change the model or its window; the ring waits for the new window. */
   modelMayHaveChanged: () => void
+  /** After a model write the child applied; its name sizes estimates until a window is measured. */
+  modelWritten: (model: string) => void
   dispose: () => void
 }
 
@@ -327,6 +329,7 @@ export function createClaudeJournalTranslator(
     subscribeContextUsageRequests: (listener) => context.subscribeReportRequests(listener),
     recordContextReport: (target, report, part) => context.recordReport(target, report, part),
     modelMayHaveChanged: () => context.modelMayHaveChanged(),
+    modelWritten: (model) => context.modelWritten(model),
     dispose: () => {
       streamedText.flush()
       context.dispose()
