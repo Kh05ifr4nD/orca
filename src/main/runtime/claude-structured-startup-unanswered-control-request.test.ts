@@ -2,7 +2,8 @@
 // startup's own settings read, is a control request under the ordinary request deadline. A CLI
 // that answers initialize and then never answers one of those used to fault the whole session
 // when that deadline fired: a start that was merely slow died with the deadline's error as its
-// cause. Now the unanswered request is skipped and startup lands on the CLI's own values. Against
+// cause. Now the unanswered request is skipped and startup lands on the CLI's own values, while
+// the saved choice stays saved for the next start to retry. Against
 // the production runtime, adapter, record store and host, with only the CLI process scripted.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -53,22 +54,27 @@ async function send(host: StructuredAgentSessionHost, text: string): Promise<voi
 }
 
 describe('a Claude start whose CLI answers initialize but not a control request', () => {
-  it('lands with the unanswered option write skipped, keeping the CLI value, instead of faulting at the deadline', async () => {
+  it('lands with the unanswered option write skipped instead of faulting at the deadline, and keeps the saved choice', async () => {
     claude.behave(SESSION, { optionWritesHang: true, controlTimeoutMs: DEADLINE_MS })
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const host = await claude.install()
+    const saved = { model: 'sonnet', permissionMode: 'plan' }
     await expect(
-      host.attach(CALLER, claude.attachParams(SESSION, null, { options: { model: 'sonnet' } }))
+      host.attach(CALLER, claude.attachParams(SESSION, null, { options: saved }))
     ).resolves.toMatchObject({ ok: true })
 
     // The restore asked; the CLI never answered; startup went on without it.
     await vi.waitFor(() => expect(claude.child(SESSION).calls).toContain('set_model'))
-    await vi.waitFor(
-      () => expect(record(host)?.options).toEqual({ model: 'claude-sonnet-5', effort: 'high' }),
-      { timeout: DEADLINE_MS * 40 }
-    )
-    expect(host.deps.adapter.readOptionRestoreFailures?.(SESSION)).toEqual(['model'])
-    expect(record(host)?.lease.claimStatus).toBe('live')
+    await vi.waitFor(() => expect(claude.child(SESSION).calls).toContain('set_permission_mode'))
+    await vi.waitFor(() => expect(record(host)?.lease.claimStatus).toBe('live'), {
+      timeout: DEADLINE_MS * 40
+    })
+    // The live child runs on the CLI's own model; silence is not a refusal, so the saved
+    // choice is neither replaced by that value nor dropped, and the next start retries it.
+    await vi.waitFor(() => expect(record(host)?.options).toEqual({ ...saved, effort: 'high' }), {
+      timeout: DEADLINE_MS * 40
+    })
+    expect(host.deps.adapter.readOptionRestoreFailures?.(SESSION)).toEqual([])
     expect(statusRows(host)).toEqual([])
     expect(claude.children(SESSION)).toHaveLength(1)
 

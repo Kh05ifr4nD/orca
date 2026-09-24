@@ -153,6 +153,8 @@ export type StructuredAgentSessionStartedEvent = {
   reportedOptions: AgentSessionOptionsResult['current']
   /** Saved options the restore could not apply; the host drops them rather than persist them. */
   restoreSkippedOptions: readonly string[]
+  /** Saved options the CLI never answered a restore write for; the host keeps the saved value. */
+  restoreUnansweredOptions?: readonly string[]
 }
 
 export type StructuredAgentSessionLifecycleEvent =

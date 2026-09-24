@@ -39,6 +39,7 @@ function sessionFor(setModel: ClaudeSession['connection']['setModel']): ClaudeSe
     reportedModelMutation: 0,
     confirmedOptions: new Set(),
     restoreSkippedOptions: new Set(),
+    restoreUnansweredOptions: new Set(),
     capabilities: [],
     events: undefined,
     translator: null,
@@ -442,7 +443,7 @@ describe('Claude Fast mode reported by the session frame alone', () => {
 })
 
 describe('Claude structured option restore under the request deadline', () => {
-  it('skips a write the CLI never answered and finishes the restore', async () => {
+  it('skips a write the CLI never answered and finishes the restore, keeping it unanswered rather than refused', async () => {
     const session = sessionFor(async () => {
       throw new ClaudeControlRequestTimeoutError('set_model')
     })
@@ -451,7 +452,8 @@ describe('Claude structured option restore under the request deadline', () => {
 
     await expect(restoreClaudeStructuredSessionOptions(session, 10)).resolves.toBeUndefined()
 
-    expect([...session.restoreSkippedOptions]).toEqual(['model'])
+    expect([...session.restoreUnansweredOptions]).toEqual(['model'])
+    expect([...session.restoreSkippedOptions]).toEqual([])
     expect(session.options.has('model')).toBe(false)
   })
 

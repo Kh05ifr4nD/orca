@@ -21,10 +21,12 @@ export async function readNativeSessionOptions(input: {
 }
 
 /** The record's options once the provider has reported: its model, effort and Fast replace the
- *  saved ones, other saved options stay, and any the restore could not apply are dropped. */
+ *  saved ones, other saved options stay, and any the restore could not apply are dropped. A
+ *  restore write the provider never answered proves nothing, so that saved choice is kept. */
 export function nativeSessionOptionsFromReport(input: {
   reported: AgentSessionOptionsResult['current']
   restoreSkipped: readonly string[]
+  restoreUnanswered?: readonly string[]
   priorOptions?: Readonly<Record<string, string>>
 }): Readonly<Record<string, string>> {
   const { reported, priorOptions } = input
@@ -39,10 +41,16 @@ export function nativeSessionOptionsFromReport(input: {
     reported.fastMode === undefined
       ? undefined
       : encodeStructuredAgentSessionOptionValue('fastMode', reported.fastMode)
+  const kept = Object.fromEntries(
+    (input.restoreUnanswered ?? []).flatMap((key) =>
+      priorOptions?.[key] === undefined ? [] : [[key, priorOptions[key]]]
+    )
+  )
   return {
     ...restored,
     model: reported.model,
     ...(reported.effort ? { effort: reported.effort } : {}),
-    ...(fastMode !== undefined && fastMode !== null ? { fastMode } : {})
+    ...(fastMode !== undefined && fastMode !== null ? { fastMode } : {}),
+    ...kept
   }
 }

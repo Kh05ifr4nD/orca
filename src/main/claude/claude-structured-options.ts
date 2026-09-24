@@ -244,11 +244,15 @@ export async function restoreClaudeStructuredSessionOptions(
       // A write the CLI never answered is skipped the same way: startup has no deadline of its
       // own, and a slow control answer must not fault a session whose child is otherwise fine.
       // The child's current value stands, and the user can set the option again.
+      // Silence is not a refusal: the saved choice stays saved and the next start retries it.
       if (error instanceof ClaudeControlRequestTimeoutError) {
         console.warn(
           `[claude-structured] restore of ${key} for ${session.providerSessionId} was not answered in time; keeping the CLI's value`
         )
-      } else if (!isAgentSessionOptionRejectedError(error)) {
+        session.restoreUnansweredOptions.add(key)
+        continue
+      }
+      if (!isAgentSessionOptionRejectedError(error)) {
         throw error
       }
       // A stale or unavailable preference must not poison every future acquire;

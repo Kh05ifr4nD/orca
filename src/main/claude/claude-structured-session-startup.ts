@@ -51,7 +51,7 @@ export function createClaudeInitProof(): ClaudeInitProof {
 
 export type StructuredAgentSessionStartedOptions = Pick<
   StructuredAgentSessionStartedEvent,
-  'reportedOptions' | 'restoreSkippedOptions'
+  'reportedOptions' | 'restoreSkippedOptions' | 'restoreUnansweredOptions'
 >
 
 export type ClaudeStartupFacts = {
@@ -184,7 +184,8 @@ export async function settleClaudeSessionStartup(input: {
           session,
           readClaudeModels(facts.initialization)
         ).current,
-        restoreSkippedOptions: [...session.restoreSkippedOptions]
+        restoreSkippedOptions: [...session.restoreSkippedOptions],
+        restoreUnansweredOptions: [...session.restoreUnansweredOptions]
       })
       await openClaudeStartupGate(session)
     }
