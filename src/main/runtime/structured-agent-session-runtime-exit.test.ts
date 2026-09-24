@@ -14,6 +14,7 @@ import {
   hostTestMessage
 } from '../native-chat/agent-session-wire/structured-agent-session-host-test-data'
 import {
+  allowStructuredAgentSessionRuntimeInstallForTests,
   ensureStructuredAgentSessionHost,
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
@@ -26,6 +27,7 @@ describe('structured session runtime provider-exit wiring', () => {
 
   afterEach(async () => {
     await stopStructuredAgentSessionRuntime()
+    allowStructuredAgentSessionRuntimeInstallForTests()
     if (root) {
       await rm(root, { recursive: true, force: true })
       root = null
@@ -211,6 +213,7 @@ describe('structured session runtime provider-exit wiring', () => {
       handoffStage: null
     })
 
+    allowStructuredAgentSessionRuntimeInstallForTests()
     const restarted = await ensureStructuredAgentSessionHost({
       stateDirectory: root,
       hostId: 'local',

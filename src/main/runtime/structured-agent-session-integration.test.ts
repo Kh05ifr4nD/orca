@@ -40,6 +40,7 @@ import { RpcDispatcher } from './rpc/dispatcher'
 import type { NativeChatShellEnvironmentPolicy } from '../../shared/native-chat-shell-environment'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './rpc/methods/structured-agent-session'
 import {
+  allowStructuredAgentSessionRuntimeInstallForTests,
   ensureStructuredAgentSessionHost,
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
@@ -391,6 +392,7 @@ function cursorOf(frames: AgentSessionSubscribeEvent[]): { epoch: string; sequen
 afterEach(async () => {
   await journals.closeAll()
   await stopStructuredAgentSessionRuntime()
+  allowStructuredAgentSessionRuntimeInstallForTests()
   await rm(root, { recursive: true, force: true })
 })
 

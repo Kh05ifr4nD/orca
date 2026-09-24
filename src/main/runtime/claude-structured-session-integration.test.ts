@@ -30,6 +30,7 @@ import { RpcDispatcher } from './rpc/dispatcher'
 import type { NativeChatShellEnvironmentPolicy } from '../../shared/native-chat-shell-environment'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './rpc/methods/structured-agent-session'
 import {
+  allowStructuredAgentSessionRuntimeInstallForTests,
   ensureStructuredAgentSessionHost,
   stopStructuredAgentSessionRuntime,
   waitForStructuredAgentSessionRecovery
@@ -437,6 +438,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.unstubAllEnvs()
   await stopStructuredAgentSessionRuntime()
+  allowStructuredAgentSessionRuntimeInstallForTests()
   await rm(root, { recursive: true, force: true })
 })
 

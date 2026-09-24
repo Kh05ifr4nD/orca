@@ -106,6 +106,11 @@ export type StructuredAgentSessionRuntimeDeps = {
 }
 
 let installing: Promise<InstalledRuntime> | null = null
+/** Set by the stop: the only stop is the app's, and a host built after it outlives the teardown. */
+let stopped = false
+
+/** Thrown when something asks for the host after the runtime was stopped. */
+export const STRUCTURED_AGENT_SESSION_RUNTIME_STOPPED = 'structured agent-session runtime stopped'
 
 /** Thrown when the host is installed without a Claude auth policy resolver. */
 export const CLAUDE_STRUCTURED_AUTH_POLICY_REQUIRED =
@@ -123,6 +128,11 @@ const pendingTeardown = new Set<InstalledRuntime>()
 export function ensureStructuredAgentSessionHost(
   deps: StructuredAgentSessionRuntimeDeps
 ): Promise<StructuredAgentSessionHost> {
+  if (stopped) {
+    // A read retrying against a stream the teardown just ended would otherwise build a fresh host
+    // that loads the leases this teardown is still releasing.
+    return Promise.reject(new Error(STRUCTURED_AGENT_SESSION_RUNTIME_STOPPED))
+  }
   // A failed open must not poison the slot forever — the next call retries.
   installing ??= install(deps).catch((error) => {
     installing = null
@@ -152,6 +162,7 @@ export async function stopStructuredAgentSessionRuntime(options?: {
   trigger?: AgentSessionResumeTrigger
 }): Promise<void> {
   const trigger = options?.trigger ?? structuredAgentSessionTeardownTrigger()
+  stopped = true
   const pending = installing
   installing = null
   setStructuredAgentSessionHost(null)
@@ -177,6 +188,11 @@ export async function stopStructuredAgentSessionRuntime(options?: {
   if (failures.length > 1) {
     throw new AggregateError(failures, 'structured agent-session runtime teardown failed')
   }
+}
+
+/** Tests stand a runtime up again after stopping one; the app never does. */
+export function allowStructuredAgentSessionRuntimeInstallForTests(): void {
+  stopped = false
 }
 
 async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<InstalledRuntime> {

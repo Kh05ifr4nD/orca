@@ -30,6 +30,7 @@ import type { RpcRequest, RpcResponse } from './rpc/core'
 import { RpcDispatcher } from './rpc/dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './rpc/methods/structured-agent-session'
 import {
+  allowStructuredAgentSessionRuntimeInstallForTests,
   ensureStructuredAgentSessionHost,
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
@@ -300,6 +301,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await journals.closeAll()
   await stopStructuredAgentSessionRuntime()
+  allowStructuredAgentSessionRuntimeInstallForTests()
   await rm(root, { recursive: true, force: true })
 })
 

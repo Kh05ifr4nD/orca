@@ -11,14 +11,17 @@ import type {
   AgentSessionProcessIdentity,
   AgentSessionRecord
 } from '../../shared/agent-session-record'
+import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { __setWindowsProcessTreeLoaderForTests } from '../windows/windows-process-table'
 import {
   createStructuredAgentSessionOwnerProbe,
   createStructuredAgentSessionOwnerProbes
 } from './structured-agent-session-owner-probe'
 import {
+  allowStructuredAgentSessionRuntimeInstallForTests,
   ensureStructuredAgentSessionHost,
   hasPersistedStructuredAgentSessionStore,
+  STRUCTURED_AGENT_SESSION_RUNTIME_STOPPED,
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
 
@@ -208,6 +211,7 @@ describe('structured agent-session runtime install', () => {
 
   afterEach(async () => {
     await stopStructuredAgentSessionRuntime()
+    allowStructuredAgentSessionRuntimeInstallForTests()
     if (stateDirectory) {
       await rm(stateDirectory, { recursive: true, force: true })
       stateDirectory = null
@@ -243,6 +247,27 @@ describe('structured agent-session runtime install', () => {
       })
     )
     expect(reapOrphanChildren).toHaveBeenCalledWith({ store: expect.anything() })
+  })
+
+  it('builds no host once the app has stopped the runtime', async () => {
+    // Quit ends every read stream; the pane's reconnect then asks for the host again.
+    stateDirectory = await mkdtemp(join(tmpdir(), 'orca-structured-runtime-'))
+    const deps = {
+      stateDirectory,
+      hostId: HOST_ID,
+      claimKeyId: 'key-1',
+      resolveWorkspacePath: async () => stateDirectory!,
+      resolveClaudeAuthPolicy: () => ({ stripAuthEnv: true }),
+      resolveEnvironment: async () => ({}),
+      reapOrphanChildren: async () => []
+    }
+    await ensureStructuredAgentSessionHost(deps)
+    await stopStructuredAgentSessionRuntime()
+
+    await expect(ensureStructuredAgentSessionHost(deps)).rejects.toThrow(
+      STRUCTURED_AGENT_SESSION_RUNTIME_STOPPED
+    )
+    expect(getStructuredAgentSessionHost()).toBeNull()
   })
 
   it('logs an orphan-reaper failure when no reporter is configured', async () => {
@@ -321,6 +346,7 @@ describe('a teardown that fails is retried by the next stop', () => {
     await agentSessionJournalCloseRetries.retryAll()
     await journals.closeAll()
     await stopStructuredAgentSessionRuntime().catch(() => undefined)
+    allowStructuredAgentSessionRuntimeInstallForTests()
     if (directory) {
       await rm(directory, { recursive: true, force: true })
       directory = null

@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  allowStructuredAgentSessionRuntimeInstallForTests,
   CLAUDE_STRUCTURED_AUTH_POLICY_REQUIRED,
   ensureStructuredAgentSessionHost,
   stopStructuredAgentSessionRuntime
@@ -37,6 +38,7 @@ describe('structured Claude auth policy wiring', () => {
 
     afterEach(async () => {
       await stopStructuredAgentSessionRuntime()
+      allowStructuredAgentSessionRuntimeInstallForTests()
       if (stateDirectory) {
         await rm(stateDirectory, { recursive: true, force: true })
         stateDirectory = null
