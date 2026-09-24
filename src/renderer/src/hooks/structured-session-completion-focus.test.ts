@@ -7,7 +7,8 @@ import {
 
 const SESSION_WORKSPACE_ID = 'repo-1::/session-workspace'
 const OTHER_WORKSPACE_ID = 'repo-1::/other-workspace'
-const TAB_ID = 'structured-agent-session-session-1'
+// Renderer-minted; nothing about it derives from the session it shows.
+const TAB_ID = 'chat-tab-1'
 
 function createStoreState(activeWorktreeId: string): HarnessStoreState {
   return createHarnessStoreState({
@@ -36,6 +37,19 @@ describe('structured session completion focus', () => {
     harness.useIpcEvents()
 
     harness.focusEditorTab({ tabId: TAB_ID, worktreeId: SESSION_WORKSPACE_ID })
+
+    expect(store.focusGroup).toHaveBeenCalledWith(SESSION_WORKSPACE_ID, 'group-1')
+    expect(store.activateTab).toHaveBeenCalledWith(TAB_ID)
+    expect(store.setActiveTabType).toHaveBeenCalledWith('agent-session')
+  })
+
+  it('focuses the chat tab main names by its session id', async () => {
+    // Main never knows a chat tab's id; it addresses the chat by the session behind it.
+    const store = createStoreState(SESSION_WORKSPACE_ID)
+    const harness = await loadIpcEventsHarness(store)
+    harness.useIpcEvents()
+
+    harness.focusEditorTab({ tabId: 'session-1', worktreeId: SESSION_WORKSPACE_ID })
 
     expect(store.focusGroup).toHaveBeenCalledWith(SESSION_WORKSPACE_ID, 'group-1')
     expect(store.activateTab).toHaveBeenCalledWith(TAB_ID)

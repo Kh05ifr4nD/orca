@@ -186,12 +186,18 @@ describe('applyWebSessionTabsSnapshot', () => {
       hostMappingWorktrees: 1
     })
 
-    applyFreshWebSessionTabsSnapshot(
+    const secondPatch = applyFreshWebSessionTabsSnapshot(
       afterFirstSnapshot,
       agentSnapshot('session-2', 'host-agent-2', 2),
       ENV,
       NOW + 1
-    )
+    ) as Partial<WebSessionTabsSyncState>
+    const chatTabId = (patch: Partial<WebSessionTabsSyncState>, sessionId: string) =>
+      patch.unifiedTabsByWorktree?.[WT]?.find((tab) => tab.entityId === sessionId)?.id
+    const firstTabId = chatTabId(firstPatch, 'session-1')
+    const secondTabId = chatTabId(secondPatch, 'session-2')
+    expect(firstTabId).toBeDefined()
+    expect(secondTabId).toBeDefined()
 
     expect(_getWebSessionTabsTrackingCountsForTest()).toEqual({
       freshness: 1,
@@ -202,14 +208,14 @@ describe('applyWebSessionTabsSnapshot', () => {
       resolveHostSessionTabIdForWebSessionTab(makeState(), {
         environmentId: ENV,
         worktreeId: WT,
-        tabId: 'structured-agent-session-session-1'
+        tabId: firstTabId!
       })
     ).toBeNull()
     expect(
       resolveHostSessionTabIdForWebSessionTab(makeState(), {
         environmentId: ENV,
         worktreeId: WT,
-        tabId: 'structured-agent-session-session-2'
+        tabId: secondTabId!
       })
     ).toBe('host-agent-2')
 
