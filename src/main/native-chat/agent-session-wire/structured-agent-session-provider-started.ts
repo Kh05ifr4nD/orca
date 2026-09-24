@@ -74,9 +74,6 @@ async function persistStartedOptions(
     options: nativeSessionOptionsFromReport({
       reported: event.reportedOptions,
       restoreSkipped: event.restoreSkippedOptions,
-      ...(event.restoreUnansweredOptions
-        ? { restoreUnanswered: event.restoreUnansweredOptions }
-        : {}),
       ...(record.options ? { priorOptions: record.options } : {})
     }),
     now: context.now()

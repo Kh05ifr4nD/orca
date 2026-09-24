@@ -1,15 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  claudeRestoreUnansweredOptions,
   restoreClaudeStructuredSessionOptions,
   setClaudeStructuredOption
 } from './claude-structured-options'
 import type { ClaudeSession } from './claude-structured-session-state'
-import { ClaudeControlRequestTimeoutError } from './claude-agent-sdk-control-requests'
+import {
+  ClaudeControlRequestError,
+  ClaudeControlRequestTimeoutError
+} from './claude-agent-sdk-control-requests'
 import { ClaudeBackgroundTaskTracker } from './claude-background-task-tracker'
 import { ClaudeSlashCommandCatalog } from './claude-slash-command-catalog'
 import { createClaudeSessionStartupGate } from './claude-structured-session-startup-gate'
 import {
+  claudeStructuredSessionOptionsFrom,
   observeClaudeFastModeFacts,
   readClaudeStructuredSessionOptions
 } from './claude-structured-session-options'
@@ -40,7 +43,6 @@ function sessionFor(setModel: ClaudeSession['connection']['setModel']): ClaudeSe
     reportedModelMutation: 0,
     confirmedOptions: new Set(),
     restoreSkippedOptions: new Set(),
-    restoreUnansweredOptions: new Set(),
     capabilities: [],
     events: undefined,
     translator: null,
@@ -444,34 +446,34 @@ describe('Claude Fast mode reported by the session frame alone', () => {
 })
 
 describe('Claude structured option restore under the request deadline', () => {
-  it('skips a write the CLI never answered and finishes the restore, keeping it unanswered rather than refused', async () => {
+  it('keeps a saved choice the CLI never answered as wanted but unconfirmed, and drops a refused one', async () => {
     const session = sessionFor(async () => {
       throw new ClaudeControlRequestTimeoutError('set_model')
     })
-    session.options = new Map([['model', 'sonnet']])
+    session.connection.applyFlagSettings = async () => {
+      throw new ClaudeControlRequestTimeoutError('apply_flag_settings')
+    }
+    session.connection.setPermissionMode = async () => {
+      throw new ClaudeControlRequestError('set_permission_mode', 'unknown mode')
+    }
+    // Startup already read the CLI's own model and effort, and vouched for them.
+    session.reportedOptions = { model: 'claude-sonnet-5', effort: 'medium' }
+    session.confirmedOptions.add('effort')
+    session.options = new Map([
+      ['model', 'sonnet'],
+      ['effort', 'high'],
+      ['permissionMode', 'plan']
+    ])
     vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     await expect(restoreClaudeStructuredSessionOptions(session, 10)).resolves.toBeUndefined()
 
-    expect([...session.restoreUnansweredOptions]).toEqual(['model'])
-    expect([...session.restoreSkippedOptions]).toEqual([])
-    expect(session.options.has('model')).toBe(false)
-  })
-
-  it('stops keeping the saved choice once the user sets that option on the child', async () => {
-    const setModel = vi
-      .fn<ClaudeSession['connection']['setModel']>()
-      .mockRejectedValueOnce(new ClaudeControlRequestTimeoutError('set_model'))
-      .mockResolvedValue(undefined)
-    const session = sessionFor(setModel)
-    session.options = new Map([['model', 'sonnet']])
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    await restoreClaudeStructuredSessionOptions(session, 10)
-
-    await expect(
-      setClaudeStructuredOption(session, { key: 'model', value: 'opus' }, 10)
-    ).resolves.toEqual({ model: 'opus' })
-    expect(claudeRestoreUnansweredOptions(session)).toEqual([])
+    expect(Object.fromEntries(session.options)).toEqual({ model: 'sonnet', effort: 'high' })
+    expect([...session.restoreSkippedOptions]).toEqual(['permissionMode'])
+    expect(claudeStructuredSessionOptionsFrom(session, null).current).toEqual({
+      model: 'sonnet',
+      effort: 'high'
+    })
   })
 
   it("keeps a timed-out client write as the deadline's own error, not a rejection", async () => {

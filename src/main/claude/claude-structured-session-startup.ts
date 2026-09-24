@@ -16,10 +16,7 @@ import {
   readClaudeModels,
   type ClaudeInitObservation
 } from './claude-structured-init-proof'
-import {
-  claudeRestoreUnansweredOptions,
-  restoreClaudeStructuredSessionOptions
-} from './claude-structured-options'
+import { restoreClaudeStructuredSessionOptions } from './claude-structured-options'
 import {
   claudeStructuredSessionPublicationOptions,
   prepareClaudeStructuredSessionAcquisitionOptions,
@@ -54,7 +51,7 @@ export function createClaudeInitProof(): ClaudeInitProof {
 
 export type StructuredAgentSessionStartedOptions = Pick<
   StructuredAgentSessionStartedEvent,
-  'reportedOptions' | 'restoreSkippedOptions' | 'restoreUnansweredOptions'
+  'reportedOptions' | 'restoreSkippedOptions'
 >
 
 export type ClaudeStartupFacts = {
@@ -187,8 +184,7 @@ export async function settleClaudeSessionStartup(input: {
           session,
           readClaudeModels(facts.initialization)
         ).current,
-        restoreSkippedOptions: [...session.restoreSkippedOptions],
-        restoreUnansweredOptions: claudeRestoreUnansweredOptions(session)
+        restoreSkippedOptions: [...session.restoreSkippedOptions]
       })
       await openClaudeStartupGate(session)
     }

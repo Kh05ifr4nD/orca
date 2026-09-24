@@ -153,8 +153,6 @@ export type StructuredAgentSessionStartedEvent = {
   reportedOptions: AgentSessionOptionsResult['current']
   /** Saved options the restore could not apply; the host drops them rather than persist them. */
   restoreSkippedOptions: readonly string[]
-  /** Saved options the CLI never answered a restore write for; the host keeps the saved value. */
-  restoreUnansweredOptions?: readonly string[]
 }
 
 export type StructuredAgentSessionLifecycleEvent =
@@ -293,8 +291,6 @@ export type StructuredAgentSessionAdapter = {
   readOptions?(input: { sessionId: string; fence: number }): Promise<AgentSessionOptionsResult>
   /** Option keys skipped after a provider rejected their persisted restore value. */
   readOptionRestoreFailures?(sessionId: string): readonly string[]
-  /** Saved option keys whose restore write the provider never answered and nothing since set. */
-  readOptionRestoreUnanswered?(sessionId: string): readonly string[]
   /** Transcript path for journal recovery. Omit to let the existing session-file
    *  resolver discover it from the provider session id. */
   historyFilePath?(input: { identity: AgentSessionJournalIdentity }): Promise<string | null>

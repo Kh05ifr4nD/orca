@@ -6,8 +6,10 @@
 // the saved choice stays saved for the next start to retry. Against
 // the production runtime, adapter, record store and host, with only the CLI process scripted.
 
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
+import { claudeSessionIdForOrcaSession } from '../claude/claude-structured-launch-resolution'
 import { hostTestMessage } from '../native-chat/agent-session-wire/structured-agent-session-host-test-data'
 import type { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { createScriptedClaudeRuntime } from './structured-claude-scripted-runtime-test-support'
@@ -26,6 +28,48 @@ afterEach(async () => {
 
 function record(host: StructuredAgentSessionHost) {
   return host.deps.store.getRecord(SESSION)
+}
+
+function operationId(): string {
+  return `${Date.now()}-${(++operations).toString(16).padStart(32, '0')}`
+}
+
+async function setOption(
+  host: StructuredAgentSessionHost,
+  key: string,
+  value: string
+): Promise<void> {
+  const changed = await host.setOption(CALLER, {
+    envelope: {
+      sessionId: SESSION,
+      clientOperationId: operationId(),
+      expectedRuntimeFence: record(host)?.lease.runtimeFence ?? 0,
+      payloadFingerprint: computeAgentSessionPayloadFingerprint({
+        method: 'agentSession.setOption',
+        sessionId: SESSION,
+        fields: { key, value }
+      })
+    },
+    key,
+    value
+  })
+  expect(changed, JSON.stringify(changed)).toMatchObject({ ok: true })
+}
+
+/** What the picker is handed: the value it shows, and which ones the CLI vouched for. */
+async function picker(host: StructuredAgentSessionHost) {
+  const { model, effort, confirmed } = (await host.readOptions(SESSION)).current
+  return { model, effort, confirmed }
+}
+
+/** The CLI opens a turn by naming the model it is actually running. */
+function turnReportsModel(model: string): void {
+  claude.child(SESSION).handlers.onMessage?.({
+    type: 'system',
+    subtype: 'init',
+    session_id: claudeSessionIdForOrcaSession(SESSION),
+    model
+  })
 }
 
 function statusRows(host: StructuredAgentSessionHost): string[] {
@@ -100,23 +144,91 @@ describe('a Claude start whose CLI answers initialize but not a control request'
 
     // The CLI answers again; the user sets another option on the running child.
     behavior.optionWritesHang = false
-    const value = 'plan'
-    const changed = await host.setOption(CALLER, {
+    await setOption(host, 'permissionMode', 'plan')
+    expect(record(host)?.options).toMatchObject({ model: 'sonnet', permissionMode: 'plan' })
+  })
+
+  it('replays the unanswered saved model after a turn reports another model, another option changes, and the chat is cleared', async () => {
+    const clearOperation = operationId()
+    const replacement = `clear-${createHash('sha256')
+      .update(JSON.stringify([SESSION, CALLER.callerKey, clearOperation]))
+      .digest('hex')
+      .slice(0, 40)}`
+    claude = createScriptedClaudeRuntime([SESSION, replacement])
+    const behavior = { optionWritesHang: true, controlTimeoutMs: DEADLINE_MS }
+    claude.behave(SESSION, behavior)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const host = await claude.install()
+    await expect(
+      host.attach(CALLER, claude.attachParams(SESSION, null, { options: { model: 'sonnet' } }))
+    ).resolves.toMatchObject({ ok: true })
+    await vi.waitFor(
+      () => expect(record(host)?.options).toEqual({ model: 'sonnet', effort: 'high' }),
+      { timeout: DEADLINE_MS * 40 }
+    )
+    // The picker offers the saved model, which nothing has vouched for yet.
+    expect(await picker(host)).toEqual({ model: 'sonnet', effort: 'high', confirmed: ['effort'] })
+
+    // A turn shows the child running the CLI's own model: the picker follows it, the record
+    // keeps what the user chose.
+    turnReportsModel('claude-sonnet-5')
+    expect(await picker(host)).toEqual({
+      model: 'claude-sonnet-5',
+      effort: 'high',
+      confirmed: ['model', 'effort']
+    })
+    expect(record(host)?.options).toEqual({ model: 'sonnet', effort: 'high' })
+
+    behavior.optionWritesHang = false
+    await setOption(host, 'permissionMode', 'plan')
+    expect(record(host)?.options).toEqual({ model: 'sonnet', permissionMode: 'plan' })
+
+    const cleared = await host.conversationCommand(CALLER, {
+      command: 'clear',
       envelope: {
         sessionId: SESSION,
-        clientOperationId: `${Date.now()}-${(++operations).toString(16).padStart(32, '0')}`,
+        clientOperationId: clearOperation,
         expectedRuntimeFence: record(host)?.lease.runtimeFence ?? 0,
         payloadFingerprint: computeAgentSessionPayloadFingerprint({
-          method: 'agentSession.setOption',
+          method: 'agentSession.conversationCommand',
           sessionId: SESSION,
-          fields: { key: 'permissionMode', value }
+          fields: { command: 'clear' }
         })
-      },
-      key: 'permissionMode',
-      value
+      }
     })
-    expect(changed, JSON.stringify(changed)).toMatchObject({ ok: true })
-    expect(record(host)?.options).toMatchObject({ model: 'sonnet', permissionMode: 'plan' })
+    expect(cleared, JSON.stringify(cleared)).toMatchObject({
+      ok: true,
+      value: { replacementSessionId: replacement }
+    })
+    // The cleared chat's start replays the saved model rather than the one the turn reported.
+    await vi.waitFor(() => expect(claude.child(replacement).calls).toContain('set_model'))
+    await vi.waitFor(() =>
+      expect(host.deps.store.getRecord(replacement)?.options).toEqual({
+        model: 'sonnet',
+        effort: 'high',
+        permissionMode: 'plan'
+      })
+    )
+    expect(record(host)?.options).toEqual({ model: 'sonnet', permissionMode: 'plan' })
+  })
+
+  it('replaces the unanswered saved model with the one the user then sets', async () => {
+    const behavior = { optionWritesHang: true, controlTimeoutMs: DEADLINE_MS }
+    claude.behave(SESSION, behavior)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const host = await claude.install()
+    await expect(
+      host.attach(CALLER, claude.attachParams(SESSION, null, { options: { model: 'sonnet' } }))
+    ).resolves.toMatchObject({ ok: true })
+    await vi.waitFor(() => expect(record(host)?.options).toMatchObject({ model: 'sonnet' }), {
+      timeout: DEADLINE_MS * 40
+    })
+    turnReportsModel('claude-sonnet-5')
+
+    behavior.optionWritesHang = false
+    await setOption(host, 'model', 'opus')
+    expect(record(host)?.options).toEqual({ model: 'opus' })
+    expect((await picker(host)).model).toBe('opus')
   })
 
   it("lands with effort unknown when startup's own settings read goes unanswered", async () => {

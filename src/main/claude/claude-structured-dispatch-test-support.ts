@@ -27,7 +27,6 @@ export function sessionFor(send: Mock = vi.fn().mockResolvedValue(undefined)): C
     reportedModelMutation: 0,
     confirmedOptions: new Set(),
     restoreSkippedOptions: new Set(),
-    restoreUnansweredOptions: new Set(),
     capabilities: [],
     events: undefined,
     translator: null,

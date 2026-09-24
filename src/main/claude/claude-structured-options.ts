@@ -224,11 +224,6 @@ export async function setClaudeStructuredOption(
   return Object.fromEntries(session.options)
 }
 
-/** Saved options whose restore write went unanswered and that no later write has applied. */
-export function claudeRestoreUnansweredOptions(session: ClaudeSession | undefined): string[] {
-  return [...(session?.restoreUnansweredOptions ?? [])].filter((key) => !session?.options.has(key))
-}
-
 export async function restoreClaudeStructuredSessionOptions(
   session: ClaudeSession,
   timeoutMs: number | undefined
@@ -246,15 +241,14 @@ export async function restoreClaudeStructuredSessionOptions(
     try {
       await setClaudeStructuredOption(session, { key, value }, timeoutMs)
     } catch (error) {
-      // A write the CLI never answered is skipped the same way: startup has no deadline of its
-      // own, and a slow control answer must not fault a session whose child is otherwise fine.
-      // The child's current value stands, and the user can set the option again.
-      // Silence is not a refusal: the saved choice stays saved and the next start retries it.
+      // A write the CLI never answered must not fault a start that is otherwise fine. Silence is
+      // not a refusal, so the choice stays wanted, unconfirmed, and the next start retries it.
       if (error instanceof ClaudeControlRequestTimeoutError) {
         console.warn(
-          `[claude-structured] restore of ${key} for ${session.providerSessionId} was not answered in time; keeping the CLI's value`
+          `[claude-structured] restore of ${key} for ${session.providerSessionId} was not answered in time; keeping it unconfirmed`
         )
-        session.restoreUnansweredOptions.add(key)
+        session.options.set(key, value)
+        session.confirmedOptions.delete(key)
         continue
       }
       if (!isAgentSessionOptionRejectedError(error)) {

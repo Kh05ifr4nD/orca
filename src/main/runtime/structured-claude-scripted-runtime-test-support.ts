@@ -139,7 +139,13 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
         supportedModels: () => {
           child.calls.push('list_models')
           return control('list_models', () =>
-            answer([{ value: 'sonnet', displayName: 'Sonnet' }], false)
+            answer(
+              [
+                { value: 'sonnet', displayName: 'Sonnet' },
+                { value: 'opus', displayName: 'Opus' }
+              ],
+              false
+            )
           )
         },
         setModel: () => optionWrite('set_model'),

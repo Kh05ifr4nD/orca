@@ -61,7 +61,6 @@ export function createClaudeSessionPublication(input: {
       reportedModelMutation: 0,
       confirmedOptions: new Set(),
       restoreSkippedOptions: new Set(),
-      restoreUnansweredOptions: new Set(),
       translator: input.translator,
       events: input.events,
       ...(input.unbindReadingControl ? { unbindReadingControl: input.unbindReadingControl } : {}),

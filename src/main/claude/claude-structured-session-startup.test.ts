@@ -88,8 +88,7 @@ describe('Claude structured session publishes before the CLI answers initialize'
       acquisitionGeneration: expect.any(String),
       // What the restore just proved, carried so the host never asks the CLI again.
       reportedOptions: expect.objectContaining({ model: 'opus' }),
-      restoreSkippedOptions: [],
-      restoreUnansweredOptions: []
+      restoreSkippedOptions: []
     })
     // The restore wrote the saved model before `started`, and the held prompt only after it.
     expect(order).toEqual(['set_model'])

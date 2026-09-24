@@ -11,10 +11,7 @@ import { releaseClaudeAcquisition } from './claude-structured-acquisition-releas
 import { acquireClaudeSession } from './claude-structured-session-acquisition'
 import { failClaudeStartupGate } from './claude-structured-session-startup-gate'
 import { supportsClaudeStructuredLocation } from './claude-structured-location-support'
-import {
-  claudeRestoreUnansweredOptions,
-  setClaudeStructuredSessionOption
-} from './claude-structured-options'
+import { setClaudeStructuredSessionOption } from './claude-structured-options'
 import { readClaudeStructuredSessionOptions } from './claude-structured-session-options'
 import {
   ClaudeAcquisitionRegistry,
@@ -279,9 +276,6 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   readOptionRestoreFailures = (sessionId: string): readonly string[] => [
     ...(this.sessions.get(sessionId)?.restoreSkippedOptions ?? [])
   ]
-
-  readOptionRestoreUnanswered = (sessionId: string): readonly string[] =>
-    claudeRestoreUnansweredOptions(this.sessions.get(sessionId))
 
   releaseAcquisition = (input: { sessionId: string }): Promise<boolean> =>
     releaseClaudeAcquisition({

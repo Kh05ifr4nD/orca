@@ -163,16 +163,19 @@ describe('host conversation commands', () => {
     })
   })
 
-  // The replacement's start then retries it, as the source's next start would have.
-  it('starts the replacement from a saved choice the child never answered, not the live value', async () => {
+  // What the child reports can be a value it fell back to, such as a model whose restore write it
+  // never answered; the replacement's start replays the choice, as the source's next start would.
+  it('starts the replacement from the options the user chose, not the values the child reports', async () => {
     await store.replaceSessionOptions({
       sessionId: HOST_TEST_SESSION,
       fence: store.getRecord(HOST_TEST_SESSION)!.lease.runtimeFence,
       options: { model: 'test-model', effort: 'low' },
       now: HOST_TEST_NOW
     })
-    adapter.readOptionRestoreUnanswered = (sessionId) =>
-      sessionId === HOST_TEST_SESSION ? ['effort'] : []
+    adapter.readOptions = async () => ({
+      models: [],
+      current: { model: 'fallback-model', effort: 'high' }
+    })
     const attach = vi.spyOn(host, 'attach')
     expect(await host.conversationCommand(caller, commandParams('clear'))).toMatchObject({
       ok: true

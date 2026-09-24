@@ -15,7 +15,6 @@ import {
   type AgentSessionAttachParams
 } from './structured-agent-session-attach'
 import { admitAndRunAgentSessionMutation } from './structured-agent-session-mutation-admission'
-import { withUnansweredSavedOptions } from './structured-agent-session-option-restoration'
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
 import type { StructuredAgentSessionCaller } from './structured-agent-session-host-types'
 import type { StructuredAgentSessionHost } from './structured-agent-session-host'
@@ -113,39 +112,6 @@ export function runStructuredConversationCommand(
             state: 'unknown' as const,
             ...(replacementSessionId ? { replacementSessionId } : {})
           }
-          let effectiveOptions = record.options
-          if (command === 'clear' && !prior) {
-            try {
-              const options = await ctx.adapter.readOptions?.({ sessionId, fence: ctx.fence })
-              // The replacement starts from the live values, except a saved choice the child
-              // never answered, which its start retries.
-              effectiveOptions = withUnansweredSavedOptions(
-                {
-                  ...record.options,
-                  ...(options
-                    ? {
-                        model: options.current.model,
-                        ...(options.current.effort ? { effort: options.current.effort } : {})
-                      }
-                    : {})
-                },
-                record.options,
-                ctx.adapter.readOptionRestoreUnanswered?.(sessionId) ?? []
-              )
-            } catch {
-              return {
-                ok: false,
-                refusal: {
-                  code: 'agent_session_operation_invalid',
-                  message:
-                    'Could not read the current session configuration. Try again when the provider is connected.'
-                }
-              }
-            }
-          }
-          if (effectiveOptions && command === 'clear') {
-            await ctx.persistOptions(effectiveOptions)
-          }
           await store.setConversationCommand(sessionId, ctx.fence, prepared)
           let error: string | undefined
           if (command === 'clear' && replacementSessionId) {
@@ -167,7 +133,8 @@ export function runStructuredConversationCommand(
               agent: record.provider,
               runtimeKind: 'native',
               launchArgs: record.launchArgs,
-              options: effectiveOptions
+              // The options the user chose, which any restart of this chat would replay too.
+              options: record.options
             }
             attach.envelope.payloadFingerprint = computeAgentSessionPayloadFingerprint({
               method: 'agentSession.attach',
