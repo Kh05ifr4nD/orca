@@ -1,19 +1,32 @@
 import { POSIX_HOOK_STDIN_DRAIN_COMMAND } from './hook-stdin-contract'
 
+/**
+ * Double-quote a value for the inner shell script.
+ *
+ * The whole command is one single-quoted `sh -c` argument, so this quote must
+ * not itself be a single quote. `\`, `"`, `$`, and backticks stay literal.
+ */
 function quotePosixShellString(value: string): string {
-  // Why: the whole command is one single-quoted `sh -c` argument, so a value
-  // quote must not itself be a single quote. `\`, `"`, `$`, and `` ` `` stay literal.
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('$', '\\$').replaceAll('`', '\\`')}"`
 }
 
+/**
+ * Wrap a POSIX hook command so the login shell does not parse it.
+ *
+ * Cursor runs the stored string with the login shell. Nushell rejects `&&`
+ * before `/bin/sh` starts. One single-quoted `sh -c` argument is valid there
+ * and in sh, zsh, and bash. A `'` inside the argument is escaped for sh.
+ */
 function wrapForLoginShell(command: string): string {
-  // Why: Cursor runs this string with the login shell. Nushell rejects `&&`
-  // before `/bin/sh` starts. One single-quoted `sh -c` argument is valid there
-  // and in sh, zsh, and bash. A `'` inside the argument is escaped for sh.
   return `/bin/sh -c '${command.replaceAll("'", "'\\''")}'`
 }
 
-// Why: guard for a readable executable so a stale entry at a missing script becomes a silent no-op, not an exit-127 failure on every tool call.
+/**
+ * Guard a hook script so a missing file is a silent no-op, not exit 127.
+ *
+ * Silence is a hard deny on gate events (Antigravity PreToolUse, #2426), so
+ * callers can pass `fallbackStdout` and the guard still answers.
+ */
 export function wrapPosixHookCommand(
   scriptPath: string,
   env: Record<string, string> = {},

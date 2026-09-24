@@ -555,6 +555,7 @@ describe('wrapPosixHookCommand', () => {
 
   it.skipIf(process.platform === 'win32' || nuPath.length === 0)(
     'nushell runs the sh -c guard instead of parsing && itself',
+    /** Nushell must run the guard, not fail on `&&` before `/bin/sh` starts. */
     () => {
       const missing = wrapPosixHookCommand(
         '/does/not/exist.sh',
