@@ -50,6 +50,8 @@ function persistedHost(
   options: { visible?: (sessionId: string) => boolean } = {}
 ) {
   return {
+    // No journal has opened yet, so the host holds no loaded session to list.
+    listSessionTabs: () => [],
     getPersistedVisibleSessionTabIndex: () => ({
       present: true,
       sessionIds: chats.map((entry) => entry.sessionId)
