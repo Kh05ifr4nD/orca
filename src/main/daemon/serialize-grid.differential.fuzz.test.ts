@@ -19,8 +19,9 @@ import {
 //   I1 no line in the serialized range is wider than the grid ⇒ new bytes === old bytes
 //   I2 replaying the new bytes reproduces the source grid, cursor, buffer and modes
 //   I3 every checkpoint the old build replayed faithfully, the new one does too
-// I1/I3 need the previous patched build: point ORCA_OLD_SERIALIZE_ADDON at its
-// lib/addon-serialize.js (git hash-object must match the origin patch's index line).
+// I1/I3 need a baseline build: ORCA_OLD_SERIALIZE_ADDON=$(node
+// config/scripts/build-serialize-addon-at-ref.mjs --ref origin/main --out-dir <dir>).
+// ORCA_NEW_SERIALIZE_ADDON likewise replaces the installed build under test.
 //
 //   SERIALIZE_FUZZ_ITERATIONS=7000  cases per category (default 40)
 //   SERIALIZE_FUZZ_SEED=1234        re-run exactly one seed (all categories)
@@ -214,21 +215,51 @@ const KNOWN_PREEXISTING_I2_FAILURES: Record<SerializeFuzzCategory, number[]> = {
   conpty: [4, 5, 8, 9, 11, 19]
 }
 
+// I3 regressions found at 7000 seeds per mode against origin/main (#22586):
+// 1149 = clipped-wide blank has width 0; the rest = trailing background-only rows dropped.
+const FOUND_I3_REGRESSIONS: Record<SerializeFuzzCategory, number[]> = {
+  normal: [4681],
+  alt: [1674],
+  conpty: [130, 1149, 2590, 3827, 4012, 4841, 6461]
+}
+
 describe('serialize grid round-trip fuzz', () => {
-  it('I2 on a fixed seed range: only the pinned pre-existing divergences remain', async () => {
-    const failing: Record<SerializeFuzzCategory, number[]> = { normal: [], alt: [], conpty: [] }
+  it.skipIf(!OLD_ADDON_PATH)('previously found I3 regression seeds do not regress', async () => {
+    const serializers = [loadOldSerializer(OLD_ADDON_PATH!), NEW_SERIALIZER]
+    const regressed: string[] = []
     for (const category of ALL_CATEGORIES) {
-      for (let seed = 1; seed <= CI_SEEDS; seed++) {
-        const run = await runSerializeFuzzCase(buildSerializeFuzzCase(seed, category), [
-          NEW_SERIALIZER
-        ])
-        if (run.checks.some((check) => check.gridDiff.new !== null)) {
-          failing[category].push(seed)
+      for (const seed of FOUND_I3_REGRESSIONS[category]) {
+        if (
+          (await caseVerdicts(buildSerializeFuzzCase(seed, category), serializers)).has(
+            'regression'
+          )
+        ) {
+          regressed.push(`${category}:${seed}`)
         }
       }
     }
-    expect(failing).toEqual(KNOWN_PREEXISTING_I2_FAILURES)
-  }, 120_000)
+    expect(regressed).toEqual([])
+  })
+
+  // The pin describes the installed build; an ORCA_NEW_SERIALIZE_ADDON override is judged by I3 instead.
+  it.skipIf(Boolean(process.env.ORCA_NEW_SERIALIZE_ADDON))(
+    'I2 on a fixed seed range: only the pinned pre-existing divergences remain',
+    async () => {
+      const failing: Record<SerializeFuzzCategory, number[]> = { normal: [], alt: [], conpty: [] }
+      for (const category of ALL_CATEGORIES) {
+        for (let seed = 1; seed <= CI_SEEDS; seed++) {
+          const run = await runSerializeFuzzCase(buildSerializeFuzzCase(seed, category), [
+            NEW_SERIALIZER
+          ])
+          if (run.checks.some((check) => check.gridDiff.new !== null)) {
+            failing[category].push(seed)
+          }
+        }
+      }
+      expect(failing).toEqual(KNOWN_PREEXISTING_I2_FAILURES)
+    },
+    120_000
+  )
 
   it.skipIf(!OLD_ADDON_PATH)(
     'I1/I3 against the previous serialize build: identical bytes when nothing is wider than the grid, and no checkpoint gets worse',

@@ -22,13 +22,20 @@ import {
 
 export type NamedSerializer = { name: string; create: () => SerializeAddon }
 
-export const NEW_SERIALIZER: NamedSerializer = { name: 'new', create: () => new SerializeAddon() }
-
-/** Loads a previous patched build (its lib/addon-serialize.js) to diff against. */
-export function loadOldSerializer(path: string): NamedSerializer {
+/** Loads a patched build's lib/addon-serialize.js (see config/scripts/build-serialize-addon-at-ref.mjs). */
+function loadSerializerBuild(name: string, path: string): NamedSerializer {
   const loaded: { SerializeAddon: typeof SerializeAddon } = createRequire(import.meta.url)(path)
-  return { name: 'old', create: () => new loaded.SerializeAddon() }
+  return { name, create: () => new loaded.SerializeAddon() }
 }
+
+export function loadOldSerializer(path: string): NamedSerializer {
+  return loadSerializerBuild('old', path)
+}
+
+// ORCA_NEW_SERIALIZE_ADDON compares two arbitrary refs without reinstalling node_modules.
+export const NEW_SERIALIZER: NamedSerializer = process.env.ORCA_NEW_SERIALIZE_ADDON
+  ? loadSerializerBuild('new', process.env.ORCA_NEW_SERIALIZE_ADDON)
+  : { name: 'new', create: () => new SerializeAddon() }
 
 export type { GridDiff } from './serialize-grid-cell-descriptors'
 
