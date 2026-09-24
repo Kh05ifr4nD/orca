@@ -43,17 +43,25 @@ const JOURNAL: AgentJournalRenderItem[] = [
   user(1, [{ type: 'text', text: '  Fix   the\nparser  ' }]),
   row(2, { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: 'On it.' }] }),
   row(3, { kind: 'tool-call', name: 'Read', state: 'completed', input: { file_path: 'a.ts' } }),
-  user(4, [{ type: 'image-ref', path: '/tmp/one.png' }]),
-  user(5, [{ type: 'text', text: 'refused send' }], agentJournalSubmissionKey('client-refused')),
-  user(6, [{ type: 'text', text: '<command-name>/compact</command-name>' }]),
-  user(7, [{ type: 'text', text: '' }]),
-  user(8, [
+  // An imported transcript's tool result, carried on a user row beside harness text: the
+  // result folds into the turn above and the harness text is dropped, so it draws no row.
+  user(4, [
+    { type: 'tool-result', output: 'file body' },
+    { type: 'text', text: '<system-reminder>Keep going.</system-reminder>' }
+  ]),
+  user(5, [{ type: 'image-ref', path: '/tmp/one.png' }]),
+  user(6, [{ type: 'text', text: 'refused send' }], agentJournalSubmissionKey('client-refused')),
+  user(7, [{ type: 'text', text: '<command-name>/compact</command-name>' }]),
+  user(8, [{ type: 'text', text: '' }]),
+  user(9, [
     { type: 'text', text: 'Compare these' },
     { type: 'image-ref', path: '/tmp/a.png' },
     { type: 'image-ref', path: '/tmp/b.png' }
   ]),
-  row(9, { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: 'Done.' }] }),
-  user(10, [{ type: 'text', text: 'Thanks' }])
+  row(10, { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: 'Done.' }] }),
+  user(11, [{ type: 'text', text: 'Thanks' }]),
+  // Journalled after `Thanks` but observed before `Done.`: the transcript orders by observation.
+  { ...user(12, [{ type: 'text', text: 'Observed earlier' }]), observedAt: 1_009.5 }
 ]
 
 /** The renderer's own path from journal items to rail items, as the list runs it. */
@@ -98,17 +106,25 @@ describe('conversation outline parity with the loaded rail', () => {
         hasImages: entry.imageCount > 0
       }))
     ).toEqual(loaded.map(({ id, text, hasImages }) => ({ id, text, hasImages })))
-    // Anti-vacuous: the refused send, the harness turn and the empty prompt were all dropped.
-    expect(outline.map((entry) => entry.itemId)).toEqual(['item-1', 'item-4', 'item-8', 'item-10'])
+    // Anti-vacuous: the folded tool result, the refused send, the harness turn and the empty
+    // prompt were all dropped, and the late-journalled row sits where it was observed.
+    expect(outline.map((entry) => entry.itemId)).toEqual([
+      'item-1',
+      'item-5',
+      'item-9',
+      'item-12',
+      'item-11'
+    ])
   })
 
   it('carries each entry its creation sequence and image count', () => {
     const outline = projectAgentSessionConversationOutline(JOURNAL, [REJECTED])
     expect(outline).toEqual([
       { itemId: 'item-1', sequence: 1, preview: 'Fix the parser', imageCount: 0 },
-      { itemId: 'item-4', sequence: 4, preview: '', imageCount: 1 },
-      { itemId: 'item-8', sequence: 8, preview: 'Compare these', imageCount: 2 },
-      { itemId: 'item-10', sequence: 10, preview: 'Thanks', imageCount: 0 }
+      { itemId: 'item-5', sequence: 5, preview: '', imageCount: 1 },
+      { itemId: 'item-9', sequence: 9, preview: 'Compare these', imageCount: 2 },
+      { itemId: 'item-12', sequence: 12, preview: 'Observed earlier', imageCount: 0 },
+      { itemId: 'item-11', sequence: 11, preview: 'Thanks', imageCount: 0 }
     ])
   })
 })

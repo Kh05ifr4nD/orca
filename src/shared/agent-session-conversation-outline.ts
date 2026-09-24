@@ -3,8 +3,8 @@
 // thread instead of only the pages a client happens to hold.
 //
 // Derived here from journal items with the same projection the transcript runs,
-// so an outline entry's id, preview and image count are what the client's own
-// row would show for that message — not a second reading that could disagree.
+// so an outline entry's id, order, preview and image count are what the client's
+// own row would show for that message — not a second reading that could disagree.
 
 import type {
   AgentJournalCursor,
@@ -12,9 +12,9 @@ import type {
   AgentJournalSubmission
 } from './agent-session-journal-types'
 import type { NativeChatBlock } from './native-chat-types'
-import { isNoiseMessage } from './native-chat-noise'
 import { deriveNativeChatRowContent, nativeChatRowRendersContent } from './native-chat-row-content'
 import { projectStructuredAgentSessionMessages } from './structured-agent-session-message-projection'
+import { projectNativeChatTranscriptMessages } from './native-chat-transcript-projection'
 
 /** Previews are cut on the host: the rail clamps to two lines, so a whole prompt
  *  would cross the wire only to be hidden. */
@@ -73,24 +73,29 @@ export function truncateOutlinePreview(text: string, maxChars: number): string {
   return text.slice(0, end).trimEnd()
 }
 
-/** User messages in journal order, filtered exactly as the transcript filters them:
- *  refused sends are dropped, harness-injected turns are noise, and a message that
- *  draws nothing takes no row. Previews are uncut; the reply bound owns length. */
+/** User messages that draw a transcript row, in transcript order. Projected over the
+ *  whole journal, not user items alone: whether a user row survives depends on its
+ *  neighbours (a harness sidecar folds into the turn before it) and its order on
+ *  when it was observed. Previews are uncut; the reply bound owns length. */
 export function projectAgentSessionConversationOutline(
   items: readonly AgentJournalRenderItem[],
   submissions: readonly AgentJournalSubmission[]
 ): AgentSessionConversationOutlineEntry[] {
-  const userItems = items.filter(
-    (item) => item.body.kind === 'message' && item.body.role === 'user'
-  )
-  const sequences = new Map(userItems.map((item) => [item.itemId, item.sequence]))
+  const sequences = new Map<string, number>()
+  for (const item of items) {
+    if (item.body.kind === 'message' && item.body.role === 'user') {
+      sequences.set(item.itemId, item.sequence)
+    }
+  }
   const entries: AgentSessionConversationOutlineEntry[] = []
-  for (const message of projectStructuredAgentSessionMessages(userItems, [], submissions)) {
+  const transcript = projectNativeChatTranscriptMessages(
+    projectStructuredAgentSessionMessages(items, [], submissions)
+  )
+  for (const message of transcript) {
     const sequence = sequences.get(message.id)
     if (
       sequence === undefined ||
       message.role !== 'user' ||
-      isNoiseMessage(message) ||
       !nativeChatRowRendersContent(message.blocks)
     ) {
       continue
