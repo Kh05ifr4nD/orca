@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProfileStateBackupRotation } from './profile-state-backup-rotation'
 import {
   createProfileStateDatabaseBackupId,
@@ -13,12 +13,16 @@ import {
   openProfileStateDatabaseReadOnly
 } from './profile-state-database'
 import { importProfileStateJson, readProfileStateSnapshot } from './profile-state-documents'
-import * as snapshots from './profile-state-database-snapshot'
+import * as backupExecution from './profile-state-backup-worker'
 
 const directories: string[] = []
 const rotations: ProfileStateBackupRotation[] = []
 const databases: ReturnType<typeof openProfileStateDatabase>[] = []
 const HOUR = 60 * 60 * 1000
+
+beforeEach(() => {
+  vi.spyOn(backupExecution, 'runProfileStateBackup')
+})
 
 afterEach(async () => {
   for (const rotation of rotations.splice(0)) {
@@ -120,7 +124,8 @@ describe('automatic SQLite recovery generations', () => {
     await rotation.drain()
     const retained = profileStateDatabaseBackups(databasePath)
     const snapshot = vi
-      .spyOn(snapshots, 'writeProfileStateDatabaseSnapshotAsync')
+      .spyOn(backupExecution, 'runProfileStateBackup')
+      .mockClear()
       .mockRejectedValueOnce(new Error('disk full'))
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     clock.now = beginning + HOUR
@@ -147,9 +152,9 @@ describe('automatic SQLite recovery generations', () => {
     await rotation.drain()
     const retained = profileStateDatabaseBackups(databasePath)
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.spyOn(snapshots, 'writeProfileStateDatabaseSnapshotAsync').mockRejectedValueOnce(
-      new Error('staged validation failed')
-    )
+    vi.spyOn(backupExecution, 'runProfileStateBackup')
+      .mockClear()
+      .mockRejectedValueOnce(new Error('staged validation failed'))
     clock.now = beginning + HOUR
     rotation.schedule()
     await rotation.drain()
@@ -166,7 +171,7 @@ describe('automatic SQLite recovery generations', () => {
 
   it('owns an in-flight source until completion and blocks synchronous quarantine', async () => {
     const { databasePath, rotation, opened } = fixture()
-    const realSnapshot = snapshots.writeProfileStateDatabaseSnapshotAsync
+    const realSnapshot = backupExecution.runProfileStateBackup
     let begin: () => void = () => {}
     let release: () => void = () => {}
     const started = new Promise<void>((resolve) => {
@@ -175,13 +180,11 @@ describe('automatic SQLite recovery generations', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
-    vi.spyOn(snapshots, 'writeProfileStateDatabaseSnapshotAsync').mockImplementationOnce(
-      async (source, target) => {
-        begin()
-        await gate
-        await realSnapshot(source, target)
-      }
-    )
+    vi.spyOn(backupExecution, 'runProfileStateBackup').mockImplementationOnce(async (job) => {
+      begin()
+      await gate
+      await realSnapshot(job)
+    })
     rotation.schedule()
     await started
     rotation.stop()
