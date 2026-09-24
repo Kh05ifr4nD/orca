@@ -38,7 +38,7 @@ const capsuleSchema = z.object({
   version: z.literal(2),
   entries: z.array(z.unknown()),
   dismissedAt: z.number().int().nonnegative().optional(),
-  failed: z.array(z.unknown()).optional()
+  failed: z.unknown().optional()
 })
 
 /** What an acted-on offer left behind when the agent did not carry on. Current only while nothing
@@ -104,6 +104,16 @@ function parseEntry(value: unknown): RecoveryEntry {
   }
 }
 
+// Failures are advisory, so one this build cannot read (say, a newer outcome) is dropped, and gone
+// after the next write, rather than costing every offer and every later teardown record.
+function parseFailures(value: unknown): AgentSessionResumeFailureRecord[] {
+  return (Array.isArray(value) ? value : []).flatMap((failure: unknown) => {
+    const parsed = failureSchema.safeParse(failure)
+    const marker = parsed.success ? parseAgentSessionResumeMarker(parsed.data.marker) : null
+    return parsed.success && marker ? [{ ...parsed.data, marker }] : []
+  })
+}
+
 export function parseState(raw: string): RecoveryCapsuleState {
   const value: unknown = JSON.parse(raw)
   const legacy = legacyCapsuleSchema.safeParse(value)
@@ -119,10 +129,7 @@ export function parseState(raw: string): RecoveryCapsuleState {
   const capsule = capsuleSchema.parse(value)
   return {
     entries: capsule.entries.map(parseEntry),
-    failed: (capsule.failed ?? []).map((failure) => {
-      const parsed = failureSchema.parse(failure)
-      return { ...parsed, marker: parseMarker(parsed.marker) }
-    }),
+    failed: parseFailures(capsule.failed),
     ...(capsule.dismissedAt === undefined ? {} : { dismissedAt: capsule.dismissedAt })
   }
 }

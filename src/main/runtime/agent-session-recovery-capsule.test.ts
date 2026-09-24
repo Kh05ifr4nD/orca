@@ -283,6 +283,56 @@ describe('durable restart offers', () => {
     })
   })
 
+  // A newer build may file a failure shape this one cannot parse; after a downgrade that must not
+  // cost the offers or block recording new teardowns.
+  it('skips a failure record it cannot read instead of rejecting the whole file', async () => {
+    const readable = {
+      marker: marker(),
+      failedAt: NOW,
+      outcome: 'refused',
+      reason: 'agent_session_restart_work_superseded',
+      latestPrompt: '',
+      latestUserItemId: null
+    }
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 2,
+        entries: [{ state: 'pending', marker: marker({ sessionId: 'second' }) }],
+        failed: [
+          { ...readable, marker: marker({ sessionId: 'future' }), outcome: 'later-outcome' },
+          readable
+        ]
+      })
+    )
+
+    expect(await capsule.list(NOW)).toEqual([marker({ sessionId: 'second' })])
+    expect(await capsule.listFailed(NOW)).toEqual([readable])
+    await capsule.record([marker({ sessionId: 'third' })], NOW)
+    expect(await capsule.list(NOW)).toEqual([
+      marker({ sessionId: 'second' }),
+      marker({ sessionId: 'third' })
+    ])
+    expect(await capsule.listFailed(NOW)).toEqual([readable])
+    expect(JSON.parse(await readFile(filePath, 'utf8')).failed).toEqual([readable])
+  })
+
+  it('reads a malformed failure list as no failures', async () => {
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 2,
+        entries: [{ state: 'pending', marker: marker() }],
+        failed: { unexpected: true }
+      })
+    )
+
+    expect(await capsule.list(NOW)).toEqual([marker()])
+    expect(await capsule.listFailed(NOW)).toEqual([])
+    await capsule.record([marker({ sessionId: 'second' })], NOW)
+    expect(await capsule.list(NOW)).toEqual([marker(), marker({ sessionId: 'second' })])
+  })
+
   it('rolls a failed acquisition back to a pending offer', async () => {
     await capsule.record([marker()], NOW)
     await capsule.beginResume([SESSION], 'operation-a', NOW)
