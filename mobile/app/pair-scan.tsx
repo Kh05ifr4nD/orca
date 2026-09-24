@@ -60,28 +60,27 @@ export default function PairScanScreen() {
   const [cameraBounds, setCameraBounds] = useState({ width: 0, height: 0 })
   const [logs, setLogs] = useState<ConnectionLogEntry[]>([])
   const [pendingPairing, setPendingPairing] = useState<PreProfilePairingResult | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const logsRef = useRef<ConnectionLogEntry[]>([])
   const processingRef = useRef(false)
   const mountedRef = useRef(true)
   const activePairingAttemptRef = useRef<PreProfilePairingAttempt | null>(null)
+  // Why a ref beside the state: unmount must cancel the latest pairing without re-creating the
+  // root ref callback, whose detach disposes the active attempt.
+  const pendingPairingRef = useRef<PreProfilePairingResult | null>(null)
 
-  const setPairScanRootRef = useCallback(
-    (node: View | null): void => {
-      if (node !== null) {
-        mountedRef.current = true
-        return
-      }
-      // Why: pairing attempts can outlive the visible route; dispose them when
-      // the scan screen detaches without a passive cleanup-only Effect.
-      mountedRef.current = false
-      activePairingAttemptRef.current?.dispose()
-      activePairingAttemptRef.current = null
-      if (pendingPairing) {
-        void pendingPairing.cancel()
-      }
-    },
-    [pendingPairing]
-  )
+  const setPairScanRootRef = useCallback((node: View | null): void => {
+    if (node !== null) {
+      mountedRef.current = true
+      return
+    }
+    // Why: pairing attempts can outlive the visible route; dispose them when
+    // the scan screen detaches without a passive cleanup-only Effect.
+    mountedRef.current = false
+    activePairingAttemptRef.current?.dispose()
+    activePairingAttemptRef.current = null
+    void pendingPairingRef.current?.cancel()
+  }, [])
 
   const handleBarCodeScanned = useCallback(
     ({ data }: { data: string }) => {
@@ -162,9 +161,12 @@ export default function PairScanScreen() {
         activePairingAttemptRef.current = null
       }
       if (!mountedRef.current || !attemptIsCurrent) {
+        void pairing.cancel()
         return
       }
+      pendingPairingRef.current = pairing
       setPendingPairing(pairing)
+      setSaveError(null)
       setStatus('naming')
     } catch (err) {
       const timedOut = attempt.timedOut
@@ -188,34 +190,35 @@ export default function PairScanScreen() {
   }
 
   async function finalizePairing(name: string): Promise<void> {
-    if (!pendingPairing) {
+    const pairing = pendingPairingRef.current
+    if (!pairing) {
       return
     }
     setStatus('saving')
+    setSaveError(null)
     try {
-      await pendingPairing.finalize(name)
-      refreshHostClient(pendingPairing.hostId)
-      const onboardingSteps = await loadMobileOnboardingSteps()
-      if (!mountedRef.current) {
-        return
-      }
-      router.replace(mobileOnboardingDestination(onboardingSteps, pendingPairing.hostId))
+      await pairing.finalize(name)
     } catch (err) {
-      if (!mountedRef.current) {
-        return
+      // Why back to naming: the pairing is still pending, so Save can be retried or cancelled.
+      if (mountedRef.current) {
+        setStatus('naming')
+        setSaveError(`Couldn't save this host: ${err instanceof Error ? err.message : String(err)}`)
       }
-      setStatus('error')
-      setErrorMessage(
-        `Couldn't save this host: ${err instanceof Error ? err.message : String(err)}`
-      )
+      return
     }
+    // Why: re-pairing reuses the host id (STA-1840), so a client cached under it holds the old route.
+    refreshHostClient(pairing.hostId)
+    const onboardingSteps = await loadMobileOnboardingSteps()
+    if (!mountedRef.current) {
+      return
+    }
+    router.replace(mobileOnboardingDestination(onboardingSteps, pairing.hostId))
   }
 
   function cancelNaming(): void {
-    if (pendingPairing) {
-      void pendingPairing.cancel()
-      setPendingPairing(null)
-    }
+    void pendingPairingRef.current?.cancel()
+    pendingPairingRef.current = null
+    setPendingPairing(null)
     retry()
   }
 
@@ -359,6 +362,7 @@ export default function PairScanScreen() {
             hostPlatform={pendingPairing.hostPlatform}
             initialName={pendingPairing.suggestedName}
             saving={status === 'saving'}
+            errorMessage={saveError}
             onConfirm={(name) => void finalizePairing(name)}
             onCancel={cancelNaming}
           />

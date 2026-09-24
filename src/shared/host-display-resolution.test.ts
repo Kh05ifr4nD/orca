@@ -34,18 +34,6 @@ describe('resolveHostDisplay', () => {
     ).toBe(false)
   })
 
-  it('does not collapse equal strings when the platform changed', () => {
-    expect(
-      resolveHostDisplay({
-        ...base,
-        personalLabel: 'Studio Mac',
-        machineName: 'Studio Mac',
-        platform: 'darwin',
-        previousPlatform: 'win32'
-      }).showDescriptor
-    ).toBe(true)
-  })
-
   it('marks an old descriptor as last-known data for the caller', () => {
     expect(
       resolveHostDisplay({
@@ -58,10 +46,28 @@ describe('resolveHostDisplay', () => {
     ).toMatchObject({ primaryLabel: 'Desk', showDescriptor: true, descriptorFresh: false })
   })
 
-  it('falls back from machine name to hostname and then Host N', () => {
+  it('falls back from machine name to Host N', () => {
     expect(resolveHostDisplay({ ...base, platform: 'linux' }).primaryLabel).toBe('Host 2')
     expect(
-      resolveHostDisplay({ ...base, hostname: 'build-box', platform: 'linux' }).primaryLabel
+      resolveHostDisplay({ ...base, machineName: 'build-box', platform: 'linux' }).primaryLabel
     ).toBe('build-box')
+  })
+
+  it('labels whichever descriptor half an older host reported', () => {
+    expect(resolveHostDisplay({ ...base, personalLabel: 'Desk' })).toMatchObject({
+      descriptorLabel: null,
+      showDescriptor: false
+    })
+    expect(
+      resolveHostDisplay({ ...base, personalLabel: 'Desk', platform: 'win32' }).descriptorLabel
+    ).toBe('Windows')
+    expect(
+      resolveHostDisplay({
+        ...base,
+        personalLabel: 'Desk',
+        machineName: 'Studio',
+        platform: 'darwin'
+      }).descriptorLabel
+    ).toBe('macOS · Studio')
   })
 })

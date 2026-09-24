@@ -446,15 +446,14 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *   modules        4220 -> 4219   (-1)
  *   local modules  1034 -> 1033   (-1)
  *
- * The host identity confirmation adds four local modules and no package: the shared display
- * resolver and platform label, plus `src/transport/host-descriptor-store.ts` and its in-memory
- * `host-descriptor-persistence.web.ts` sibling. The status gate above every route writes the
- * descriptor and the docked host header reads it.
+ * The host identity confirmation adds three local modules and no package: the shared display
+ * resolver and platform label, plus the in-memory `src/transport/host-descriptor-store.ts`. The
+ * status gate above every route writes the descriptor and the docked host header reads it.
  *
- *   modules        4219 -> 4223   (+4)
- *   local modules  1033 -> 1037   (+4)
+ *   modules        4219 -> 4222   (+3)
+ *   local modules  1033 -> 1036   (+3)
  */
-const SESSION_ROUTE_MODULES = 4223
+const SESSION_ROUTE_MODULES = 4222
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [

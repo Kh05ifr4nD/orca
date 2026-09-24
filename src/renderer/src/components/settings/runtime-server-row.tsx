@@ -4,7 +4,7 @@ import type { RemoteServerUpdateEntry } from '@/runtime/remote-server-update-coo
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
 import { resolveHostDisplay } from '../../../../shared/host-display-resolution'
-import { hostPlatformDisplayName } from '../../../../shared/host-platform-label'
+import { lastVerifiedRuntimeStatus } from '../../../../shared/runtime-host-status'
 import {
   isConnectedRuntimeHostState,
   runtimeHostConnectionStateForEntry
@@ -95,30 +95,26 @@ export function RuntimeServerRow({
   // A connected host exposes Disconnect; otherwise Connect.
   const isReachable = isRuntimeServerTransportConnected(connectionState)
   const actionBusy = connecting || switching || disconnecting || removing
-  const descriptorStatus = runtimeStatusEntry?.status ?? runtimeStatusEntry?.snapshot?.status
+  // Why: the snapshot keeps the last answered status across a lost probe; `status` is only the latest answer.
+  const descriptorStatus = lastVerifiedRuntimeStatus(runtimeStatusEntry)
   const hostDisplay = resolveHostDisplay({
     personalLabel: environment.name,
     machineName: descriptorStatus?.machineName,
     platform: descriptorStatus?.hostPlatform,
-    descriptorFresh:
-      runtimeStatusEntry?.status !== null && runtimeStatusEntry?.status !== undefined,
+    // Same verdict as the dot, so a reachable host is never labelled "Last known".
+    descriptorFresh: entryReachable,
     fallbackLabel: environment.name
   })
-  const descriptorText = [
-    hostPlatformDisplayName(descriptorStatus?.hostPlatform),
-    hostDisplay.descriptorName
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  const hostDescriptorText = hostDisplay.showDescriptor
-    ? hostDisplay.descriptorFresh
-      ? descriptorText
-      : translate(
-          'auto.components.settings.RuntimeServerRow.lastKnownDescriptor',
-          'Last known · {{descriptor}}',
-          { descriptor: descriptorText }
-        )
-    : null
+  const hostDescriptorText =
+    hostDisplay.showDescriptor && hostDisplay.descriptorLabel
+      ? hostDisplay.descriptorFresh
+        ? hostDisplay.descriptorLabel
+        : translate(
+            'auto.components.settings.RuntimeServerRow.lastKnownDescriptor',
+            'Last known · {{descriptor}}',
+            { descriptor: hostDisplay.descriptorLabel }
+          )
+      : null
 
   return (
     <div data-settings-section={environment.id} className="flex items-center gap-3 px-4 py-3">

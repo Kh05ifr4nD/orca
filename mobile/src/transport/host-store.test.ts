@@ -96,9 +96,12 @@ describe('host-store list mutations', () => {
     resetHostStoreForTests()
     platformMock.OS = 'ios'
     resetMobileRelayHostOverlayStoreForTests()
-    scheduleCleanupMock.mockReset().mockResolvedValue(undefined)
-    cancelCleanupMock.mockReset().mockResolvedValue(undefined)
-    recordCleanupIntentMock.mockReset().mockResolvedValue(undefined)
+    scheduleCleanupMock.mockReset()
+    scheduleCleanupMock.mockResolvedValue(undefined)
+    cancelCleanupMock.mockReset()
+    cancelCleanupMock.mockResolvedValue(undefined)
+    recordCleanupIntentMock.mockReset()
+    recordCleanupIntentMock.mockResolvedValue(undefined)
     storedHostsRaw = JSON.stringify([HOST_ONE, HOST_TWO])
     storedOverlayRaw = null
     asyncStorageMock.getItem.mockImplementation(async (key: string) => {
@@ -126,8 +129,7 @@ describe('host-store list mutations', () => {
   it('resolves an existing host by pinned key with one durable read', async () => {
     await expect(resolvePairingHostIdentity(HOST_TWO.publicKeyB64, 'host-new')).resolves.toEqual({
       id: HOST_TWO.id,
-      name: HOST_TWO.name,
-      isExisting: true
+      name: HOST_TWO.name
     })
     expect(asyncStorageMock.getItem).toHaveBeenCalledOnce()
   })
@@ -135,8 +137,7 @@ describe('host-store list mutations', () => {
   it('names a new host from the same durable read used for identity lookup', async () => {
     await expect(resolvePairingHostIdentity('unpaired-key', 'host-new')).resolves.toEqual({
       id: 'host-new',
-      name: 'Host 3',
-      isExisting: false
+      name: 'Host 3'
     })
     expect(asyncStorageMock.getItem).toHaveBeenCalledOnce()
   })
@@ -868,6 +869,7 @@ describe('host-store pairing save after an Android encryption rejection', () => 
 
   it('saves the host when the reported Android failure is alias-local (#6600)', async () => {
     const written = new Map<string | undefined, string>()
+    // Why: simulate the unverified alias-local case; no affected physical device was available.
     secureStoreMock.setItemAsync.mockImplementation(
       async (_key: string, value: string, options?: { keychainService?: string }) => {
         if (options?.keychainService === undefined) {
@@ -908,14 +910,16 @@ describe('host-store pairing save after an Android encryption rejection', () => 
       }
     )
     await saveHost(NEW_HOST)
+    // Why: a fresh process has no token cache, so the host list has to come back off the rotated alias.
     resetHostStoreForTests()
     secureStoreMock.getItemAsync.mockImplementation(
       async (_key: string, options?: { keychainService?: string }) =>
         written.get(options?.keychainService) ?? null
     )
 
-    await expect(loadHosts()).resolves.toEqual([
-      expect.objectContaining({ deviceToken: 'device-token' })
-    ])
+    const hosts = await loadHosts()
+
+    expect(hosts).toHaveLength(1)
+    expect(hosts[0]!.deviceToken).toBe('device-token')
   })
 })

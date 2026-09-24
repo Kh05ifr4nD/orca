@@ -30,7 +30,6 @@ import {
   toStoredHostProfile,
   writeStoredHostProfiles
 } from './host-metadata-store'
-import { createHostNameAndEndpointUpdater } from './host-name-endpoint-updater'
 
 async function commitDeviceToken(hostId: string, token: string): Promise<void> {
   markHostCredentialWrite(hostId)
@@ -84,14 +83,14 @@ async function doLoadHostListSnapshot(): Promise<hostListLoads.HostListSnapshot>
 export async function resolvePairingHostIdentity(
   publicKeyB64: string,
   newHostId: string
-): Promise<{ id: string; name: string; isExisting: boolean }> {
+): Promise<{ id: string; name: string }> {
   // Why: one durable read both preserves an existing identity and names a new host, avoiding duplicate cards.
   await hostListMutation
   const hosts = await readStoredHostProfilesForMutation()
   const match = hosts.find((host) => host.publicKeyB64 === publicKeyB64)
   return match
-    ? { id: match.id, name: match.name, isExisting: true }
-    : { id: newHostId, name: getNextHostNameFromHosts(hosts), isExisting: false }
+    ? { id: match.id, name: match.name }
+    : { id: newHostId, name: getNextHostNameFromHosts(hosts) }
 }
 
 const deleteUnpairedHostCredentials = createUnpairedHostCredentialDeletion({
@@ -298,7 +297,25 @@ export async function retryPendingHostCredentialCleanup(): Promise<{
   )
 }
 
-export const updateHostNameAndEndpoint = createHostNameAndEndpointUpdater(mutateStoredHosts)
+// Why: single mutation pass commits name + endpoint atomically so a mid-save failure can't persist one without the other.
+export async function updateHostNameAndEndpoint(
+  hostId: string,
+  updates: { name?: string; endpoint?: string }
+): Promise<void> {
+  await mutateStoredHosts((hosts) => {
+    const index = hosts.findIndex((host) => host.id === hostId)
+    if (index === -1) {
+      throw new Error('Host not found')
+    }
+    const next = hosts.slice()
+    next[index] = {
+      ...next[index]!,
+      ...(updates.name !== undefined ? { name: updates.name } : {}),
+      ...(updates.endpoint !== undefined ? { endpoint: updates.endpoint } : {})
+    }
+    return next
+  })
+}
 
 export async function updateLastConnected(hostId: string): Promise<void> {
   try {

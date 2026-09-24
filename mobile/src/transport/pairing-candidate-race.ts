@@ -1,7 +1,7 @@
 import {
   hostAnsweredStatusProbe,
   hostStatusProbe,
-  readHostStatusGates
+  readPairingCandidateStatus
 } from './host-status-probe-operations'
 import type { PairingCandidateClient } from './mobile-relay-physical-client'
 import type { HostStatusReply } from './host-status-reply-schema'
@@ -33,7 +33,7 @@ export function racePairingCandidates(
             rejectIfFinished()
             return
           }
-          successes.push({ ...candidate, status: readHostStatusGates(reply) })
+          successes.push({ ...candidate, status: readPairingCandidateStatus(reply) })
           if (selectionQueued) {
             return
           }

@@ -8,6 +8,7 @@ export function PairingNameConfirmation(props: {
   hostPlatform: NodeJS.Platform | null
   initialName: string
   saving: boolean
+  errorMessage: string | null
   onConfirm: (name: string) => void
   onCancel: () => void
 }): JSX.Element {
@@ -29,10 +30,11 @@ export function PairingNameConfirmation(props: {
         editable={!props.saving}
         maxLength={255}
         onChangeText={setName}
-        placeholder="Host 1"
+        placeholder={props.initialName}
         style={styles.input}
         value={name}
       />
+      {props.errorMessage ? <Text style={styles.error}>{props.errorMessage}</Text> : null}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Save host label"
@@ -89,6 +91,12 @@ const styles = StyleSheet.create({
     fontSize: typography.bodySize,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm
+  },
+  error: {
+    color: colors.statusRed,
+    fontSize: typography.bodySize,
+    marginTop: spacing.sm,
+    textAlign: 'center'
   },
   primaryButton: {
     alignItems: 'center',

@@ -13,8 +13,6 @@ import {
   X
 } from 'lucide-react-native'
 import { StatusDot } from '../components/StatusDot'
-import { hostPlatformDisplayName } from '../../../src/shared/host-platform-label'
-import { resolveHostDisplay } from '../../../src/shared/host-display-resolution'
 import { classifyConnection, type ConnectionVerdict } from '../transport/connection-health'
 import { colors } from '../theme/mobile-theme'
 import { hostScreenStyles as styles } from './host-screen-styles'
@@ -32,7 +30,7 @@ export function HostScreenHeader({ controller }: { controller: HostScreenControl
     floatingWorkspaceEnabled,
     forceReconnectHost,
     hostId,
-    hostDisplay: resolvedHostDisplay,
+    hostDisplay,
     lastConnectedAt,
     onHideSidebar,
     reconnectAttempts,
@@ -40,13 +38,6 @@ export function HostScreenHeader({ controller }: { controller: HostScreenControl
     settings,
     state
   } = controller
-  const hostDisplay =
-    resolvedHostDisplay ??
-    resolveHostDisplay({
-      personalLabel: state.hostName,
-      descriptorFresh: false,
-      fallbackLabel: state.hostName || 'Host'
-    })
 
   return (
     <View style={styles.topChrome}>
@@ -79,12 +70,7 @@ export function HostScreenHeader({ controller }: { controller: HostScreenControl
                 </View>
                 {hostDisplay.showDescriptor ? (
                   <Text style={styles.hostPlatformText} numberOfLines={1}>
-                    {`${hostDisplay.descriptorFresh ? '' : 'Last known · '}${[
-                      hostPlatformDisplayName(hostDisplay.descriptorPlatform),
-                      hostDisplay.descriptorName
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}`}
+                    {`${hostDisplay.descriptorFresh ? '' : 'Last known · '}${hostDisplay.descriptorLabel}`}
                   </Text>
                 ) : null}
               </View>
@@ -93,18 +79,19 @@ export function HostScreenHeader({ controller }: { controller: HostScreenControl
                   // Why: auth-failed has its own banner, so suppress the Reconnect button for that verdict.
                   const verdict = headerVerdict
                   const isError = isErrorVerdict(verdict)
+                  // Null on the page, where the shell owns the connection and nothing here re-dials.
                   if (
                     !isError ||
                     !hostId ||
                     verdict.kind === 'auth-failed' ||
-                    !forceReconnectHost
+                    forceReconnectHost === null
                   ) {
                     return null
                   }
                   return (
                     <Pressable
                       style={styles.reconnectButton}
-                      onPress={() => void forceReconnectHost(hostId!)}
+                      onPress={() => void forceReconnectHost(hostId)}
                       accessibilityRole="button"
                       accessibilityLabel="Reconnect"
                       hitSlop={8}

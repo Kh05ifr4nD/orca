@@ -71,9 +71,9 @@ export function useHostScreenController({
 
   const hostDisplay = resolveHostDisplay({
     personalLabel: state.hostName,
-    machineName: descriptor.descriptor?.machineName,
-    platform: descriptor.descriptor?.platform,
-    descriptorFresh: descriptor.fresh,
+    machineName: descriptor?.machineName,
+    platform: descriptor?.platform,
+    descriptorFresh: connState === 'connected',
     fallbackLabel: state.hostName || 'Host'
   })
 

@@ -106,8 +106,7 @@ function dependencies(client: RpcClient, events: string[]) {
     }),
     resolveHostIdentity: vi.fn(async (_publicKeyB64: string, hostId: string) => ({
       id: hostId,
-      name: 'Blue Whale',
-      isExisting: false
+      name: 'Blue Whale'
     })),
     saveHost: vi.fn(async (_host: HostProfile) => {
       events.push('save-host')
@@ -196,7 +195,7 @@ describe('pre-profile pairing coordinator', () => {
     deps.resolveHostIdentity = vi.fn(async (publicKeyB64: string, newHostId: string) => {
       expect(publicKeyB64).toBe(directOffer.publicKeyB64)
       expect(newHostId).toBe(`host-${now}`)
-      return { id: 'host-existing', name: 'Studio Mac', isExisting: true }
+      return { id: 'host-existing', name: 'Studio Mac' }
     })
 
     const attempt = startPreProfilePairing({
@@ -242,6 +241,21 @@ describe('pre-profile pairing coordinator', () => {
     expect(deps.recordHostDescriptor).toHaveBeenCalledWith(`host-${now}`, {
       machineName: 'm4airs-Air',
       platform: 'darwin'
+    })
+  })
+
+  it('pairs a desktop whose status reply is unreadable, with no descriptor to show', async () => {
+    const deps = dependencies(fakeClient([success(null)]), [])
+    const attempt = startPreProfilePairing({
+      offer: directOffer,
+      timeoutMs: 5_000,
+      dependencies: deps
+    })
+
+    await expect(attempt.result).resolves.toMatchObject({
+      machineName: null,
+      hostPlatform: null,
+      suggestedName: 'Blue Whale'
     })
   })
 
@@ -339,7 +353,10 @@ describe('pre-profile pairing coordinator', () => {
       timeoutMs: 5_000,
       dependencies: deps
     })
-    await expect(finalizePairing(attempt)).resolves.toMatchObject({ hostId: `host-${now}` })
+    // Nothing was installed, so the journal is gone before the naming step can be abandoned.
+    const pending = await attempt.result
+    expect(events).toEqual(['save-journal', 'connect', 'update-journal', 'clear-journal'])
+    await pending.finalize()
 
     expect(deps.saveHost).toHaveBeenCalledWith(
       expect.not.objectContaining({ endpoints: expect.anything() })
@@ -348,8 +365,8 @@ describe('pre-profile pairing coordinator', () => {
       'save-journal',
       'connect',
       'update-journal',
-      'save-host',
-      'clear-journal'
+      'clear-journal',
+      'save-host'
     ])
   })
 
@@ -379,8 +396,8 @@ describe('pre-profile pairing coordinator', () => {
       'save-journal',
       'connect',
       'update-journal',
-      'save-host',
-      'clear-journal'
+      'clear-journal',
+      'save-host'
     ])
     expect(entries).toContainEqual(
       expect.objectContaining({

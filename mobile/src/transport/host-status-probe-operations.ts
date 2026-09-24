@@ -71,3 +71,17 @@ export function hostAnsweredStatusProbe(reply: RpcResponse): boolean {
     return true
   }
 }
+
+/**
+ * The status the pairing race hands to the naming step, or `null` when the host's answer is
+ * unreadable. Never throws: it runs in the race's fulfilment handler, where a throw would strand
+ * the candidate exactly as `hostAnsweredStatusProbe` describes.
+ */
+export function readPairingCandidateStatus(reply: RpcResponse): HostStatusReply | null {
+  try {
+    const accepted = hostStatusProbe.interpret(reply)
+    return accepted.accepted ? accepted.value : null
+  } catch {
+    return null
+  }
+}

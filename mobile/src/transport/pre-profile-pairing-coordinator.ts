@@ -141,11 +141,13 @@ async function runPairing(
   const now = dependencies.now()
   // Why: every pairing artifact must share the preserved host id so re-pairing
   // updates one card instead of publishing a second identity (STA-1840).
-  const {
-    id: hostId,
-    name: hostName,
-    isExisting
-  } = await dependencies.resolveHostIdentity(offer.publicKeyB64, `host-${now}`)
+  const newHostId = `host-${now}`
+  const { id: hostId, name: hostName } = await dependencies.resolveHostIdentity(
+    offer.publicKeyB64,
+    newHostId
+  )
+  // Why: identity resolution hands back the offered id only for a desktop this phone never paired.
+  const isExisting = hostId !== newHostId
   assertActive(isDisposed)
   let journal: MobileRelayPairingJournal | null = null
   if (offer.relay && dependencies.platform !== 'web') {
@@ -239,12 +241,15 @@ async function runPairing(
     // Why: this commits a LAN-only host instead of failing, so the refusal code is the only
     // record of why the phone never got a relay endpoint.
     log('info', 'Relay: desktop will not serve relay pairing', provision.error.code)
+    // Why now, not at save: nothing was installed, so a journal kept through naming could only
+    // block every later scan with "recovery pending" if the app dies on that screen.
+    await dependencies.clearJournal(journal.metadata.journalId).catch(() => {})
     return createPendingPairing({
       host: baseHost(offer, hostId, hostName, now),
       status: winner.status,
       isExisting,
       dependencies,
-      journal,
+      journal: null,
       credentialBundle: null
     })
   }
