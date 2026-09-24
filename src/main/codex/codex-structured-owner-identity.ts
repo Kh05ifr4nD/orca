@@ -49,16 +49,20 @@ export async function codexProcessIdentity(
   }
 }
 
-export function codexProviderHandleLink(input: {
+type CodexProviderHandleLinkInput = {
   threadId: string
-  resumed: boolean
-  origin?: 'adopted'
-  /** The unsaved thread a new thread was started in place of. */
-  supersedesThreadId?: string
   fence: number
   linkId?: string
   observedAt: number
-}): AgentSessionProviderHandleLink {
+} & (
+  | { origin?: 'adopted'; resumed: boolean; supersedesThreadId?: never }
+  /** A new thread started in place of this unsaved one; only a creation can supersede. */
+  | { origin?: never; resumed: false; supersedesThreadId: string }
+)
+
+export function codexProviderHandleLink(
+  input: CodexProviderHandleLinkInput
+): AgentSessionProviderHandleLink {
   return {
     linkId: input.linkId ?? `codex-${input.fence}-${input.threadId}`.slice(0, 128),
     handle: { provider: 'codex', threadId: input.threadId },

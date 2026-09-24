@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   CodexAppServerFrameSizeError,
   CodexAppServerRequestError,
+  openCodexAppServerConnection,
   type CodexAppServerConnection
 } from './codex-app-server-connection'
 import { codexStructuredPermissionPolicyForSettings } from './codex-structured-permission-policy'
@@ -294,6 +295,44 @@ describe('openCodexThread', () => {
           )
         ).rejects.toBe(failure)
         expect(request).toHaveBeenCalledOnce()
+      }
+    })
+
+    // Every other test here builds the error itself; this one sends Codex's raw JSON-RPC frame
+    // through the real connection, so a change to Orca's own error wording cannot hide the proof.
+    it('recognizes the raw frame Codex sends, through the real connection', async () => {
+      const fakeAppServer = String.raw`
+        const readline = require('node:readline')
+        const send = (payload) => process.stdout.write(JSON.stringify(payload) + '\n')
+        readline.createInterface({ input: process.stdin }).on('line', (line) => {
+          const message = JSON.parse(line)
+          if (message.method === 'initialize') return send({ id: message.id, result: {} })
+          if (message.method === 'thread/resume') {
+            const threadId = message.params.threadId
+            return send({
+              id: message.id,
+              error: { code: -32600, message: 'no rollout found for thread id ' + threadId }
+            })
+          }
+          if (message.method === 'thread/start') {
+            return send({ id: message.id, result: { thread: { id: 'thread-new' } } })
+          }
+        })
+      `
+      const connection = await openCodexAppServerConnection({
+        command: process.execPath,
+        args: ['-e', fakeAppServer]
+      })
+      try {
+        await expect(
+          openCodexThread(
+            connection,
+            { cwd: '/workspace', resumeThreadId: 'thread-unsaved', supersedeIfUnsaved: true },
+            5_000
+          )
+        ).resolves.toMatchObject({ threadId: 'thread-new', supersededThreadId: 'thread-unsaved' })
+      } finally {
+        await connection.close()
       }
     })
   })

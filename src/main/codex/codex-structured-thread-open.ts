@@ -69,14 +69,14 @@ async function resumeCodexThread(
  * Codex's own answer that it holds no rollout for this exact thread: the thread was started but
  * never given input, so there is no conversation to lose. Codex matches the same exact text
  * internally; any other resume failure, including a broader "not found", is not this proof.
+ * Orca's own wrapper prefix is deliberately not part of the match.
  */
 function isCodexNoRolloutError(error: unknown, threadId: string): boolean {
   return (
     isCodexAppServerRequestError(error) &&
     error.method === 'thread/resume' &&
     error.code === -32600 &&
-    error.message ===
-      `codex app-server thread/resume failed: no rollout found for thread id ${threadId}`
+    error.message.endsWith(`no rollout found for thread id ${threadId}`)
   )
 }
 
