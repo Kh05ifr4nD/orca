@@ -92,4 +92,39 @@ describe('a Grok cancel never hides a running task', () => {
       server.stop()
     }
   })
+
+  it("shows the task when Grok's own cancel hook trails the inferred cancel", async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      await startTaskThenSettle(server)
+      await postGrokHook(server, {
+        hookEventName: 'user_prompt_submit',
+        promptId: 'prompt-2',
+        prompt: 'now do something else'
+      })
+      expect(row(server)).toMatchObject({ state: 'working', mainAgent: { state: 'working' } })
+
+      // Why: the inference can win the settle race; the row cannot see the task behind a working main agent.
+      expect(pressCtrlC(server)).toBe(true)
+      expect(row(server)).toMatchObject({
+        state: 'done',
+        mainAgent: { state: 'done', outcome: 'cancellation' }
+      })
+
+      await postGrokHook(server, {
+        hookEventName: 'stop_cancelled',
+        promptId: 'prompt-2',
+        stopHookActive: false,
+        backgroundTasks: [RUNNING_TASK]
+      })
+      expect(row(server)).toMatchObject({
+        state: 'working',
+        workingMode: 'monitoring',
+        mainAgent: { state: 'done', outcome: 'cancellation' }
+      })
+    } finally {
+      server.stop()
+    }
+  })
 })

@@ -103,11 +103,73 @@ function pressCtrlC(server: AgentHookServer): boolean {
 
 describe('a relayed Claude cancel with a live subagent (captured)', () => {
   const records = loadCapture('claude-cancel-subagent-hooks')
+  const upToCancel = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((index) => hookAt(records, index))
   const subagentStop = (index: number): Record<string, unknown> => ({
     ...hookAt(records, index).payload,
     hook_event_name: 'SubagentStop',
     tool_name: undefined,
     tool_input: undefined
+  })
+
+  it("keeps the cancel when the child's next hook restates the relay's working main agent", async () => {
+    const pane = await startSshPane(new AgentHookServer())
+    await postCaptured(pane, upToCancel)
+    expect(pressCtrlC(pane.desktop)).toBe(true)
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'working',
+      mainAgent: { state: 'done', outcome: 'cancellation' },
+      subagents: [expect.objectContaining({ state: 'working' })]
+    })
+
+    // The child's tool activity after the cancel: the relay's record still has the main agent working.
+    const childTool = hookAt(records, 9)
+    expect(childTool.payload.agent_id).toBeDefined()
+    await pane.post(childTool.payload)
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'working',
+      mainAgent: { state: 'done', outcome: 'cancellation' }
+    })
+
+    // Both children finish on the remote; with nothing left running the cancelled row settles.
+    await pane.post(subagentStop(4))
+    await pane.post(subagentStop(9))
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'done',
+      interrupted: true,
+      mainAgent: { state: 'done', outcome: 'cancellation' }
+    })
+    expect(row(pane.desktop).subagents).toBeUndefined()
+  })
+
+  it("keeps the cancel through a child's permission prompt and its approval", async () => {
+    const pane = await startSshPane(new AgentHookServer())
+    await postCaptured(pane, upToCancel)
+    expect(pressCtrlC(pane.desktop)).toBe(true)
+
+    const childTool = hookAt(records, 6).payload
+    await pane.post({ ...childTool, hook_event_name: 'PermissionRequest' })
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'waiting',
+      mainAgent: { state: 'done', outcome: 'cancellation' }
+    })
+    await pane.post(childTool)
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'working',
+      mainAgent: { state: 'done', outcome: 'cancellation' }
+    })
+  })
+
+  it('keeps the cancel through a reconnect replay of the relay cache', async () => {
+    const pane = await startSshPane(new AgentHookServer())
+    await postCaptured(pane, upToCancel)
+    expect(pressCtrlC(pane.desktop)).toBe(true)
+
+    expect(pane.relay.replayCachedPayloadsForPanes()).toBe(1)
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'working',
+      mainAgent: { state: 'done', outcome: 'cancellation' },
+      subagents: [expect.objectContaining({ state: 'working' })]
+    })
   })
 
   it('does not read a restart-seeded local roster for a relayed pane', async () => {
@@ -148,5 +210,41 @@ describe('a relayed Claude cancel with a live subagent (captured)', () => {
       interrupted: true,
       mainAgent: { state: 'done', outcome: 'cancellation' }
     })
+  })
+})
+
+describe('a relayed Claude cancel with a background shell (captured)', () => {
+  const records = loadCapture('claude-cancel-shell-hooks')
+
+  it('holds the cancel through a replay and releases it at the next prompt', async () => {
+    const pane = await startSshPane(new AgentHookServer())
+    await postCaptured(
+      pane,
+      [0, 1, 2, 3, 4, 5, 6].map((index) => hookAt(records, index))
+    )
+    expect(pressCtrlC(pane.desktop)).toBe(true)
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'working',
+      workingMode: 'monitoring',
+      mainAgent: { state: 'done', outcome: 'cancellation' }
+    })
+
+    expect(pane.relay.replayCachedPayloadsForPanes()).toBe(1)
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'working',
+      workingMode: 'monitoring',
+      mainAgent: { state: 'done', outcome: 'cancellation' }
+    })
+
+    // Why: a new turn is the main agent's own fact again; the held verdict must not outlive it.
+    await pane.post(hookAt(records, 7).payload)
+    expect(row(pane.desktop)).toMatchObject({ state: 'working', mainAgent: { state: 'working' } })
+    await pane.post(hookAt(records, 8).payload)
+    expect(row(pane.desktop)).toMatchObject({
+      state: 'working',
+      workingMode: 'monitoring',
+      mainAgent: { state: 'done' }
+    })
+    expect(row(pane.desktop).mainAgent).not.toHaveProperty('outcome')
   })
 })
