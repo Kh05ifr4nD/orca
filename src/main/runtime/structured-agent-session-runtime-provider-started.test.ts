@@ -64,12 +64,15 @@ describe('a Claude child proving its start', () => {
     await host.hold(HEALTHY, 'surface-1')
     await waitForStructuredAgentSessionRecovery()
 
-    // Its exit recovery reacquires, and that spawn never returns.
+    // Its exit recovery reacquires, and that spawn never returns. The exit hands the lease back
+    // and the restart queued behind it reserves it again at once, so `released` is not a state a
+    // poll can count on seeing; `reserved` with the spawn hanging is what "still acquiring" is.
     claude.behave(HEALTHY, { spawnHangs: true })
     claude.child(HEALTHY).exit(new Error('claude stream-json exited (code 1): crashed'))
     await vi.waitFor(() =>
-      expect(host.deps.store.getRecord(HEALTHY)?.lease.claimStatus).toBe('released')
+      expect(host.deps.store.getRecord(HEALTHY)?.lease.claimStatus).toBe('reserved')
     )
+    expect(claude.children(HEALTHY)).toHaveLength(1)
 
     await expect(host.attach(CALLER, claude.attachParams(STALLED, null))).resolves.toMatchObject({
       ok: true
@@ -80,6 +83,9 @@ describe('a Claude child proving its start', () => {
         effort: 'high'
       })
     )
+    // The other recovery is still where it was: reserved, with no child yet.
+    expect(host.deps.store.getRecord(HEALTHY)?.lease.claimStatus).toBe('reserved')
+    expect(claude.children(HEALTHY)).toHaveLength(1)
   })
 
   it('is drained by the runtime before teardown proceeds', async () => {
