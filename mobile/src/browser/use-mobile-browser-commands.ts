@@ -118,42 +118,41 @@ export function useMobileBrowserCommands(args: MobileBrowserCommandArgs) {
       if (!client || !base) {
         return
       }
-      let clickMayHaveLanded = false
-      const clickResult = await sendBrowserRequest(
-        async (rpc, page, options) => {
-          try {
-            return browserPointerClick.interpret(
-              await browserPointerClick.request(
-                rpc,
-                {
-                  ...page,
-                  x: point.x,
-                  y: point.y,
-                  button,
-                  modifiers: pointerModifiers,
-                  ...(button === 'left'
-                    ? {
-                        radius: computeBrowserTouchClickRadiusCss(
-                          layoutRef.current,
-                          frameMetadataRef.current,
-                          zoomRef.current,
-                          TOUCH_CLICK_RADIUS_DIP
-                        )
-                      }
-                    : {})
-                },
-                options
-              )
-            )
-          } catch (error) {
-            clickMayHaveLanded = isRpcDeliveryUnknown(error)
-            throw error
-          }
-        },
-        { suppressError: true, timeoutMs: 5_000 }
-      )
-      // Why: a timed-out click may still run on the host; replaying it as move/down/up double-taps.
-      if (clickResult !== null || clickMayHaveLanded || pointerModifiers.length > 0) {
+      try {
+        const reply = browserPointerClick.interpret(
+          await browserPointerClick.request(
+            client,
+            {
+              ...base,
+              x: point.x,
+              y: point.y,
+              button,
+              modifiers: pointerModifiers,
+              ...(button === 'left'
+                ? {
+                    radius: computeBrowserTouchClickRadiusCss(
+                      layoutRef.current,
+                      frameMetadataRef.current,
+                      zoomRef.current,
+                      TOUCH_CLICK_RADIUS_DIP
+                    )
+                  }
+                : {})
+            },
+            { timeoutMs: 5_000 }
+          )
+        )
+        setError(null)
+        if (reply !== null) {
+          return
+        }
+      } catch (error) {
+        // Why: a timed-out click may still run on the host; replaying it as move/down/up double-taps.
+        if (isRpcDeliveryUnknown(error)) {
+          return
+        }
+      }
+      if (pointerModifiers.length > 0) {
         return
       }
       try {
@@ -173,7 +172,7 @@ export function useMobileBrowserCommands(args: MobileBrowserCommandArgs) {
         // actionable failures still surface through navigation/stream errors.
       }
     },
-    [client, pageParams, pointerModifiers, sendBrowserRequest]
+    [client, pageParams, pointerModifiers]
   )
 
   const togglePointerModifier = useCallback((modifier: BrowserPointerModifier) => {
