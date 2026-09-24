@@ -707,9 +707,9 @@ describe('producer linkage round-trips through the reducer', () => {
   })
 
   it('reads each mutation of a mixed batch as its own producer', () => {
-    // One settlement batch revises rows several agents wrote. The mutation that
-    // names a producer is that producer's; the one naming none is the session's
-    // own, even beside a child's in the same row.
+    // A batch can CREATE rows several agents produced — a settlement landing
+    // before any checkpoint did. The mutation that names a producer is that
+    // producer's; the one naming none is the session's own, beside it.
     const state = createJournalReducerState('session-1', EPOCH)
     applyJournalRow(
       state,
