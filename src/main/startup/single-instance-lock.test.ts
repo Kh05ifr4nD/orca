@@ -82,10 +82,14 @@ describe('claimUserDataOwnership', () => {
   it('owns the profile exclusively only when this process acquired the lock', () => {
     const fake = makeFakeApp(true)
 
-    expect(claimUserDataOwnership(fake.app, vi.fn(), { skip: false, bypass: false })).toBe(
+    const onSecondInstance = vi.fn()
+
+    expect(claimUserDataOwnership(fake.app, onSecondInstance, { skip: false, bypass: false })).toBe(
       'exclusive'
     )
     expect(fake.requestSingleInstanceLock).toHaveBeenCalledTimes(1)
+    fake.listeners['second-instance']?.[0]?.({}, ['orca'])
+    expect(onSecondInstance).toHaveBeenCalledWith(['orca'])
   })
 
   it('shares the profile when the lock is skipped or bypassed, without taking it', () => {
