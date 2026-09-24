@@ -108,6 +108,13 @@ describe("the session's clock counts only its own agent's rows", () => {
     expect(fold([own, rosterRow, tombstone(3, 'own-1')]).lastActivityAt).toBe(1_003)
   })
 
+  it("holds on a subagent row's removal: a tombstone names no producer, the row it removes does", () => {
+    const own = item(1, 'own-1', text('delegating'))
+    const child = item(2, 'child-1', text('reading'), CHILD)
+    const removal: JournalRow = { kind: 'tombstone', itemId: 'child-1', revision: 3, ...base(3) }
+    expect(fold([own, child, removal]).lastActivityAt).toBe(own.ts)
+  })
+
   it('holds on a batch that only revises rosters, and moves on one that carries anything else', () => {
     const batch = (mutations: Extract<JournalRow, { kind: 'lifecycle-batch' }>['mutations']) =>
       fold([{ kind: 'lifecycle-batch', settlementId: 'settle-1', mutations, ...base(1) }])

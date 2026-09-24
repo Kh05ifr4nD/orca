@@ -4,12 +4,12 @@
 // completion stamp and acknowledgement clock. Subagents write into the same journal and keep
 // going after the session's own agent settles, so counting their rows re-dates an idle
 // session and marks it unread again.
+//
+// The clock reads the reducer's attribution of the items a row touches, never the raw row:
+// a batch or a revision need not name the producer the reducer attributes the item to.
 
 import { isRootAgentJournalItem } from '../../../shared/agent-session-journal-producer'
-import type {
-  AgentJournalItemBody,
-  AgentJournalRenderItem
-} from '../../../shared/agent-session-journal-types'
+import type { AgentJournalRenderItem } from '../../../shared/agent-session-journal-types'
 import { isSubagentGroupBlock } from '../../../shared/native-chat-types'
 import type { JournalRow } from './journal-row-schema'
 
@@ -18,35 +18,47 @@ type JournalItemLookup = {
   aliases: ReadonlyMap<string, string>
 }
 
-/** Whether a row is the session's own agent at work. Not a subagent's row (its linkage names
- *  it), and not a subagent roster: the session's row, but revised on every child transition.
- *  A roster's first write sits beside the spawn call, which dates the session anyway. */
-export function journalRowDatesSession(lookup: JournalItemLookup, row: JournalRow): boolean {
-  if (row.kind === 'epoch' || !isRootAgentJournalItem(row)) {
-    return false
-  }
-  if (row.kind === 'item') {
-    return !isSubagentRoster(row.body)
-  }
+/** Read BEFORE the reducer applies `row`: whether it removes the session's own work. */
+export function journalRowRemovesSessionWork(lookup: JournalItemLookup, row: JournalRow): boolean {
   if (row.kind === 'tombstone') {
-    return !isSubagentRoster(currentBody(lookup, row.itemId))
+    return isSessionWork(currentItem(lookup, row.itemId))
   }
   if (row.kind === 'lifecycle-batch') {
     return row.mutations.some(
       (mutation) =>
-        !isSubagentRoster(
-          mutation.kind === 'item' ? mutation.body : currentBody(lookup, mutation.itemId)
-        )
+        mutation.kind === 'tombstone' && isSessionWork(currentItem(lookup, mutation.itemId))
     )
   }
-  return true
+  return false
 }
 
-function isSubagentRoster(body: AgentJournalItemBody | undefined): boolean {
-  return body?.kind === 'message' && body.blocks.some(isSubagentGroupBlock)
+/** Read AFTER the reducer applied `row`: whether it wrote the session's own work. */
+export function journalRowWroteSessionWork(lookup: JournalItemLookup, row: JournalRow): boolean {
+  if (row.kind === 'item') {
+    return isSessionWork(currentItem(lookup, row.itemId))
+  }
+  if (row.kind === 'lifecycle-batch') {
+    return row.mutations.some(
+      (mutation) => mutation.kind === 'item' && isSessionWork(currentItem(lookup, mutation.itemId))
+    )
+  }
+  return row.kind === 'submission' || row.kind === 'dispatch'
 }
 
-/** Read before the reducer applies the row: a tombstone names what it is about to remove. */
-function currentBody(lookup: JournalItemLookup, itemId: string): AgentJournalItemBody | undefined {
-  return lookup.items.get(lookup.aliases.get(itemId) ?? itemId)?.body
+/** The session's own agent at work. Not a subagent's row, and not a subagent roster: the
+ *  session's row, but revised on every child transition. A roster's first write sits beside
+ *  the spawn call, which dates the session anyway. */
+function isSessionWork(item: AgentJournalRenderItem | undefined): boolean {
+  return (
+    item !== undefined &&
+    isRootAgentJournalItem(item) &&
+    !(item.body.kind === 'message' && item.body.blocks.some(isSubagentGroupBlock))
+  )
+}
+
+function currentItem(
+  lookup: JournalItemLookup,
+  itemId: string
+): AgentJournalRenderItem | undefined {
+  return lookup.items.get(lookup.aliases.get(itemId) ?? itemId)
 }
