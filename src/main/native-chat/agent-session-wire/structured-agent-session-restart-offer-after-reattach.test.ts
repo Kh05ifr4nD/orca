@@ -1,11 +1,12 @@
 // An offer across the provider reattaching and rewriting the chat in its own words: a notice turn
 // of its own, restated rows. None of it withdraws the offer or changes the message Resume sends.
 
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { AgentSessionRecoveryCapsule } from '../../runtime/agent-session-recovery-capsule'
 import { AGENT_SESSION_RESTART_CONTINUATION_MESSAGE } from '../../../shared/agent-session-restart-continuation'
 import { restartContinuationBody } from './structured-agent-session-restart-continuation'
 import { interruptedRestart } from './structured-agent-session-restart-interruption-test-harness'
+import { StructuredAgentSessionHostRuntimeState } from './structured-agent-session-host-runtime-state'
 import {
   HOST_TEST_NOW as NOW,
   HOST_TEST_SESSION as SESSION,
@@ -57,6 +58,45 @@ it.each(['turn', 'submission'] as const)(
     ).toMatchObject([{ outcome: 'continued' }])
     expect(dispatch).toHaveBeenCalledTimes(1)
     host.release(SESSION, 'pane')
+  }
+)
+
+// A provider that keeps streaming past the drain's bound, or a drain that cannot finish, leaves the
+// pre-send check to judge what the journal already holds. Refusing would spend the offer: the
+// continuation's own journaled message would then read as the user moving on, so no retry exists.
+it.each(['keeps streaming', 'cannot drain'] as const)(
+  'still sends the continuation when the provider %s before the send',
+  async (drain) => {
+    const { host, dispatch } = await interruptedRestart()
+    await host.hold(SESSION, 'pane')
+    const flush = host.flushStreamedEvents
+    const realNow = Date.now
+    let offset = 0
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset)
+    // Every drained barrier is followed by another accepted event, past the drain's bound.
+    const pending = vi
+      .spyOn(StructuredAgentSessionHostRuntimeState.prototype, 'hasPendingStreamedEvents')
+      .mockReturnValue(true)
+    const draining = vi.spyOn(host, 'flushStreamedEvents').mockImplementation(async (id) => {
+      if (drain === 'cannot drain') {
+        throw new Error('event sink failed')
+      }
+      await flush(id)
+      offset += 1_000
+    })
+    try {
+      const result = await host.restartResume.continueAfterRestart([SESSION], 'modal')
+      expect(result.continued).toMatchObject([{ outcome: 'continued' }])
+      expect(dispatch).toHaveBeenCalledTimes(1)
+      if (drain === 'keeps streaming') {
+        expect(draining.mock.calls.length).toBeGreaterThan(1)
+      }
+    } finally {
+      draining.mockRestore()
+      pending.mockRestore()
+      clock.mockRestore()
+      host.release(SESSION, 'pane')
+    }
   }
 )
 
