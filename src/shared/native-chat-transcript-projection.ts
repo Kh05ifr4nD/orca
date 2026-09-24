@@ -33,5 +33,5 @@ export function projectNativeChatTranscriptMessages(
   messages: readonly NativeChatMessage[],
   compare: (a: NativeChatMessage, b: NativeChatMessage) => number = compareNativeChatMessagesByTime
 ): NativeChatMessage[] {
-  return stripNoiseMessages(foldToolMessages([...messages].sort(compare)))
+  return stripNoiseMessages(foldToolMessages(messages.toSorted(compare)))
 }
