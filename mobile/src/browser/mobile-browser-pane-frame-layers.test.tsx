@@ -17,7 +17,10 @@ vi.mock('./use-browser-binary-screencast-grant', () => ({
   useBrowserBinaryScreencastGrant: vi.fn(() => true)
 }))
 
-const appState = vi.hoisted(() => ({ listener: null as ((state: string) => void) | null }))
+const appState = vi.hoisted(() => {
+  const holder: { listener: ((state: string) => void) | null } = { listener: null }
+  return holder
+})
 
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
