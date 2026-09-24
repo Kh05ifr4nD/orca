@@ -3,7 +3,7 @@
   "family": "transport.pairing-race",
   "namedDeltas": [],
   "runnerVersion": 1,
-  "baseline": "37820f9683527becf68d8d4d4fb564f32c49e72d",
+  "baseline": "1d1d4570a699dbfb96ef66e8750ec34303f3441e",
   "lockfileSha256": "1327605e77b3fed83c7410635d39fdab40c49380e5cbf483ec6ff1b404b4e1d1",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
   "adapterSha256": "34b382b13fe75e8ef4002325287c95b3c4db62eeaaf3762af7fbaf6f836c2fa1",
@@ -87,16 +87,6 @@
       "ordinal": 5,
       "value": "direct"
     },
-    "41484ffa145c": {
-      "name": "unhandled-rejection",
-      "ordinal": 5,
-      "value": {
-        "category": "RpcIncompatibleReplyError",
-        "code": "incompatible_reply",
-        "isRpcDeliveryUnknown": false,
-        "message": "The host sent a reply this app could not read (status.get)"
-      }
-    },
     "416024b9c436": {
       "status": "fulfilled",
       "startedAt": 0,
@@ -171,11 +161,6 @@
           "ok": false
         }
       }
-    },
-    "8e378786864c": {
-      "name": "candidate-closed",
-      "ordinal": 6,
-      "value": "relay"
     },
     "93edac3a1c3e": {
       "status": "fulfilled",
@@ -496,10 +481,10 @@
           "sender": ["a1e33b5bf8ef", "f39d5bd1c382"],
           "payloads": ["e7b5d7d57a61", "f1834177e593"],
           "settlements": {
-            "race": "93edac3a1c3e"
+            "race": "416024b9c436"
           },
-          "state": "d9b301beff12",
-          "effects": ["41484ffa145c", "8e378786864c"]
+          "state": "a7d5becc0aed",
+          "effects": ["2a6d50107927"]
         }
       },
       {
@@ -508,10 +493,10 @@
           "sender": ["a1e33b5bf8ef", "95e5245e8cf5"],
           "payloads": ["e7b5d7d57a61", "f1834177e593"],
           "settlements": {
-            "race": "93edac3a1c3e"
+            "race": "416024b9c436"
           },
-          "state": "d9b301beff12",
-          "effects": ["41484ffa145c", "8e378786864c"]
+          "state": "a7d5becc0aed",
+          "effects": ["2a6d50107927"]
         }
       },
       {

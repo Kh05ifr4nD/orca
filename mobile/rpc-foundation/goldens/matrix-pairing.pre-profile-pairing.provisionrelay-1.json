@@ -3,16 +3,21 @@
   "family": "pairing.pre-profile",
   "namedDeltas": [],
   "runnerVersion": 1,
-  "baseline": "37820f9683527becf68d8d4d4fb564f32c49e72d",
+  "baseline": "1d1d4570a699dbfb96ef66e8750ec34303f3441e",
   "lockfileSha256": "1327605e77b3fed83c7410635d39fdab40c49380e5cbf483ec6ff1b404b4e1d1",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
-  "adapterSha256": "5c844fa435ce1002939cd4402e47b8f31a497a8c2f48ef1ef69543fc0278aa72",
+  "adapterSha256": "45c015528f6e56f742d49efe5dffa0cce1a30736dee75f397e693d70ee6f4dd1",
   "scenarioSha256": "399fa8b85d9c2fc341ea2284a54aed278fd1a5b19a84cc9284c29d5a583bc519",
   "platform": "darwin",
   "scenarioVersion": 1,
   "projectionVersion": 2,
   "goldenFormatVersion": 5,
   "values": {
+    "0a9d7431b242": {
+      "name": "journal-cleared",
+      "ordinal": 10,
+      "value": "pair-fixture-1"
+    },
     "143d29293173": {
       "name": "pairing.provisionRelay#1",
       "ordinal": 8,
@@ -97,11 +102,6 @@
       "name": "candidate-closed",
       "ordinal": 12,
       "value": "direct"
-    },
-    "2b5aa76fdb8d": {
-      "name": "journal-cleared",
-      "ordinal": 13,
-      "value": "pair-fixture-1"
     },
     "2f2817ad588d": {
       "outcome": "failed: The host sent a reply this app could not read (pairing.provisionRelay)",
@@ -261,6 +261,16 @@
         "version": 4
       }
     },
+    "515603f2cea6": {
+      "name": "candidate-closed",
+      "ordinal": 12,
+      "value": "relay"
+    },
+    "59e845421fda": {
+      "name": "candidate-closed",
+      "ordinal": 11,
+      "value": "direct"
+    },
     "5f157a7faba9": {
       "name": "pairing.provisionRelay#1",
       "ordinal": 8,
@@ -378,11 +388,6 @@
       "ordinal": 11,
       "value": "relay"
     },
-    "79ffb33faf8a": {
-      "name": "host-saved",
-      "ordinal": 12,
-      "value": "direct-only"
-    },
     "8405c7947d76": {
       "name": "pairing.provisionRelay#1",
       "ordinal": 8,
@@ -451,6 +456,11 @@
           "ok": false
         }
       }
+    },
+    "88168b12f5f8": {
+      "name": "host-saved",
+      "ordinal": 13,
+      "value": "direct-only"
     },
     "8e378786864c": {
       "name": "candidate-closed",
@@ -874,10 +884,10 @@
             "406c8ab0b9b6",
             "8e378786864c",
             "e29d4c104dd3",
-            "4964fce533f6",
-            "79331d82af94",
-            "79ffb33faf8a",
-            "2b5aa76fdb8d"
+            "0a9d7431b242",
+            "59e845421fda",
+            "515603f2cea6",
+            "88168b12f5f8"
           ]
         }
       },
