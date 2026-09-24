@@ -3,7 +3,7 @@ import type { AgentMainAgentStatus, AgentStatusState, AgentWorkingMode } from '.
 
 export type AgentLeadStatusFoldInput = {
   /** The main agent's own turn state. Anything but `done` wins over child work, except that a
-   *  child blocked on a human outranks a working main agent. */
+   *  child waiting on a human outranks a working main agent. */
   leadState: AgentStatusState
   /** A lead turn that ended by interrupt keeps a watch loop from reading as monitoring;
    *  live agent work still counts, because it outlives the interrupt. */
@@ -24,7 +24,7 @@ export function mainAgentTurnInterrupted(
 }
 
 /**
- * One fold for every lane that publishes a main agent's status: a child blocked
+ * One fold for every lane that publishes a main agent's status: a child waiting
  * on a human makes the row wait whatever the main agent is doing, a settled main
  * agent with live agent work is still working, and one with only watch loops is
  * monitoring. Every lane derives the liveness from its own evidence, but the

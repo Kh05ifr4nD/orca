@@ -196,7 +196,7 @@ const STORIES: Story[] = [
   {
     // Claude records a child's wait by displacing the main agent record; Codex keeps it on the
     // child. Both publish the main agent's own state beside the waiting row.
-    name: 'a child blocked on the user',
+    name: 'a child waiting on the user',
     claude: {
       events: [
         { hook_event_name: 'UserPromptSubmit', prompt: 'go' },
@@ -220,7 +220,7 @@ const STORIES: Story[] = [
     }
   },
   {
-    name: 'settled main agent whose child is blocked on the user',
+    name: 'settled main agent whose child is waiting on the user',
     claude: {
       events: [
         { hook_event_name: 'UserPromptSubmit', prompt: 'go' },

@@ -48,7 +48,7 @@ describe('foldAgentLeadStatus', () => {
     ).toEqual({ stateName: 'done' })
   })
 
-  describe('a child blocked on a human', () => {
+  describe('a child waiting on a human', () => {
     it('makes a working or settled main agent wait, even after an interrupt', () => {
       for (const leadState of ['working', 'done'] as const) {
         for (const interrupted of [false, true]) {
