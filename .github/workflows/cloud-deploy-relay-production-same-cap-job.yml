@@ -60,8 +60,10 @@ jobs:
       # Each drained host re-dials /v1/assign and is re-placed through the director's
       # single-slot sticky lane, which clears roughly 8 hosts/s fleet-wide. A 2,100-host
       # cell over 2 min (~18/s) overran it on 2026-09-23 and browned out assign for every
-      # region for ~5 min. 5 min is the cell's maximum window (DRAIN_PACE_WINDOW_MAX_MS) and
-      # keeps a ~2,700-host cell near capacity. A cell on an older image drains at once.
+      # region for ~5 min. 5 min is the cell's maximum window (DRAIN_PACE_WINDOW_MAX_MS); a
+      # ~2,700-host cell still arrives at ~9/s, so expect a short tail, not zero rejects.
+      # The transition wait below is the 15-min migration lease plus this window. A cell on
+      # an older image drains at once.
       DRAIN_PACE_WINDOW_MS: '300000'
     steps:
       - name: Require exact reusable-workflow configuration
@@ -577,7 +579,7 @@ jobs:
             --unobserved-bound "${EXPECTED_UNOBSERVED_BOUND}" \
             --heartbeat either --admission migration-only --draining required \
             --activity restart-safe --expected-image-digests "${PREDECESSOR_IMAGE_DIGEST}" \
-            --timeout-ms 1020000
+            --timeout-ms 1200000
 
       - id: capacity-auth
         if: ${{ inputs.mode != 'verify' }}
