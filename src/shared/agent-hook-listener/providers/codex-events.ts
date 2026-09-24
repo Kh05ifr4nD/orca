@@ -23,6 +23,7 @@ import { extractToolFields, isNewTurnEvent } from '../provider-event-routing'
 import { readString } from '../tool-input-preview'
 import {
   codexMainAgentStatusForPayload,
+  codexMainAgentTurnInterrupted,
   codexOutcomeRestatedByStop,
   getOrCreateCodexSubagentRoster,
   getOrCreateCodexSubagentTranscriptState,
@@ -57,6 +58,7 @@ export function buildCodexStatusPayload(
     interactivePrompt: snapshot.interactivePrompt,
     lastAssistantMessage: snapshot.lastAssistantMessage,
     lastAssistantMessageIsToolOutput: snapshot.lastAssistantMessageIsToolOutput,
+    interrupted: codexMainAgentTurnInterrupted(lead),
     subagents: codexRosterToSnapshots(state.codexSubagentRosterByPaneKey.get(paneKey)),
     mainAgent: codexMainAgentStatusForPayload(lead)
   })

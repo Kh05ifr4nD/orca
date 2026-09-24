@@ -87,6 +87,12 @@ export function codexMainAgentStatusForPayload(
     : undefined
 }
 
+/** The row's `interrupted` flag for readers that predate `mainAgent`, derived from the main agent's
+ *  verdict so any restatement of the cancelled turn (a late Stop, a child's drain) still carries it. */
+export function codexMainAgentTurnInterrupted(record: CodexLeadTurnState | undefined): boolean {
+  return record?.state === 'done' && record.outcome === 'cancellation'
+}
+
 export function seedCodexStateFromSnapshot(
   state: HookListenerState,
   paneKey: string,
@@ -209,10 +215,13 @@ export function reconcileRemoteCodexState(
     agentId && payload.prompt.length === 0 && previous?.agentType === 'codex'
       ? previous.prompt
       : payload.prompt
+  const effectiveState = codexRosterEffectiveState(roster, lead.state)
   return {
     ...payload,
     prompt,
-    state: codexRosterEffectiveState(roster, lead.state),
+    state: effectiveState,
+    interrupted:
+      effectiveState === 'done' && codexMainAgentTurnInterrupted(lead) ? true : undefined,
     model: lead.model ?? payload.model,
     subagents: codexRosterToSnapshots(roster),
     // Why: main's cache outlives a relay restart, so it is the main agent fact for a relayed row too.
