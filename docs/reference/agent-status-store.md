@@ -238,15 +238,25 @@ Every lane, Codex included, combines through the fold. A child waiting on a
 human is a fold input (`childWorkLiveness: 'waiting'`, derived from the child's
 own `waiting` state; a child's `blocked` means it failed and stays live work)
 and makes the row wait whatever the main agent is doing, unless the main agent
-is itself asking. The Claude hook lane
-still holds a child's permission wait on the displaced main agent record
-(`waitingAgentId`, `stateBeforeWait`) rather than on the child, but publishes
-the displaced state as `mainAgent`, so its rows match Codex. One known
-divergence remains, pinned by name in the parity table
-(`src/shared/main-agent-status-parity.test.ts`) so a reader does not mistake
-it for drift: a cancelled turn with a still-running shell reads `done` in the
-hook lane and `monitoring` in the structured lane; the cancel policy that
-removes it flips that row.
+is itself asking. Only the Codex hook lane feeds that input today. Known
+divergences, pinned by name in the parity table
+(`src/shared/main-agent-status-parity.test.ts`) where they are reachable, so a
+reader does not mistake them for drift:
+
+- A cancelled turn with a still-running shell reads `done` in the hook lane
+  and `monitoring` in the structured lane; the cancel policy that removes it
+  flips that row.
+- The Claude hook lane holds a child's permission wait in one slot on the
+  displaced main agent record (`waitingAgentId`, `stateBeforeWait`), not on
+  the child. It publishes the displaced state as `mainAgent`, but the next
+  main agent event overwrites the slot, so the row stops reading `waiting`
+  while the child is still asking, and a second asking child replaces the
+  first.
+- The structured lane has no per-child wait: a child's pending prompt makes
+  the session `attention`, which reads as the main agent's own `blocked`.
+- The Codex hook lane drops its roster on a root `Stop` when it tracks no
+  child transcripts, so a still-running or still-asking child stops holding
+  the row.
 
 ## PR 1b: the runtime's retained row store is deleted
 

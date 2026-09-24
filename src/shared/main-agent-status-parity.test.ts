@@ -235,10 +235,12 @@ const STORIES: Story[] = [
       ],
       expect: { state: 'waiting', mainAgent: { state: 'done' } }
     },
+    // KNOWN DIVERGENCE: no structured producer reports a waiting task; a child's pending prompt
+    // is a session-level `attention`, so this lane blames the main agent for the child's request.
     structured: {
-      status: 'idle',
-      backgroundTasks: [{ ...AGENT_TASK, state: 'waiting' }],
-      expect: { state: 'waiting', mainAgent: { state: 'done' } }
+      status: 'attention',
+      backgroundTasks: [AGENT_TASK],
+      expect: { state: 'blocked', mainAgent: { state: 'blocked' } }
     },
     codex: {
       events: [
