@@ -4,7 +4,6 @@ import {
   failedAcquisitionSettlement
 } from './structured-agent-session-failed-create-refusal'
 import type {
-  StructuredAgentSessionAcquireInput,
   StructuredAgentSessionAdapter,
   StructuredAgentSessionProviderChildPhase
 } from './structured-agent-session-adapter'
@@ -44,7 +43,6 @@ import {
 import type { ProviderHistoryWindow } from '../agent-session-journal/journal-submission-reconciler'
 
 export type AttachFlowInput = {
-  rewind?: StructuredAgentSessionAcquireInput['rewind']
   store: AgentSessionRecordStore
   adapter: StructuredAgentSessionAdapter
   journalRoot: string

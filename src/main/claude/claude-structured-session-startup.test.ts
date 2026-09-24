@@ -29,7 +29,6 @@ function startingAdapter(claude: ReturnType<typeof fakeClaude>): {
     undefined,
     undefined,
     undefined,
-    undefined,
     (settlement) => late.push(settlement)
   )
   return { adapter, events, late }

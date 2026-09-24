@@ -1,4 +1,3 @@
-import { ClaudeRewindAttempt, proveClaudeRewindRecovery } from './claude-structured-rewind'
 import {
   AgentSessionPreSpawnError,
   type AgentSessionAcquisition,
@@ -19,8 +18,7 @@ import { observeClaudeFastModeFacts } from './claude-structured-session-options'
 import {
   createClaudeInitProof,
   readClaudeStartupFacts,
-  settleClaudeSessionStartup,
-  type ClaudeStartupFacts
+  settleClaudeSessionStartup
 } from './claude-structured-session-startup'
 import { createClaudeSessionPublication } from './claude-structured-session-publication'
 import {
@@ -33,6 +31,7 @@ import {
 } from './claude-structured-session-state'
 import { resolveClaudeAcquisitionError } from './claude-structured-session-close'
 import { readClaudeTranscriptEntryUuid } from './claude-tui-exit'
+import { persistClaudeTurnResumePoint } from './claude-structured-resume-point'
 import { withAgentSessionCreatePhase } from '../observability/agent-session-instrumentation'
 import { resolveClaudeAcquisitionLaunch } from './claude-structured-acquisition-launch'
 import {
@@ -79,7 +78,6 @@ export async function acquireClaudeSession({
     createClaudeJournalFailureHandler({ attempt, initProof, callbacks, sessionId })
   )
 
-  const rewind = new ClaudeRewindAttempt(input.rewind, input.rewind?.onProved)
   const onMessage = (message: Record<string, unknown>): void => {
     const init = readClaudeInit(message)
     if (readClaudeFrameString(message, 'session_id') !== expectedProviderSessionId) {
@@ -88,11 +86,6 @@ export async function acquireClaudeSession({
       if (init || (message.type === 'system' && message.subtype === 'init')) {
         initProof.reject(new Error('claude provider session expected'))
       }
-      return
-    }
-    const refusal = rewind.observe(message)
-    if (refusal) {
-      initProof.reject(refusal)
       return
     }
     if (init) {
@@ -109,6 +102,10 @@ export async function acquireClaudeSession({
     if (liveSession) {
       liveSession.leafUuid = observedLeafUuid
       observeClaudeFastModeFacts(liveSession, message)
+      // Recording a turn end is an owner action; a result that trails the child's exit has no owner.
+      if (message.type === 'result' && sessions.get(sessionId) === liveSession) {
+        persistClaudeTurnResumePoint(sessionId, liveSession, deps)
+      }
     }
     const turnOrigin = liveSession
       ? resolveClaudeReplayTurn(liveSession, message, (settlement) =>
@@ -148,8 +145,7 @@ export async function acquireClaudeSession({
       exits,
       callbacks,
       previous,
-      attempt,
-      rewind
+      attempt
     })
     expectedProviderSessionId = launch.providerSessionId
     observedLeafUuid = launch.resumeLeafUuid
@@ -193,28 +189,6 @@ export async function acquireClaudeSession({
     acquisitions.assertCurrent(sessionId, attempt)
     const emit = (event: Parameters<typeof callbacks.emit>[2]): void =>
       callbacks.deliver(attempt, sessionId, () => callbacks.emit(liveSession, input.events, event))
-    const readFacts = (recordPhase?: typeof input.recordPhase): Promise<ClaudeStartupFacts> =>
-      readClaudeStartupFacts({
-        connection,
-        initProof,
-        sessionId,
-        providerSessionId: launch.providerSessionId,
-        resumesTranscript: launch.resumesTranscript,
-        inputOptions: input.options,
-        requestTimeoutMs: deps.requestTimeoutMs,
-        ...(recordPhase ? { recordPhase } : {}),
-        emit
-      })
-    // A rewind publishes its target leaf as the durable cursor, so it alone stays unpublished
-    // until the CLI has proven the rewind; still untimed.
-    const proofBeforePublish = Boolean(input.rewind || input.rewindRecovery)
-    let facts: Promise<ClaudeStartupFacts> | null = null
-    if (proofBeforePublish) {
-      facts = Promise.resolve(await readFacts(input.recordPhase))
-      observedLeafUuid = (await rewind.prove(launch, deps)) ?? observedLeafUuid
-      observedLeafUuid =
-        (await proveClaudeRewindRecovery(input.rewindRecovery, launch, deps)) ?? observedLeafUuid
-    }
     if (connection.pid === undefined) {
       // A pid-less spawn always reports its error next; surface that, not the missing pid.
       await initProof.promise
@@ -236,8 +210,8 @@ export async function acquireClaudeSession({
     const publication = createClaudeSessionPublication({
       connection,
       providerSessionId: launch.providerSessionId,
-      claudeConfigDir: launch.claudeConfigDir,
       leafUuid: observedLeafUuid,
+      turnEndLeafUuid: launch.resumeLeafUuid,
       fence: input.fence,
       continuesChain: launch.continuesChain,
       prompts,
@@ -262,7 +236,16 @@ export async function acquireClaudeSession({
     })
     session.startup.settled = settleClaudeSessionStartup({
       session,
-      facts: facts ?? readFacts(),
+      facts: readClaudeStartupFacts({
+        connection,
+        initProof,
+        sessionId,
+        providerSessionId: launch.providerSessionId,
+        resumesTranscript: launch.resumesTranscript,
+        inputOptions: input.options,
+        requestTimeoutMs: deps.requestTimeoutMs,
+        emit
+      }),
       isCurrent: () => sessions.get(sessionId) === session,
       requestTimeoutMs: deps.requestTimeoutMs,
       fault: (error) => callbacks.handleExit(sessionId, attempt, error),
@@ -282,8 +265,8 @@ export async function acquireClaudeSession({
         exits.get(sessionId)?.error ?? new Error('claude session ended before acquisition returned')
       )
     }
-    // Even a proof-first start applies its facts and restores saved options only now, so the
-    // child is `starting` until `started` says otherwise.
+    // The start applies its facts and restores saved options only after publish, so the child
+    // is `starting` until `started` says otherwise.
     return { ...publication.acquisition, providerChildPhase: 'starting' }
   } catch (error) {
     unbindReadingControl?.()
@@ -298,7 +281,6 @@ export async function acquireClaudeSession({
     acquisitions.deleteIfCurrent(sessionId, attempt)
     throw acquisitionError
   } finally {
-    rewind.clear()
     attempt.finish()
   }
 }

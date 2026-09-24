@@ -27,6 +27,7 @@ import {
 } from '../native-chat/claude-structured-managed-account-support'
 import { resolveClaudeCommand } from '../codex-cli/command'
 import { resolveSessionFilePath } from '../native-chat/session-file-resolver'
+import { withoutInheritedClaudeConfigDir } from './claude-config-dir-pin'
 import type { AgentSessionRecordStore } from '../runtime/agent-session-record-store'
 
 export const CLAUDE_DEFAULT_SETTING_SOURCES = ['user', 'project', 'local'] as const
@@ -45,8 +46,6 @@ export type ClaudeStructuredSdkOptions = Pick<
   | 'allowDangerouslySkipPermissions'
   | 'sessionId'
   | 'resume'
-  | 'resumeSessionAt'
-  | 'resumeDropsTurn'
 >
 
 /**
@@ -96,6 +95,7 @@ export type ClaudeStructuredLaunch = {
   env?: Record<string, string>
   claudeConfigDir: string
   providerSessionId: string
+  /** The previous head leaf, carried into the publication link; never a resume argument. */
   resumeLeafUuid: string | null
   /** Launch mode: `--resume` of a transcript Claude wrote, rather than starting the id fresh. */
   resumesTranscript: boolean
@@ -112,6 +112,8 @@ export type ClaudeStructuredLaunchResolverDeps = {
     | Promise<Record<string, string> | undefined>
     | Record<string, string>
     | undefined
+  /** The env the child inherits before auth stripping; absent inherits Orca's own process env. */
+  resolveInheritedEnv?: () => Promise<Record<string, string>>
   /**
    * Required, and deliberately not defaulted. `stripAuthEnv` used to be a literal
    * `true` here, so a missing dependency could not under-strip. Now it can, and the
@@ -204,8 +206,7 @@ export function createClaudeStructuredLaunchResolver(
     if (
       head?.handle.provider === 'claude' &&
       (identity.providerHandle.kind !== 'claude' ||
-        identity.providerHandle.sessionId !== head.handle.sessionId ||
-        identity.providerHandle.leafUuid !== head.handle.leafUuid)
+        identity.providerHandle.sessionId !== head.handle.sessionId)
     ) {
       throw new Error('claude durable resume identity changed before spawn')
     }
@@ -231,6 +232,9 @@ export function createClaudeStructuredLaunchResolver(
     const command = (deps.resolveCommand ?? resolveClaudeCommand)()
     const auth = await deps.resolveAuthPolicy()
     const overlay = await deps.resolveEnv?.()
+    const inheritedEnv = deps.resolveInheritedEnv
+      ? await deps.resolveInheritedEnv()
+      : cloneDefinedEnv(process.env)
     // A switch can begin while the policy and overlay resolve, exactly as it can
     // during the terminal preflight's prepareClaudeAuth — recheck after the awaits.
     await assertClaudeAuthSwitchSettled(deps.authSwitchSettleTimeoutMs)
@@ -250,7 +254,7 @@ export function createClaudeStructuredLaunchResolver(
       // PATH; an ordinary chat session's env passes through untouched.
       structuredWorkerChildIdentityEnv(record.sessionId, {
         ...applyClaudeEnvPatch(
-          cloneDefinedEnv(process.env),
+          withoutInheritedClaudeConfigDir(inheritedEnv, process.platform),
           {},
           {
             stripAuthEnv: auth.stripAuthEnv,
@@ -269,12 +273,8 @@ export function createClaudeStructuredLaunchResolver(
         ...CLAUDE_STRUCTURED_BASE_OPTIONS,
         ...permission,
         extraArgs: { ...CLAUDE_STRUCTURED_BASE_OPTIONS.extraArgs, ...permission.extraArgs },
-        ...(resumesTranscript && head?.handle.provider === 'claude'
-          ? {
-              resume: providerSessionId,
-              ...(head.handle.leafUuid === null ? {} : { resumeSessionAt: head.handle.leafUuid })
-            }
-          : { sessionId: providerSessionId })
+        // Claude owns where a resumed conversation continues; the stored leaf is Orca's bookkeeping.
+        ...(resumesTranscript ? { resume: providerSessionId } : { sessionId: providerSessionId })
       },
       cwd: await deps.resolveWorkspacePath(record.location.workspaceId),
       env,

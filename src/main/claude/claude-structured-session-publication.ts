@@ -11,8 +11,9 @@ import { createClaudeSessionStartupGate } from './claude-structured-session-star
 export function createClaudeSessionPublication(input: {
   connection: ClaudeSession['connection']
   providerSessionId: string
-  claudeConfigDir: string
   leafUuid: string | null
+  /** The launch's stored leaf: a frame seen before publication is not a completed turn. */
+  turnEndLeafUuid: string | null
   fence: number
   acquisitionGeneration: string
   /** The record's chain already heads this provider session: the link resumes, never creates. */
@@ -42,8 +43,8 @@ export function createClaudeSessionPublication(input: {
     session: {
       connection: input.connection,
       providerSessionId: input.providerSessionId,
-      claudeConfigDir: input.claudeConfigDir,
       leafUuid: input.leafUuid,
+      turnEndLeafUuid: input.turnEndLeafUuid,
       fence: input.fence,
       acquisitionGeneration: input.acquisitionGeneration,
       prompts: input.prompts,

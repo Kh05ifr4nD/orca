@@ -15,10 +15,8 @@ import {
   AgentSessionAcquisitionExitUnprovenError,
   AgentSessionAcquisitionRefusal,
   AgentSessionAcquisitionRootExitObservedError,
-  AgentSessionRewindRefusal,
   isAgentSessionPreSpawnError
 } from './structured-agent-session-adapter'
-import { rewindRefusal } from './structured-rewind-refusal'
 
 /** What a failed acquisition proved about its process, and the outcome its operation settles to. */
 export function failedAcquisitionSettlement(error: unknown): {
@@ -45,9 +43,6 @@ export function failedAcquisitionSettlement(error: unknown): {
 export function failedAcquisitionRefusal(
   error: unknown
 ): { ok: false; refusal: AgentSessionWireRefusal } | null {
-  if (error instanceof AgentSessionRewindRefusal) {
-    return rewindRefusal(error.rewindReason)
-  }
   if (error instanceof AgentSessionAcquisitionRefusal) {
     return { ok: false, refusal: { code: error.code, message: error.message } }
   }

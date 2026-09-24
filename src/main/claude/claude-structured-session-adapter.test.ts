@@ -539,15 +539,6 @@ async function endedAtStartup(
 }
 
 describe('ClaudeStructuredSessionAdapter acquisition cleanup', () => {
-  // Only a rewind still proves startup before publish, so it is the start that can fail here.
-  const kept = async (): Promise<string> => 'kept'
-  const rewind = {
-    targetUuid: 'kept',
-    previousLeafUuid: 'tip',
-    dropsTurn: 'drop',
-    onProved: async () => {}
-  }
-
   /** A start that fails after the child self-exited, with its close verdict scripted. */
   function failedStart(
     unprovenCloseVerdict: ClaudeStreamJsonConnection['exitVerdict']
@@ -556,15 +547,12 @@ describe('ClaudeStructuredSessionAdapter acquisition cleanup', () => {
       exitBeforeInit: 'claude stream-json exited (code 1): not logged in',
       unprovenCloseVerdict
     })
-    return adapterFor(
-      claude,
-      { resumesTranscript: true, continuesChain: true, resumeLeafUuid: 'tip' },
-      [],
-      [],
-      undefined,
-      kept
-    )
-      .acquire({ identity: identityFor(), fence: 7, spawnToken: 'spawn-9', rewind })
+    return adapterFor(claude, {
+      resumesTranscript: true,
+      continuesChain: true,
+      resumeLeafUuid: 'tip'
+    })
+      .acquire({ identity: identityFor(), fence: 7, spawnToken: 'spawn-9' })
       .catch((error: unknown) => error)
   }
 
@@ -627,14 +615,11 @@ describe('ClaudeStructuredSessionAdapter acquisition cleanup', () => {
   it('forgets a retained exit once the session is acquired again', async () => {
     const options: Parameters<typeof fakeClaude>[0] = {}
     const claude = fakeClaude(options)
-    const adapter = adapterFor(
-      claude,
-      { resumesTranscript: true, continuesChain: true, resumeLeafUuid: 'tip' },
-      [],
-      [],
-      undefined,
-      kept
-    )
+    const adapter = adapterFor(claude, {
+      resumesTranscript: true,
+      continuesChain: true,
+      resumeLeafUuid: 'tip'
+    })
     await adapter.acquire({ identity: identityFor(), fence: 7, spawnToken: 'spawn-9' })
     const first = claude.connections[0]
     first.handlers.onExit?.(new Error('claude stream-json exited (code 1): crashed'))
@@ -643,7 +628,7 @@ describe('ClaudeStructuredSessionAdapter acquisition cleanup', () => {
     options.exitBeforeInit = 'claude stream-json exited (code 1): not logged in'
 
     await expect(
-      adapter.acquire({ identity: identityFor(), fence: 8, spawnToken: 'spawn-10', rewind })
+      adapter.acquire({ identity: identityFor(), fence: 8, spawnToken: 'spawn-10' })
     ).rejects.toThrow('not logged in')
     // The second start's own proven close is the answer; the first exit is stale.
     await expect(adapter.releaseAcquisition({ sessionId: 'session-1' })).resolves.toBe(true)

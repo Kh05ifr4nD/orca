@@ -1,12 +1,11 @@
 // What Claude reports at initialize, read after the session is already published. None of it
 // gates the create: a slow start is still a start, and every way it can fail (exit, auth,
-// a foreign session id, a rewind refusal) faults the published session through its exit path.
+// a foreign session id) faults the published session through its exit path.
 
 import type {
   StructuredAgentSessionAcquireInput,
   StructuredAgentSessionStartedEvent
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import { withAgentSessionCreatePhase } from '../observability/agent-session-instrumentation'
 import type { ClaudeStreamJsonConnection } from './claude-stream-json-connection'
 import { ClaudeSlashCommandCatalog } from './claude-slash-command-catalog'
 import {
@@ -70,21 +69,18 @@ export async function readClaudeStartupFacts(input: {
   resumesTranscript: boolean
   inputOptions: StructuredAgentSessionAcquireInput['options']
   requestTimeoutMs: number | undefined
-  recordPhase?: StructuredAgentSessionAcquireInput['recordPhase']
   emit: (event: ClaudeStructuredSessionEvent) => void
 }): Promise<ClaudeStartupFacts> {
-  const [initialization, init] = await withAgentSessionCreatePhase('init', input.recordPhase, () =>
-    Promise.all([
-      input.connection.initializationResult().then((result) => {
-        const authError = claudeInitializationAuthError(result)
-        if (authError) {
-          throw authError
-        }
-        return result
-      }),
-      input.initProof.promise
-    ])
-  )
+  const [initialization, init] = await Promise.all([
+    input.connection.initializationResult().then((result) => {
+      const authError = claudeInitializationAuthError(result)
+      if (authError) {
+        throw authError
+      }
+      return result
+    }),
+    input.initProof.promise
+  ])
   if (input.connection.closed) {
     throw new Error('claude session closed before startup completed')
   }

@@ -224,7 +224,6 @@ export function adapterAtPublishFor(
   events: ClaudeStructuredSessionEvent[] = [],
   persistedHandles: unknown[] = [],
   requestTimeoutMs?: number,
-  readTranscriptLeaf?: ClaudeStructuredSessionAdapterDeps['readTranscriptLeaf'],
   persistHandle?: ClaudeStructuredSessionAdapterDeps['persistHandle'],
   onBackgroundTasksChanged?: ClaudeStructuredSessionAdapterDeps['onBackgroundTasksChanged'],
   onDispatchSettledLate?: ClaudeStructuredSessionAdapterDeps['onDispatchSettledLate']
@@ -252,8 +251,7 @@ export function adapterAtPublishFor(
         persistedHandles.push(handle)
       }),
     ...(onBackgroundTasksChanged ? { onBackgroundTasksChanged } : {}),
-    ...(onDispatchSettledLate ? { onDispatchSettledLate } : {}),
-    ...(readTranscriptLeaf ? { readTranscriptLeaf } : {})
+    ...(onDispatchSettledLate ? { onDispatchSettledLate } : {})
   })
 }
 
@@ -267,7 +265,6 @@ export async function acquired(
     claude,
     launch,
     events,
-    undefined,
     undefined,
     undefined,
     undefined,

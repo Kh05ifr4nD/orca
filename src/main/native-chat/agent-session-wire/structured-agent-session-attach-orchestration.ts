@@ -1,4 +1,3 @@
-import type { StructuredAgentSessionAcquireInput } from './structured-agent-session-adapter'
 import { recoverStructuredRewind } from './structured-rewind-recovery'
 import { recoverInterruptedCompaction } from './structured-compaction-recovery'
 // The host's attach, lifted out of the host class.
@@ -40,7 +39,6 @@ import {
 export type StructuredAgentSessionAttachOptions = {
   /** Provider-exit recovery: refuses once the ticket the restart was issued for is stale. */
   admitRecoveryTicket?: () => boolean
-  rewind?: StructuredAgentSessionAcquireInput['rewind']
   recordPhase?: AgentSessionCreatePhaseRecorder
 }
 
@@ -48,7 +46,7 @@ export type StructuredAgentSessionAttachOptions = {
  * The attach itself, for a caller already inside the session's serialize.
  *
  * That is every caller that has to know what the session looks like RIGHT NOW: a hold, a send
- * making sure it has an owner, provider-exit recovery, a rewind replacing the owner. They run their
+ * making sure it has an owner, provider-exit recovery. They run their
  * check and this attach in one serialized step, so "the session has no child" is still true when
  * the attach starts. `attachStructuredAgentSession` is this under `serialize`, for a client.
  */
@@ -149,7 +147,6 @@ async function runAttach(
     callerKey,
     params.envelope,
     await performAttach({
-      rewind: options.rewind,
       store: context.deps.store,
       adapter: context.deps.adapter,
       journalRoot: context.deps.journalRoot,
@@ -233,16 +230,14 @@ async function runAttach(
           acquisitionGeneration: acquisitionGeneration ?? previous?.acquisitionGeneration ?? null,
           resumedFromFence: acquiredOwner ? resumedFromFence : previous?.resumedFromFence
         })
-        if (!options.rewind) {
-          await recoverStructuredRewind(
-            context.deps.store,
-            sessionId,
-            attached.journal,
-            fence,
-            context.deps.adapter,
-            context.now
-          )
-        }
+        await recoverStructuredRewind(
+          context.deps.store,
+          sessionId,
+          attached.journal,
+          fence,
+          context.deps.adapter,
+          context.now
+        )
         await recoverInterruptedCompaction(context.deps.store, sessionId, attached.journal, fence)
         if (attached.recovery) {
           context.subscribers.reset(sessionId, attached.journal, attached.recovery.reset, fence)
