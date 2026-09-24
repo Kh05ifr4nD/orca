@@ -4,6 +4,7 @@ import type {
   AgentJournalRenderItem
 } from '../../../shared/agent-session-journal-types'
 import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
+import { dispatchWriteFailureReason } from '../../../shared/structured-agent-session-dispatch-rejection'
 import { partitionJournalLifecycleMutations } from '../agent-session-journal/journal-lifecycle-batch-partition'
 import type { JournalLifecycleMutationInput } from '../agent-session-journal/journal-row-builders'
 import {
@@ -70,6 +71,7 @@ type DeadGenerationSubmission = Pick<
 export type DeadGenerationJournal = {
   appendLifecycleBatch: AgentSessionJournal['appendLifecycleBatch']
   markPendingSubmissionsUnknown: AgentSessionJournal['markPendingSubmissionsUnknown']
+  rejectPendingSubmissions: AgentSessionJournal['rejectPendingSubmissions']
   snapshot: () => Pick<ReturnType<AgentSessionJournal['snapshot']>, 'items'>
   pendingSubmissions?: AgentSessionJournal['pendingSubmissions']
   submissions?: () => DeadGenerationSubmission[]
@@ -143,7 +145,15 @@ export async function settleStructuredAgentSessionDeadGeneration(input: {
     if (!showUnexpectedExitOutcome && !hasUnfinishedWork) {
       return true
     }
-    await input.journal.markPendingSubmissionsUnknown(input.fence, input.pendingSubmissionReason)
+    // A child that never proved its start accepted nothing — input is written only after it
+    // initializes — so every send it left unanswered is provably unwritten and is rejected with the
+    // child's own diagnostic. A proven child's unanswered sends stay in doubt.
+    await (input.exitedDuringStartup
+      ? input.journal.rejectPendingSubmissions(
+          input.fence,
+          dispatchWriteFailureReason(input.unexpectedExitReason ?? input.pendingSubmissionReason)
+        )
+      : input.journal.markPendingSubmissionsUnknown(input.fence, input.pendingSubmissionReason))
     const items = input.journal.snapshot().items
     const mutations: JournalLifecycleMutationInput[] = []
     if (showUnexpectedExitOutcome) {

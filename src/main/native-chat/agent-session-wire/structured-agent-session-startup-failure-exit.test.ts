@@ -26,7 +26,8 @@ function startedSession(): StructuredAgentSessionUnexpectedExitSession & {
       // Nothing ran: the start failed before any response or acknowledged prompt.
       snapshot: () => ({ items: [] }),
       appendLifecycleBatch: vi.fn(async () => ({ epoch: 'epoch-1', sequence: 1 })),
-      markPendingSubmissionsUnknown: vi.fn(async () => [])
+      markPendingSubmissionsUnknown: vi.fn(async () => []),
+      rejectPendingSubmissions: vi.fn(async () => [])
     }
   }
 }

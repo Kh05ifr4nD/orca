@@ -315,7 +315,11 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   private session(sessionId: string): ClaudeSession {
     const session = this.sessions.get(sessionId)
     if (!session) {
-      throw new Error(`no live claude stream-json session for ${sessionId}`)
+      // A child that just exited is named by its own diagnostic, not by its absence.
+      throw (
+        this.exits.get(sessionId)?.error ??
+        new Error(`no live claude stream-json session for ${sessionId}`)
+      )
     }
     return session
   }

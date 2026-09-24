@@ -65,6 +65,7 @@ export type AgentSessionMutationRequest<TValue> = {
   publish: (journal: AgentSessionJournal) => void
   flushStreamedEvents: (sessionId: string) => Promise<void>
   hasPendingStreamedEvents?: (sessionId: string) => boolean
+  providerChildPhase?: AgentSessionTurnContext['providerChildPhase']
   now: () => number
 }
 
@@ -191,6 +192,7 @@ function turnContext<TValue>(
     flushStreamedEvents: () => request.flushStreamedEvents(request.envelope.sessionId),
     hasPendingStreamedEvents: () =>
       request.hasPendingStreamedEvents?.(request.envelope.sessionId) ?? false,
+    ...(request.providerChildPhase ? { providerChildPhase: request.providerChildPhase } : {}),
     now: () => request.now()
   }
 }
