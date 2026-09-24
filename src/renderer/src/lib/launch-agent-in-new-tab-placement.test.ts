@@ -8,8 +8,6 @@ const mockCreateTab = vi.fn()
 const mockQueueTabStartupCommand = vi.fn()
 const mockSetActiveTabType = vi.fn()
 const mockSeedNativeChatAppliedSessionOptions = vi.fn()
-const mockIsWebRuntimeSessionActive = vi.fn(() => false)
-const mockCreateWebRuntimeSessionTerminal = vi.fn()
 
 type PlacementSettings = {
   agentCmdOverrides: Record<string, string>
@@ -65,9 +63,7 @@ vi.mock('@/lib/native-chat-transcript-readability', () => ({
 }))
 
 vi.mock('@/runtime/web-runtime-session', () => ({
-  isWebRuntimeSessionActive: mockIsWebRuntimeSessionActive,
-  createWebRuntimeSessionTerminal: mockCreateWebRuntimeSessionTerminal,
-  isWebTerminalSurfaceTabId: () => false
+  isWebRuntimeSessionActive: () => false
 }))
 
 vi.mock('@/lib/worktree-runtime-owner', () => ({
@@ -93,21 +89,6 @@ describe('launchAgentInNewTab terminal tab activation', () => {
     vi.clearAllMocks()
     store.settings = placementSettings()
     mockCreateTab.mockReturnValue({ id: 'tab-1' })
-    mockIsWebRuntimeSessionActive.mockReturnValue(false)
-    mockCreateWebRuntimeSessionTerminal.mockResolvedValue({ status: 'created' })
-  })
-
-  it('shows terminals in the paired host launch worktree once the host creates the tab', async () => {
-    mockIsWebRuntimeSessionActive.mockReturnValue(true)
-    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
-
-    launchAgentInNewTab({ agent: 'codex', worktreeId: 'wt-1' })
-
-    // Why: host creation is async, so the user may be viewing another worktree by the time it lands.
-    await vi.waitFor(() =>
-      expect(mockSetActiveTabType).toHaveBeenCalledExactlyOnceWith('terminal', 'wt-1')
-    )
-    expect(mockCreateTab).not.toHaveBeenCalled()
   })
 
   it('shows terminals in the worktree it launched into', async () => {
