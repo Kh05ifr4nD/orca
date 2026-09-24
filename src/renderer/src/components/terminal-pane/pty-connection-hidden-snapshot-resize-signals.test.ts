@@ -2,6 +2,7 @@ import type * as React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushAsyncTicks, createDeferred } from './pty-connection-test-async'
 import {
+  LEAF_1,
   captureCallbackTerminalWrites,
   createMockTransport,
   createPane,
@@ -434,6 +435,66 @@ describe('connectPanePty', () => {
     expect(writes.join('')).toContain('model-frame')
     expect(transport.resize).not.toHaveBeenCalledWith(132, 40)
     disposable.dispose()
+  })
+
+  it('restores a dropped daemon alt frame from the model when the fit lands back on the capture grid', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('tab-pty')
+    transport.connect.mockImplementation(async ({ sessionId }: { sessionId?: string }) =>
+      sessionId
+        ? {
+            id: sessionId,
+            snapshot: 'PREFIX-SCROLLBACK' + 'ALT-FRAME-BODY',
+            snapshotPrefixAnsi: 'PREFIX-SCROLLBACK',
+            snapshotFrameAnsi: 'ALT-FRAME-BODY',
+            snapshotFrameRestoreAnsi: 'RESTORE-LIVE-STATE',
+            snapshotCols: 200,
+            snapshotRows: 50,
+            isAlternateScreen: true
+          }
+        : null
+    )
+    transportFactoryQueue.push(transport)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'tab-pty' }] }
+    } as StoreState
+    const getMainBufferSnapshot = window.api.pty.getMainBufferSnapshot as unknown as ReturnType<
+      typeof vi.fn
+    >
+    getMainBufferSnapshot.mockResolvedValue({
+      data: '\x1b[?1049hMODEL-FRAME',
+      scrollbackAnsi: '',
+      frameRestoreAnsi: 'MODEL-RESTORE',
+      cols: 200,
+      rows: 50,
+      seq: 10,
+      alternateScreen: true
+    })
+
+    const pane = createPane(1)
+    pane.terminal.cols = 200
+    pane.terminal.rows = 50
+    const writtenText = (): string =>
+      (pane.terminal.write as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]).join('')
+    // The replay measures a transient narrower grid; the fit then lands back on the capture grid.
+    pane.fitAddon.proposeDimensions = vi.fn(() =>
+      writtenText().includes('RESTORE-LIVE-STATE')
+        ? { cols: 200, rows: 50 }
+        : { cols: 120, rows: 40 }
+    )
+    const manager = createManager(1)
+    const deps = createDeps({
+      restoredLeafId: LEAF_1,
+      restoredPtyIdByLeafId: { [LEAF_1]: 'tab-pty' }
+    })
+
+    connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks(40)
+
+    expect(writtenText()).not.toContain('ALT-FRAME-BODY')
+    expect(getMainBufferSnapshot).toHaveBeenCalledWith('tab-pty', expect.anything())
+    await vi.waitFor(() => expect(writtenText()).toContain('MODEL-FRAME'))
   })
 
   it('does not forward terminal resizes while the pane is hidden', async () => {
