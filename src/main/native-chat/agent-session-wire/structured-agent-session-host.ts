@@ -233,6 +233,9 @@ export class StructuredAgentSessionHost {
   revealSession = (sessionId: string): Promise<StructuredAgentSessionReveal> =>
     this.restore.revealSession(sessionId)
 
+  /** Opens a visible persisted chat for reading, never a provider child; see the readable restorer. */
+  ensureReadable = (sessionId: string): Promise<boolean> => this.restore.ensureReadable(sessionId)
+
   private serialize = this.tasks.serialize.bind(this.tasks)
 
   private restoreRenewedHandoff(sessionId: string): Promise<void> {

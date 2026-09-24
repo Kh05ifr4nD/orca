@@ -50,10 +50,11 @@ export async function revealStructuredAgentSession(
 }
 
 /**
- * The host's whole readable-restore surface: the startup sweep and the on-demand reveal.
+ * The host's whole readable-restore surface: the startup sweep, the on-demand reveal, and the
+ * on-demand read.
  *
- * Bundled the way the handoff and lifetime collaborators are, because the two share the restorer
- * and differ only in who is asking — startup, once, for everything; a surface, later, for one.
+ * Bundled the way the handoff and lifetime collaborators are, because they share the restorer and
+ * differ only in who is asking — startup, once, for everything; a surface, later, for one.
  */
 export function createStructuredAgentSessionHostRestore(
   deps: StructuredAgentSessionHostDeps,
@@ -66,6 +67,7 @@ export function createStructuredAgentSessionHostRestore(
 ): {
   restoreReadableSessions: (sessionIds?: readonly string[]) => Promise<void>
   revealSession: (sessionId: string) => Promise<StructuredAgentSessionReveal>
+  ensureReadable: (sessionId: string) => Promise<boolean>
 } {
   const restorer = new StructuredAgentSessionReadableRestorer({
     store: deps.store,
@@ -81,6 +83,7 @@ export function createStructuredAgentSessionHostRestore(
     revealSession: (sessionId) =>
       revealStructuredAgentSession(deps, sessionId, wiring.hasSession, (id) =>
         restorer.restoreOne(id)
-      )
+      ),
+    ensureReadable: (sessionId) => restorer.ensureReadable(sessionId)
   }
 }

@@ -100,8 +100,9 @@ describe('revealing one structured session on demand', () => {
 
     await restorer.restoreOne('session-serialized')
 
-    // Ordering against close/eviction is the task queue's job, so the restore must be inside it.
-    expect(serializedIds).toEqual(['session-serialized'])
+    // Ordering against close/eviction is the task queue's job, so the read and the handoff that
+    // follows it must each be inside it.
+    expect(serializedIds).toEqual(['session-serialized', 'session-serialized'])
   })
 
   it('returns the live session instead of restoring over it', async () => {

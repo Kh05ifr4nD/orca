@@ -38,13 +38,14 @@ export type StructuredAgentSessionReadRestoreDeps = {
 }
 
 /**
- * One session's share of the restart restore, and the whole of an on-demand one.
+ * Makes one session readable: its journal open, history answerable. Never touches the handoff.
  *
- * Startup maps this over every supported record; a surface asking for a session it cannot see
- * calls it for one id. The CALLER decides which records are eligible — startup filters by
- * `supportsRecord` before mapping, so an on-demand caller owes the same check.
+ * A surface reading a persisted chat calls this alone — reading must not wait on, or run, the
+ * handoff recovery below, which depends on startup's PTY census. The CALLER decides which records
+ * are eligible — startup filters by `supportsRecord` before mapping, so an on-demand caller owes
+ * the same check.
  */
-export async function restoreOneStructuredAgentSessionRead(
+export async function restoreStructuredAgentSessionReadPhase(
   input: StructuredAgentSessionReadRestoreDeps,
   sessionId: string
 ): Promise<void> {
@@ -55,8 +56,7 @@ export async function restoreOneStructuredAgentSessionRead(
   }
   await input.serialize(sessionId, async () => {
     if (input.hasSession(sessionId)) {
-      // A surface that took a hold mid-restore already attached this one.
-      await input.restoreHandoff(sessionId)
+      // A surface that took a hold, or read it, mid-restore already opened this one.
       return
     }
     const restored = await restoreStructuredAgentSessionRead(
@@ -69,7 +69,20 @@ export async function restoreOneStructuredAgentSessionRead(
     }
     input.onReadable(sessionId, restored)
     await input.retrySettlement(sessionId, restored.params)
-    await input.restoreHandoff(sessionId)
+  })
+}
+
+/** One session's whole share of the restart restore: readable, then its handoff re-proved. */
+export async function restoreOneStructuredAgentSessionRead(
+  input: StructuredAgentSessionReadRestoreDeps,
+  sessionId: string
+): Promise<void> {
+  await restoreStructuredAgentSessionReadPhase(input, sessionId)
+  await input.serialize(sessionId, async () => {
+    // A missing or corrupt journal leaves nothing readable, and nothing to hand back.
+    if (input.hasSession(sessionId)) {
+      await input.restoreHandoff(sessionId)
+    }
   })
 }
 

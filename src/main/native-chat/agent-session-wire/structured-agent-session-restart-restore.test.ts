@@ -12,8 +12,27 @@ vi.mock('./structured-agent-session-read-restore', () => ({
 
 import {
   restoreOneStructuredAgentSessionRead,
-  restoreStructuredAgentSessionsOnRestart
+  restoreStructuredAgentSessionReadPhase,
+  restoreStructuredAgentSessionsOnRestart,
+  type StructuredAgentSessionReadRestoreDeps
 } from './structured-agent-session-restart-restore'
+
+function phaseDeps(
+  overrides: Partial<StructuredAgentSessionReadRestoreDeps> = {}
+): StructuredAgentSessionReadRestoreDeps {
+  return {
+    store: {} as never,
+    journalRoot: '/tmp/journals',
+    reconcile: async () => null,
+    resolveRecovery: async () => undefined,
+    serialize: async (_sessionId, task) => task(),
+    hasSession: () => false,
+    onReadable: () => undefined,
+    retrySettlement: async () => true,
+    restoreHandoff: async () => undefined,
+    ...overrides
+  }
+}
 
 describe('restart journal restoration', () => {
   beforeEach(() => restoreRead.mockReset())
@@ -99,7 +118,7 @@ describe('restart journal restoration', () => {
           calls.push('resolveRecovery')
         },
         serialize: async (_sessionId, task) => task(),
-        hasSession: () => false,
+        hasSession: () => calls.includes('onReadable'),
         onReadable: () => {
           calls.push('onReadable')
         },
@@ -152,5 +171,39 @@ describe('restart journal restoration', () => {
 
     expect(retrySettlement).not.toHaveBeenCalled()
     expect(restoreHandoff).toHaveBeenCalledOnce()
+  })
+
+  it('opens the journal on the read phase alone, never the handoff recovery', async () => {
+    // The handoff re-proves a live agent terminal against startup's PTY census; a read must not
+    // run it early, or wait for it.
+    const live = new Set<string>()
+    const restoreHandoff = vi.fn(async () => undefined)
+    restoreRead.mockResolvedValue({ journal: {}, params: {}, fence: 1 })
+
+    await restoreStructuredAgentSessionReadPhase(
+      phaseDeps({
+        hasSession: (sessionId) => live.has(sessionId),
+        onReadable: (sessionId) => live.add(sessionId),
+        restoreHandoff
+      }),
+      'session-1'
+    )
+
+    expect(live.has('session-1')).toBe(true)
+    expect(restoreHandoff).not.toHaveBeenCalled()
+  })
+
+  it('skips the handoff when the journal is missing or corrupt', async () => {
+    const onReadable = vi.fn()
+    const restoreHandoff = vi.fn(async () => undefined)
+    restoreRead.mockResolvedValue(null)
+
+    await restoreOneStructuredAgentSessionRead(
+      phaseDeps({ onReadable, restoreHandoff }),
+      'session-1'
+    )
+
+    expect(onReadable).not.toHaveBeenCalled()
+    expect(restoreHandoff).not.toHaveBeenCalled()
   })
 })

@@ -4,6 +4,7 @@ import type { AgentSessionRecordStore } from '../../runtime/agent-session-record
 import type { RestoredStructuredAgentSessionRead } from './structured-agent-session-read-restore'
 import {
   restoreOneStructuredAgentSessionRead,
+  restoreStructuredAgentSessionReadPhase,
   restoreStructuredAgentSessionsOnRestart
 } from './structured-agent-session-restart-restore'
 
@@ -53,6 +54,30 @@ export class StructuredAgentSessionReadableRestorer {
       return false
     }
     await restoreOneStructuredAgentSessionRead(this.input, sessionId)
+    return this.input.hasSession(sessionId)
+  }
+
+  /**
+   * Opens a persisted chat's journal for a surface that is reading it, without waiting for the
+   * startup sweep. Read phase only: the handoff recovery stays the sweep's, which runs it once the
+   * PTY census it depends on exists.
+   *
+   * Only for a chat the user still has a tab for, when the store keeps that index: a read retry
+   * landing after a close must not reopen the chat it just closed.
+   */
+  async ensureReadable(sessionId: string): Promise<boolean> {
+    if (this.input.hasSession(sessionId)) {
+      return true
+    }
+    const record = this.input.store.getRecord(sessionId)
+    if (!record || !this.input.supportsRecord(record)) {
+      return false
+    }
+    const visible = this.input.store.getVisibleSessionTabIndex()
+    if (visible.present && !visible.sessionIds.includes(sessionId)) {
+      return false
+    }
+    await restoreStructuredAgentSessionReadPhase(this.input, sessionId)
     return this.input.hasSession(sessionId)
   }
 

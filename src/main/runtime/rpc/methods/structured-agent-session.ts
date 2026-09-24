@@ -263,17 +263,20 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
   defineMethod({
     name: 'agentSession.history',
     params: HistoryParams,
-    handler: async (params, ctx) =>
-      projectTurnItemHistory(
-        projectBackgroundTaskHistory(requireHost(ctx).history(params), ctx),
-        ctx
-      )
+    handler: async (params, ctx) => {
+      const host = requireHost(ctx)
+      await host.ensureReadable(params.sessionId)
+      return projectTurnItemHistory(projectBackgroundTaskHistory(host.history(params), ctx), ctx)
+    }
   }),
   defineStreamingMethod({
     name: 'agentSession.subscribe',
     params: SubscribeParams,
     handler: async (params, ctx, emit) => {
       const host = requireHost(ctx)
+      // Before the stream binds, so nothing is bound across the await. Opens the journal only;
+      // a chat the user still shows reads without waiting for the startup sweep.
+      await host.ensureReadable(params.sessionId)
       const subscriptionId = subscriptionIdFor(ctx, params.sessionId)
       // A live stream is a surface too: it keeps a session from being evicted while it is read and
       // releases that retention when the transport dies without a word.
