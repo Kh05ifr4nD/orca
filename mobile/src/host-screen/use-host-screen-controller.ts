@@ -67,7 +67,9 @@ export function useHostScreenController({
   const { hostCapabilities, floatingWorkspaceEnabled } = useHostProtocolGates()
   const state = useHostScreenState(hostId, action)
   const settings = useHostViewSettings({ client, connState, hostId, state })
-  const descriptor = useHostDescriptor(hostId)
+  // Why gated on the name: an empty name is the saved label still loading, and the resolver would
+  // otherwise title the header with the machine name until it arrives.
+  const descriptor = useHostDescriptor(state.hostName ? hostId : undefined)
 
   const hostDisplay = resolveHostDisplay({
     personalLabel: state.hostName,
