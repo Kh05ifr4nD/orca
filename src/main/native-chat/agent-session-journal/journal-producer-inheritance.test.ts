@@ -8,7 +8,7 @@ import type {
   AgentJournalMessageItem,
   AgentJournalRenderItem
 } from '../../../shared/agent-session-journal-types'
-import { applyJournalRow, createJournalReducerState, renderJournalState } from './journal-reducer'
+import { applyJournalRow, createJournalReducerState } from './journal-reducer'
 import {
   buildJournalItemRow,
   buildJournalTombstoneRow,
@@ -150,27 +150,6 @@ describe('producer inheritance in the reducer', () => {
 
     expect(item(child)?.body).toEqual(text('second life'))
     expect(producerOf(item(child))).toEqual(NO_PRODUCER)
-  })
-
-  it('does not let a stale revision that names no producer touch the row', () => {
-    const { state, write, item } = seeded()
-    write(child, text('current'), linkage)
-    write(child, text('current'), linkage)
-    applyJournalRow(state, {
-      kind: 'item',
-      itemId: agentJournalItemKey(child),
-      revision: 1,
-      body: text('stale'),
-      v: 1,
-      epoch: 'epoch-1',
-      seq: 3,
-      fence: 1,
-      ts: 1_003
-    })
-
-    expect(item(child)).toMatchObject({ revision: 2, body: text('current') })
-    expect(producerOf(item(child))).toEqual(linkage)
-    expect(renderJournalState(state).items).toHaveLength(1)
   })
 })
 

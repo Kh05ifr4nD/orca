@@ -180,7 +180,7 @@ export function createDeferredStructuredAgentSessionEventSink(
           bound.journal.appendLifecycleBatch({
             settlementId,
             mutations,
-            // Linkage is deliberately not forwarded: see the batch row builder.
+            // No row-level linkage: each mutation names its own (see the batch row builder).
             fence: bound.fence
           })
       },
