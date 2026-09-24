@@ -136,8 +136,7 @@ describe('provider-exit recovery tickets', () => {
           items: [lifecycleItem('turn-1', 1, { state: 'running', startedAt: 1_000 })]
         }),
         appendLifecycleBatch,
-        markPendingSubmissionsUnknown: vi.fn(async () => []),
-        rejectPendingSubmissions: vi.fn(async () => [])
+        markPendingSubmissionsUnknown: vi.fn(async () => [])
       }
     } as unknown as StructuredAgentSessionHostSession
 
@@ -205,8 +204,7 @@ describe('provider-exit recovery tickets', () => {
       journal: {
         snapshot: () => ({ items }),
         appendLifecycleBatch,
-        markPendingSubmissionsUnknown: vi.fn(async () => []),
-        rejectPendingSubmissions: vi.fn(async () => [])
+        markPendingSubmissionsUnknown: vi.fn(async () => [])
       }
     } as unknown as StructuredAgentSessionHostSession
     const store = {
