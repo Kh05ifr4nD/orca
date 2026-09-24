@@ -70,18 +70,30 @@ export function journalItemRevisions(
 }
 
 /** Whether the lead's own reply was cut off: a send that had not become a turn yet, or the
- *  marker's turn, found by id, settled as interrupted. */
+ *  marker's turn, found by id, settled as interrupted. Judged on the settlement's row when the
+ *  rows since the cursor are readable, since a reattached provider may restate that turn; on the
+ *  turn as it stands only when they are not. */
 function leadWasMidReply(
   marker: AgentSessionResumeMarker,
-  items: readonly AgentJournalRenderItem[]
+  items: readonly AgentJournalRenderItem[],
+  revisions: readonly JournalItemRevision[] | null
 ): boolean {
   if (marker.work.kind === 'submission') {
     return true
   }
+  const cutOff = (body: AgentJournalItemBody | undefined): boolean | null => {
+    const turn = readAgentJournalTurn(body)
+    return turn?.turnId === marker.work.id
+      ? turn.state === 'interrupted' || turn.state === 'unverifiable'
+      : null
+  }
+  if (revisions) {
+    return revisions.some(({ body }) => cutOff(body) === true)
+  }
   for (let index = items.length - 1; index >= 0; index -= 1) {
-    const turn = readAgentJournalTurn(items[index]?.body)
-    if (turn?.turnId === marker.work.id) {
-      return turn.state === 'interrupted' || turn.state === 'unverifiable'
+    const verdict = cutOff(items[index]?.body)
+    if (verdict !== null) {
+      return verdict
     }
   }
   return false
@@ -99,7 +111,7 @@ export function structuredAgentSessionRestartActivity(input: {
     return undefined
   }
   // A cut-off reply's tool calls are that reply's, not background work of their own.
-  const midReply = leadWasMidReply(input.marker, input.items)
+  const midReply = leadWasMidReply(input.marker, input.items, input.revisionsSinceCursor)
   const prompts: AgentSessionRestartPrompt[] = []
   const tasks: AgentSessionRestartTask[] = []
   const revisions = input.revisionsSinceCursor ?? []

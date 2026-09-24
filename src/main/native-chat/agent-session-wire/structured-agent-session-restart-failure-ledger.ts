@@ -236,8 +236,8 @@ export function createStructuredAgentSessionRestartFailureLedger(deps: {
     )
     for (const outcome of outcomes) {
       const resumed = outcome.outcome === 'resumed'
-      // Ineligible means the chat moved on by itself (finished, or is waiting on the user), so there
-      // is nothing for the user to do and the offer is simply spent.
+      // Ineligible means the user moved on or the offer no longer applies (expired, record gone,
+      // conversation forked), so there is nothing to retry and the offer is spent.
       const failure = resumed
         ? action.failureAfterResume(outcome.sessionId)
         : outcome.reason === STRUCTURED_AGENT_SESSION_RESUME_NOT_ELIGIBLE

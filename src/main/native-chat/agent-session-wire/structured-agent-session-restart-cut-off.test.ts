@@ -253,6 +253,20 @@ describe('what a restart cut off, read from the journal', () => {
     expect(candidate?.activity?.tasks).toEqual([{ kind: 'command', label: 'Watch CI' }])
   })
 
+  // A reattached provider may restate the cut-off turn; the settlement's row still says it was.
+  it.each(['completed', 'running'] as const)(
+    'keeps a cut-off reply after the provider restates its turn as %s',
+    (state) => {
+      const [candidate] = resumableSet({
+        markers: [settledLead],
+        items: [failedCommand(12), at(turnItem('turn-1', state), 14)],
+        history: [at(turnItem('turn-1', 'interrupted'), 11)]
+      })
+
+      expect(candidate?.activity).toEqual({ midReply: true, prompts: [], tasks: [] })
+    }
+  )
+
   it('names a stopped child once however many rows restate it', () => {
     const [candidate] = resumableSet({
       markers: [settledLead],
