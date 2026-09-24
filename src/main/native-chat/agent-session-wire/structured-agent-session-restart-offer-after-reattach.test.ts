@@ -22,38 +22,43 @@ function resumedEvents(state: Awaited<ReturnType<typeof interruptedRestart>>) {
 }
 
 // THE REPORTED REFUSAL: opening the chat reattached Claude, which opened a turn of its own to say
-// the previous session did not finish, and closed it. The chat is still offered and Resume sends.
-it('still offers and continues after the provider opens and closes a notice turn', async () => {
-  const state = await interruptedRestart()
-  const { host, dispatch } = state
-  await host.hold(SESSION, 'pane')
-  const events = resumedEvents(state)
-  const notice = { provider: 'codex', threadId: THREAD, turnId: 'notice-turn' } as const
-  events.appendItem(
-    { ...notice, ordinal: 1 },
-    { kind: 'turn', turnId: 'notice-turn', state: 'running', userItemId: 'turn:notice-turn' }
-  )
-  events.appendItem(
-    { ...notice, ordinal: 2 },
-    {
-      kind: 'message',
-      role: 'assistant',
-      blocks: [{ type: 'text', text: "didn't finish before the previous session ended" }]
-    }
-  )
-  events.appendItem(
-    { ...notice, ordinal: 1 },
-    { kind: 'turn', turnId: 'notice-turn', state: 'completed', userItemId: 'turn:notice-turn' }
-  )
-  await host.flushStreamedEvents(SESSION)
+// the previous session did not finish, and closed it. The chat is still offered and Resume sends —
+// including when the offer is a send that had not become a turn, where that closed notice turn is
+// the newest turn in the journal.
+it.each(['turn', 'submission'] as const)(
+  'still offers and continues a %s offer after the provider opens and closes a notice turn',
+  async (work) => {
+    const state = await interruptedRestart(work, false)
+    const { host, dispatch } = state
+    await host.hold(SESSION, 'pane')
+    const events = resumedEvents(state)
+    const notice = { provider: 'codex', threadId: THREAD, turnId: 'notice-turn' } as const
+    events.appendItem(
+      { ...notice, ordinal: 1 },
+      { kind: 'turn', turnId: 'notice-turn', state: 'running', userItemId: 'turn:notice-turn' }
+    )
+    events.appendItem(
+      { ...notice, ordinal: 2 },
+      {
+        kind: 'message',
+        role: 'assistant',
+        blocks: [{ type: 'text', text: "didn't finish before the previous session ended" }]
+      }
+    )
+    events.appendItem(
+      { ...notice, ordinal: 1 },
+      { kind: 'turn', turnId: 'notice-turn', state: 'completed', userItemId: 'turn:notice-turn' }
+    )
+    await host.flushStreamedEvents(SESSION)
 
-  expect(await host.restartResume.list()).toMatchObject([{ sessionId: SESSION }])
-  expect(
-    (await host.restartResume.continueAfterRestart([SESSION], 'modal')).continued
-  ).toMatchObject([{ outcome: 'continued' }])
-  expect(dispatch).toHaveBeenCalledTimes(1)
-  host.release(SESSION, 'pane')
-})
+    expect(await host.restartResume.list()).toMatchObject([{ sessionId: SESSION }])
+    expect(
+      (await host.restartResume.continueAfterRestart([SESSION], 'modal')).continued
+    ).toMatchObject([{ outcome: 'continued' }])
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    host.release(SESSION, 'pane')
+  }
+)
 
 // A retry after the first attempt never reached the provider, with the rows restated in between:
 // the body depends on the marker alone, so the ledger fingerprint stays the offer's.
