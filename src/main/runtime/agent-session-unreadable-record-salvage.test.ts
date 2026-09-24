@@ -166,3 +166,68 @@ describe('unreadable session records', () => {
     })
   })
 })
+
+describe('records an older build quarantined', () => {
+  /** What an older build leaves after failing to validate a record: its bytes, set aside. */
+  async function quarantineAsOlderBuild(edit: (raw: AgentSessionRecord) => unknown = (raw) => raw) {
+    const filePath = agentSessionStorePath(directory)
+    const persisted = JSON.parse(await readFile(filePath, 'utf-8'))
+    const raw = edit(persisted.records['session-alpha'])
+    delete persisted.records['session-alpha']
+    persisted.unusableRecords['session-alpha'] = { reason: 'current_shape_invalid', raw }
+    await writeFile(filePath, JSON.stringify(persisted))
+    // Nothing in the backup can vouch for it either.
+    await rm(`${filePath}.bak`, { force: true })
+    return filePath
+  }
+
+  it('restores one this build validates, with its tab, and rewrites the file', async () => {
+    const first = await open()
+    const owned = await establishOwner(first)
+    await first.setSessionTabVisibility('session-alpha', true)
+    const filePath = await quarantineAsOlderBuild()
+
+    const reopened = await open()
+
+    expect(reopened.isSessionUnreadable('session-alpha')).toBe(false)
+    expect(reopened.getRecord('session-alpha')).toEqual({
+      ...owned,
+      lease: { ...owned.lease, unreconciled: true }
+    })
+    expect(reopened.listVisibleSessionIds()).toEqual(['session-alpha'])
+    const persisted = JSON.parse(await readFile(filePath, 'utf-8'))
+    expect(persisted.records['session-alpha'].lease.runtimeFence).toBe(1)
+    expect(persisted.unusableRecords).not.toHaveProperty('session-alpha')
+  })
+
+  it('keeps one this build still cannot validate quarantined, untouched', async () => {
+    await establishOwner(await open())
+    const filePath = await quarantineAsOlderBuild((raw) => ({
+      ...raw,
+      lease: { ...raw.lease, runtimeFence: 'not-a-number' }
+    }))
+    const before = await readFile(filePath, 'utf-8')
+
+    const reopened = await open()
+
+    expect(reopened.getRecord('session-alpha')).toBeNull()
+    expect(reopened.isSessionUnreadable('session-alpha')).toBe(true)
+    expect(await readFile(filePath, 'utf-8')).toBe(before)
+  })
+
+  it('never lets a quarantined copy replace the record the file holds', async () => {
+    const first = await open()
+    await establishOwner(first)
+    const filePath = agentSessionStorePath(directory)
+    const persisted = JSON.parse(await readFile(filePath, 'utf-8'))
+    const held = persisted.records['session-alpha']
+    const stale = { ...held, updatedAt: held.updatedAt - 1 }
+    persisted.unusableRecords['session-alpha'] = { reason: 'current_shape_invalid', raw: stale }
+    await writeFile(filePath, JSON.stringify(persisted))
+
+    const reopened = await open()
+
+    expect(reopened.getRecord('session-alpha')?.updatedAt).toBe(held.updatedAt)
+    expect(reopened.isSessionUnreadable('session-alpha')).toBe(true)
+  })
+})

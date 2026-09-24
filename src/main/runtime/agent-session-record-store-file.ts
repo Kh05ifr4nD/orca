@@ -171,6 +171,13 @@ function parseState(
         }
         continue
       }
+      if (
+        schemaVersion === AGENT_SESSION_STORE_SCHEMA_VERSION &&
+        restoreQuarantinedRecord(state, sessionId, unusable.raw, file.records)
+      ) {
+        needsRewrite = true
+        continue
+      }
       state.unreadableRecords.set(sessionId, { reason: unusable.reason, raw: unusable.raw })
     }
   }
@@ -219,6 +226,29 @@ function parseState(
   }
   visibleSessionIds.ids.forEach((sessionId) => state.visibleSessionIds.add(sessionId))
   return { state, needsRewrite, visibleTabIndexFound: visibleSessionIds.present }
+}
+
+/**
+ * A build that could not validate a record kept its bytes; a build that can takes it back. Never
+ * over a copy the file also holds under `records`: that one is newer, readable or not.
+ */
+function restoreQuarantinedRecord(
+  state: AgentSessionStoreState,
+  sessionId: string,
+  raw: unknown,
+  fileRecords: unknown
+): boolean {
+  if (
+    !isAgentSessionRecord(raw) ||
+    raw.sessionId !== sessionId ||
+    (typeof fileRecords === 'object' &&
+      fileRecords !== null &&
+      Object.hasOwn(fileRecords, sessionId))
+  ) {
+    return false
+  }
+  state.records.set(sessionId, raw)
+  return true
 }
 
 /** A record the primary retained as unreadable may still have a valid copy in the previous
