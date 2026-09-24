@@ -4,7 +4,10 @@ import { agentTypeToIconAgent, formatAgentTypeLabel } from '@/lib/agent-status'
 import { formatShortTimeAgo } from '@/lib/short-time-ago'
 import { translate } from '@/i18n/i18n'
 import type { ResumeCandidate, ResumeFailure } from './native-chat-resume-on-restart-grouping'
-import type { ResumeFailureAction } from './native-chat-resume-failure-guidance'
+import {
+  resumeFailureSelectable,
+  type ResumeFailureAction
+} from './native-chat-resume-failure-guidance'
 import { ResumeFailureGuidanceLine, ResumeFailureStatus } from './NativeChatResumeFailureDetails'
 
 /**
@@ -21,8 +24,8 @@ import { ResumeFailureGuidanceLine, ResumeFailureStatus } from './NativeChatResu
  * presuppose a live pane, `interrupted` renders red like an error, `done` green, `working` a
  * spinner. A missing dot beats a dot that says these agents are running.
  *
- * A chat an earlier resume could not carry on is the same row — still selectable, so Resume retries
- * it — plus a status icon, a dismiss control, and a line saying what to do about it.
+ * A chat an earlier resume could not carry on is the same row — selectable where a retry can run,
+ * so Resume retries it — plus a status icon, a dismiss control, and a line saying what to do.
  */
 export function ResumeCandidateRow({
   candidate,
@@ -56,7 +59,7 @@ export function ResumeCandidateRow({
             would otherwise all read the same. */}
       <Checkbox
         checked={checked}
-        disabled={disabled}
+        disabled={disabled || (failure !== undefined && !resumeFailureSelectable(failure))}
         onCheckedChange={(next) => onCheckedChange(next === true)}
         className="shrink-0"
         aria-label={translate(

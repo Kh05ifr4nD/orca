@@ -16,6 +16,7 @@ import { activateAiVaultStructuredSession } from '@/lib/activate-ai-vault-struct
 import { ResumeOnRestartGroups } from './NativeChatResumeOnRestartGroups'
 import {
   resumeFailureGuidance,
+  resumeFailureSelectable,
   type ResumeFailureAction
 } from './native-chat-resume-failure-guidance'
 import type { ResumeCandidate, ResumeFailure } from './native-chat-resume-on-restart-grouping'
@@ -41,9 +42,9 @@ import {
  * The "don't ask again" box removes the PROMPT, never a safety check — an opted-in launch calls
  * the same RPC, which re-derives the same predicate and staggers the same way.
  *
- * A chat an earlier resume could not carry on is listed too, as the same selectable row plus what
- * went wrong and what to do; selecting it and resuming is a retry. The dialog stays open while any
- * remain, so the outcome is never left to a toast that is gone in seconds.
+ * A chat an earlier resume could not carry on is listed too, as the same row plus what went wrong
+ * and what to do; selecting it and resuming is a retry, unless the host says a retry cannot run.
+ * The dialog stays open while any remain, so the outcome is never left to a toast.
  *
  * Closing is a SNOOZE, so looking around before deciding cannot remove the recovery. Dismiss all is
  * the explicit path that deletes the durable records.
@@ -86,10 +87,14 @@ export function NativeChatResumeOnRestartModal(): React.JSX.Element | null {
   const chosen = useMemo(
     () =>
       rows
-        .filter(
-          (row) =>
-            overrides.get(row.sessionId) ?? selectedByDefault(failureBySession.get(row.sessionId))
-        )
+        .filter((row) => {
+          const failure = failureBySession.get(row.sessionId)
+          // A tick made before the host marked it unretryable must not carry into the action.
+          return (
+            (!failure || resumeFailureSelectable(failure)) &&
+            (overrides.get(row.sessionId) ?? selectedByDefault(failure))
+          )
+        })
         .map((row) => row.sessionId),
     [rows, overrides, failureBySession]
   )

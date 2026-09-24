@@ -28,12 +28,18 @@ const NOT_RESUMABLE = new Set([
   'agent_session_identity_required'
 ])
 
+/** Whether Resume may name this chat at all. The host already knows a retry would not run; an
+ *  older host omits the flag and the row stays selectable. */
+export function resumeFailureSelectable(failure: Pick<ResumeFailure, 'retryable'>): boolean {
+  return failure.retryable !== false
+}
+
 export function resumeFailureGuidance(
   failure: Pick<ResumeFailure, 'outcome' | 'reason' | 'retryable'>
 ): ResumeFailureGuidance {
   const guidance = reasonGuidance(failure)
   // The host already knows a retry would not run, whatever the reason suggests.
-  return failure.retryable === false &&
+  return !resumeFailureSelectable(failure) &&
     (guidance.primary === 'retry' || guidance.secondary === 'retry')
     ? { text: manualContinuationText(), primary: 'open', secondary: 'dismiss' }
     : guidance

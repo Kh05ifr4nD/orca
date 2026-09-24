@@ -53,7 +53,7 @@ it('counts a chat the host filed as unconfirmed on its own line, as the list doe
   expect(vi.mocked(toast).mock.calls).toEqual([
     [
       '1 chat couldn’t be resumed',
-      expect.objectContaining({ description: 'Couldn’t confirm 1 chat was resumed' })
+      expect.objectContaining({ description: 'Couldn’t confirm 1 other chat was resumed' })
     ]
   ])
 })

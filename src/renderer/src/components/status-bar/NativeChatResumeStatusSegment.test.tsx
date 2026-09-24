@@ -113,6 +113,28 @@ describe('NativeChatResumeStatusSegment', () => {
     expect(screen.getByText('1 chat failed to resume')).toBeTruthy()
   })
 
+  // The agent may be working on an unconfirmed one, so the entry must not call it failed — the
+  // dialog says "couldn't confirm" for that row, and "failed" would invite a second "continue".
+  it('does not call an unconfirmed resume failed', async () => {
+    const failure = (sessionId: 'a' | 'b', outcome: 'refused' | 'unconfirmed') => ({
+      ...candidates.find((entry) => entry.sessionId === sessionId)!,
+      failedAt: 60_000,
+      outcome,
+      reason: outcome === 'refused' ? 'agent_session_restart_work_superseded' : 'pending'
+    })
+    rpc.mockResolvedValue({
+      sessions: [],
+      failed: [failure('a', 'refused'), failure('b', 'unconfirmed')]
+    })
+    await mount()
+
+    expect(
+      screen.getByRole('button', { name: '2 chats to check after resuming. Click for details.' })
+        .textContent
+    ).toBe('2 chats to check')
+    expect(screen.queryByText(/failed to resume/)).toBeNull()
+  })
+
   it('names a single chat in the singular', async () => {
     rpc.mockResolvedValue({ sessions: candidates.slice(0, 1) })
     await mount()

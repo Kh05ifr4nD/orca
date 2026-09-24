@@ -57,6 +57,71 @@ function Segment({
   )
 }
 
+type SegmentText = { label: string; ariaLabel: string; tooltip: string }
+
+function failedText(count: number): SegmentText {
+  return {
+    label:
+      count === 1
+        ? translate(
+            'auto.components.status.bar.NativeChatResumeStatusSegment.failedLabelOne',
+            '1 chat failed to resume'
+          )
+        : translate(
+            'auto.components.status.bar.NativeChatResumeStatusSegment.failedLabel',
+            '{{value0}} chats failed to resume',
+            { value0: count }
+          ),
+    ariaLabel:
+      count === 1
+        ? translate(
+            'auto.components.status.bar.NativeChatResumeStatusSegment.failedAriaOne',
+            '1 chat failed to resume. Click for details.'
+          )
+        : translate(
+            'auto.components.status.bar.NativeChatResumeStatusSegment.failedAria',
+            '{{value0}} chats failed to resume. Click for details.',
+            { value0: count }
+          ),
+    tooltip: translate(
+      'auto.components.status.bar.NativeChatResumeStatusSegment.failedTooltip',
+      'Chats Orca could not resume after the restart. Click for details.'
+    )
+  }
+}
+
+/** True of a refused chat and an unconfirmed one alike, for a list holding either. */
+function checkText(count: number): SegmentText {
+  return {
+    label:
+      count === 1
+        ? translate(
+            'auto.components.status.bar.NativeChatResumeStatusSegment.checkLabelOne',
+            '1 chat to check'
+          )
+        : translate(
+            'auto.components.status.bar.NativeChatResumeStatusSegment.checkLabel',
+            '{{value0}} chats to check',
+            { value0: count }
+          ),
+    ariaLabel:
+      count === 1
+        ? translate(
+            'auto.components.status.bar.NativeChatResumeStatusSegment.checkAriaOne',
+            '1 chat to check after resuming. Click for details.'
+          )
+        : translate(
+            'auto.components.status.bar.NativeChatResumeStatusSegment.checkAria',
+            '{{value0}} chats to check after resuming. Click for details.',
+            { value0: count }
+          ),
+    tooltip: translate(
+      'auto.components.status.bar.NativeChatResumeStatusSegment.checkTooltip',
+      'Chats Orca couldn’t resume, or couldn’t confirm it resumed, after the restart. Click for details.'
+    )
+  }
+}
+
 export function NativeChatResumeStatusSegment({
   iconOnly
 }: {
@@ -72,6 +137,8 @@ export function NativeChatResumeStatusSegment({
 
   const pending = candidates.length
   const failures = failed.length
+  // An unconfirmed chat may be working, so "failed" would invite a duplicate "continue".
+  const unconfirmed = failed.some((failure) => failure.outcome === 'unconfirmed')
   return (
     <>
       {pending > 0 && (
@@ -116,34 +183,7 @@ export function NativeChatResumeStatusSegment({
           iconOnly={iconOnly}
           count={failures}
           icon={<AlertCircle className="size-3 text-status-warning" />}
-          label={
-            failures === 1
-              ? translate(
-                  'auto.components.status.bar.NativeChatResumeStatusSegment.failedLabelOne',
-                  '1 chat failed to resume'
-                )
-              : translate(
-                  'auto.components.status.bar.NativeChatResumeStatusSegment.failedLabel',
-                  '{{value0}} chats failed to resume',
-                  { value0: failures }
-                )
-          }
-          ariaLabel={
-            failures === 1
-              ? translate(
-                  'auto.components.status.bar.NativeChatResumeStatusSegment.failedAriaOne',
-                  '1 chat failed to resume. Click for details.'
-                )
-              : translate(
-                  'auto.components.status.bar.NativeChatResumeStatusSegment.failedAria',
-                  '{{value0}} chats failed to resume. Click for details.',
-                  { value0: failures }
-                )
-          }
-          tooltip={translate(
-            'auto.components.status.bar.NativeChatResumeStatusSegment.failedTooltip',
-            'Chats Orca could not resume after the restart. Click for details.'
-          )}
+          {...(unconfirmed ? checkText(failures) : failedText(failures))}
         />
       )}
     </>

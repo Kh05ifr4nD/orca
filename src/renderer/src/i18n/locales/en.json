@@ -1976,6 +1976,8 @@
         "notContinuedMany": "{{value0}} chats couldn’t be resumed",
         "notConfirmedOne": "Couldn’t confirm 1 chat was resumed",
         "notConfirmedMany": "Couldn’t confirm {{value0}} chats were resumed",
+        "notConfirmedOtherOne": "Couldn’t confirm 1 other chat was resumed",
+        "notConfirmedOtherMany": "Couldn’t confirm {{value0}} other chats were resumed",
         "show": "Show",
         "dismiss": "Dismiss"
       },
@@ -4078,7 +4080,12 @@
             "failedLabel": "{{value0}} chats failed to resume",
             "failedAriaOne": "1 chat failed to resume. Click for details.",
             "failedAria": "{{value0}} chats failed to resume. Click for details.",
-            "failedTooltip": "Chats Orca could not resume after the restart. Click for details."
+            "failedTooltip": "Chats Orca could not resume after the restart. Click for details.",
+            "checkLabelOne": "1 chat to check",
+            "checkLabel": "{{value0}} chats to check",
+            "checkAriaOne": "1 chat to check after resuming. Click for details.",
+            "checkAria": "{{value0}} chats to check after resuming. Click for details.",
+            "checkTooltip": "Chats Orca couldn’t resume, or couldn’t confirm it resumed, after the restart. Click for details."
           }
         }
       },

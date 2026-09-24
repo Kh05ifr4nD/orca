@@ -16,7 +16,8 @@ import {
 } from './native-chat-resume-on-restart-dialog'
 import {
   _resetNativeChatRestartOffer,
-  getNativeChatRestartOffer
+  getNativeChatRestartOffer,
+  refreshNativeChatRestartOffer
 } from './native-chat-resume-on-restart-store'
 
 const rpc = vi.hoisted(() => vi.fn())
@@ -443,7 +444,7 @@ it('counts an unconfirmed delivery apart from a refusal in one notice', async ()
   expect(vi.mocked(toast).mock.calls).toEqual([
     [
       '1 chat couldn’t be resumed',
-      expect.objectContaining({ description: 'Couldn’t confirm 1 chat was resumed' })
+      expect.objectContaining({ description: 'Couldn’t confirm 1 other chat was resumed' })
     ]
   ])
 })
@@ -571,6 +572,25 @@ it.each(['footer', 'row'] as const)(
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   }
 )
+
+// The user's case: the only row is a failure the host says a retry cannot fix. Ticking it could
+// only fail again, so the row's own action is the way on and the box cannot be ticked.
+it('keeps a failure the host marks unretryable out of Resume, even after a tick', async () => {
+  let failed: unknown[] = [failure('b')]
+  rpc.mockImplementation(async () => ({ sessions: [], failed }))
+  await mount(<NativeChatResumeOnRestartModal />)
+  await act(async () => requestNativeChatResumeOnRestartDialog())
+  // An older host sends no flag, and the row stays selectable as it always was.
+  expect(checkbox(0).hasAttribute('disabled')).toBe(false)
+  await act(async () => checkbox(0).click())
+  expect(button('Resume 1 chat').disabled).toBe(false)
+
+  failed = [{ ...failure('b'), retryable: false }]
+  await act(async () => void (await refreshNativeChatRestartOffer()))
+  expect(checkbox(0).hasAttribute('disabled')).toBe(true)
+  expect(button('Resume 0 chats').disabled).toBe(true)
+  expect(button('Open chat').disabled).toBe(false)
+})
 
 it('dismisses one failed chat by name, and every record through Dismiss all', async () => {
   rpc.mockImplementation(async (_target, method, params: { sessionIds?: string[] } | undefined) =>

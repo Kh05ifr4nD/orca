@@ -80,6 +80,20 @@ function unconfirmedCountText(count: number): string {
       )
 }
 
+/** Beneath a refused count, so it cannot read as the same chat restated. */
+function otherUnconfirmedCountText(count: number): string {
+  return count === 1
+    ? translate(
+        'auto.components.NativeChatResumeOnRestartModal.notConfirmedOtherOne',
+        'Couldn’t confirm 1 other chat was resumed'
+      )
+    : translate(
+        'auto.components.NativeChatResumeOnRestartModal.notConfirmedOtherMany',
+        'Couldn’t confirm {{value0}} other chats were resumed',
+        { value0: count }
+      )
+}
+
 /** The chats an action did not carry on. No names here: the modal has the list, and the count is
  *  the same shape whether it is one chat or ten. Unconfirmed chats get their own count because the
  *  agent may well be working; "couldn't be resumed" would invite a duplicate send. Dismiss forgets
@@ -100,7 +114,7 @@ function announceNotContinued(
     refused.length > 0 ? refusedCountText(refused.length) : unconfirmedCountText(unconfirmed.length)
   toast(title, {
     ...(refused.length > 0 && unconfirmed.length > 0
-      ? { description: unconfirmedCountText(unconfirmed.length) }
+      ? { description: otherUnconfirmedCountText(unconfirmed.length) }
       : {}),
     action: {
       label: translate('auto.components.NativeChatResumeOnRestartModal.show', 'Show'),
