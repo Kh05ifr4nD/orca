@@ -20,6 +20,8 @@ const DIAGNOSTIC = 'claude stream-json exited (code 1): claude: not signed in (r
 
 let claude = createScriptedClaudeRuntime([SESSION])
 let operations = 0
+/** The dispatch state each send was answered with, before any exit settled it. */
+const answered = new Map<string, string>()
 
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -48,6 +50,9 @@ async function send(host: StructuredAgentSessionHost, text: string): Promise<str
     body
   })
   expect(sent, JSON.stringify(sent)).toMatchObject({ ok: true, replayed: false })
+  if (sent.ok) {
+    answered.set(clientOperationId, sent.value.submission.dispatchState)
+  }
   return clientOperationId
 }
 
@@ -119,6 +124,8 @@ describe('a send whose restarted Claude child dies before the dispatch reaches t
 
     killChildAtDispatch(host)
     const sent = await send(host, 'hello?')
+    // The send's own answer already says it was not delivered; it does not wait for the exit.
+    expect(answered.get(sent)).toBe('rejected')
     expect(claude.children(SESSION)).toHaveLength(2)
     await waitForStructuredAgentSessionRecovery()
     await vi.waitFor(() =>
