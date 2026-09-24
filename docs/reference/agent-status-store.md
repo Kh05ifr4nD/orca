@@ -190,8 +190,9 @@ pane key two writers. Removing that filter is the first step of PR 2.
 
 ### The main agent fact
 
-Every producer publishes the row's combined `state` and, beside it, the main
-agent's own state as `payload.mainAgent`:
+Claude, Codex and Grok hook rows and structured-session rows publish the combined
+`state` and, beside it, the main agent's own state as `payload.mainAgent`. Other agents'
+rows and terminal-title-only rows carry none, and readers fall back to `state`:
 
 ```ts
 mainAgent?: { state: AgentStatusState; outcome?: AgentJournalTurnOutcome; stateStartedAt: number }
