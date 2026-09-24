@@ -61,11 +61,11 @@ export type AgentSessionResumeMarker = {
   /** Stable teardown identity for continuation deduplication, not launch ancestry. */
   teardownId: string
   /**
-   * Where this session's journal stood when teardown captured it, before anything was stopped.
-   * Everything the teardown cuts off lands after it — the adapter marking the subagents and
-   * background tasks it can no longer hear from `unverifiable` as the child closes, then eviction
-   * cancelling prompts and failing tool calls — so the journal alone answers what the session was
-   * doing, and the marker keeps no copy of it.
+   * Where this session's journal stood right before teardown stopped its child. Everything the
+   * teardown cuts off lands after it — the adapter marking the subagents and background tasks it
+   * can no longer hear from `unverifiable` as the child closes, then eviction cancelling prompts
+   * and failing tool calls — so the journal alone names what the session was doing, for display;
+   * the marker keeps no copy of it.
    *
    * Absent on markers from builds that recorded only a working lead. Optional so an older build
    * strips it and still reads the marker; `work` keeps its two kinds for the same reason, because

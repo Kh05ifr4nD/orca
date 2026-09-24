@@ -55,8 +55,9 @@ export type StructuredAgentSessionResumeFailure = StructuredAgentSessionResumeCa
   outcome: AgentSessionResumeFailureOutcome
   /** The host's or provider's refusal code, verbatim, so it can be quoted in a report. */
   reason: string
-  /** Whether naming it in an action would run it again. A continuation the chat already holds, or
-   *  work that has since finished, makes a retry a no-op no matter what the reason says. */
+  /** Whether naming it in an action would run it again: whether it is still an offer. A
+   *  continuation the chat already holds, or the user having moved on, makes a retry a no-op no
+   *  matter what the reason says. */
   retryable: boolean
 }
 
