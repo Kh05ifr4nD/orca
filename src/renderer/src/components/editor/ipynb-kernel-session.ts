@@ -213,8 +213,12 @@ export async function installIpykernel(filePath: string): Promise<void> {
     filePath,
     translate(
       'auto.components.editor.IpynbViewer.installFailed',
-      'Installing ipykernel failed. Run `{{command}}` yourself, or create a virtual environment for this project with `python3 -m venv .venv` and choose it as the kernel.',
-      { command: ipykernelInstallCommand(environment) }
+      'Installing ipykernel failed. Run `{{command}}` yourself, or create a virtual environment for this project with `{{venvCommand}}` and choose it as the kernel.',
+      {
+        command: ipykernelInstallCommand(environment),
+        // Windows installs the `py` launcher; `python3` there is often the Store stub.
+        venvCommand: `${navigator.userAgent.includes('Windows') ? 'py' : 'python3'} -m venv .venv`
+      }
     ),
     result.detail
   )

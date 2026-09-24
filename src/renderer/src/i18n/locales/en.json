@@ -15004,7 +15004,7 @@
           "install": "Install",
           "kernelStartFailed": "The kernel failed to start.",
           "noPython": "Python was not found on this computer. Install it from [python.org](https://www.python.org/downloads/), then run the cell again.",
-          "installFailed": "Installing ipykernel failed. Run `{{command}}` yourself, or create a virtual environment for this project with `python3 -m venv .venv` and choose it as the kernel.",
+          "installFailed": "Installing ipykernel failed. Run `{{command}}` yourself, or create a virtual environment for this project with `{{venvCommand}}` and choose it as the kernel.",
           "kernelDied": "The kernel died.",
           "localOnly": "Notebook cells can only run for files on this computer.",
           "pythonOnly": "Only Python notebooks can run in Orca."

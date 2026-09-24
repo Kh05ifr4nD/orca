@@ -67,8 +67,11 @@ def execute_all(client, codes):
 def exit_when_dead(manager):
     while manager.is_alive():
         time.sleep(0.5)
-    manager.cleanup_resources()
-    os._exit(1)
+    # Exit even if cleanup fails (cleanup_resources is missing before jupyter_client 6.1.5).
+    try:
+        manager.cleanup_resources()
+    finally:
+        os._exit(1)
 
 
 def main():

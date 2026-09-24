@@ -93,8 +93,11 @@ export function startNotebookKernel({
   child.stderr.on('data', (text: string) => {
     stderrTail = (stderrTail + text).slice(-STDERR_TAIL_CHARS)
   })
-  // Why: a write racing the bridge's exit raises EPIPE here; the exit itself is reported on close.
-  child.stdin.on('error', () => {})
+  // Why: an unhandled stream error crashes main (see spawnProcess); a write racing the bridge's
+  // exit raises EPIPE, and the exit itself is reported on close.
+  for (const stream of [child.stdin, child.stdout, child.stderr]) {
+    stream.on('error', () => {})
+  }
   child.stdout.on(
     'data',
     createFrameReader((frame) => {
