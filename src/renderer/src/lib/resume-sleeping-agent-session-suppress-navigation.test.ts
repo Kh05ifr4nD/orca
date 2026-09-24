@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
+import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import { useAppStore } from '@/store'
 import { resumeSleepingAgentSessionsForWorktree } from './resume-sleeping-agent-session'
 import { getProviderSessionClaimKey } from './sleeping-agent-pane-ownership'
@@ -142,15 +143,25 @@ describe('resumeSleepingAgentSessionsForWorktree navigation suppression', () => 
     // Why: the activation gate resumes after async readiness checks, by which time the user may
     // be viewing another worktree; the resume still lands selected when they return.
     const record = makeRecord({ origin: 'quit' })
+    const sleptTab: TerminalTab = {
+      id: 'tab-1',
+      ptyId: null,
+      worktreeId: 'wt-1',
+      title: 'shell',
+      customTitle: null,
+      color: null,
+      sortOrder: 0,
+      createdAt: 1
+    }
     useAppStore.setState({
       activeWorktreeId: 'wt-other',
       activeTabId: 'other-tab',
       activeTabType: 'browser',
       activeTabIdByWorktree: { 'wt-other': 'other-tab' },
       activeTabTypeByWorktree: { 'wt-other': 'browser' },
-      tabsByWorktree: { 'wt-1': [makeTerminalTab('tab-1', 'wt-1')] },
+      tabsByWorktree: { 'wt-1': [sleptTab] },
       sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }
-    } as never)
+    })
 
     resumeSleepingAgentSessionsForWorktree('wt-1')
 
