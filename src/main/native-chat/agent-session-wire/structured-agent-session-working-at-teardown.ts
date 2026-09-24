@@ -85,6 +85,7 @@ type WorkingCandidateSession = {
   journal: AgentSessionJournal
   /** Only this host generation's own child counts. A restored-for-reading journal has none. */
   hasProviderChild: boolean
+  fence?: number
 }
 
 export type StructuredAgentSessionTeardownCapture = {
@@ -116,7 +117,7 @@ export function structuredAgentSessionsWorkingAtTeardown(input: {
     }
     const snapshot = session.journal.snapshot()
     const roster = input.backgroundTasks(sessionId)
-    if (!structuredAgentSessionShowsWork(snapshot, roster)) {
+    if (!structuredAgentSessionShowsWork(snapshot, roster, session.fence)) {
       continue
     }
     const work = structuredAgentSessionResumeWork(snapshot.items, snapshot.submissions)

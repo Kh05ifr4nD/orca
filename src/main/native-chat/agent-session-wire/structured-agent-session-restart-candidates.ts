@@ -15,7 +15,6 @@ import type {
 } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionResumeMarker } from '../../../shared/agent-session-resume-marker'
-import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
 import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
 import { newestStructuredAgentSessionTurn } from '../../../shared/structured-agent-session-live-turn'
 import {
@@ -27,8 +26,9 @@ import type { AgentSessionJournal } from '../agent-session-journal/journal-store
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { adapterSupportsRecord } from './structured-agent-session-provider-support'
 import {
-  journalItemsRevisedBy,
-  structuredAgentSessionRestartCutOff
+  journalItemRevisions,
+  structuredAgentSessionRestartCutOff,
+  type JournalItemRevision
 } from './structured-agent-session-restart-cut-off'
 import {
   structuredAgentSessionResumableSet,
@@ -45,8 +45,6 @@ export type StructuredAgentSessionRestartCandidateOptions = {
   pendingContinuationId?: string
   /** Teardown only: the provider still ran children when this marker was captured. */
   childWorkAtStop?: boolean
-  /** What the offer was acted on for, read before the session was reattached. */
-  admitted?: AgentSessionRestartActivity
 }
 
 function journalTurnById(
@@ -101,15 +99,13 @@ export function createStructuredAgentSessionRestartCandidateReader(deps: {
       }
       return snapshot
     }
-    const revisedSince = (marker: AgentSessionResumeMarker): ReadonlySet<string> | null => {
+    const revisionsSince = (marker: AgentSessionResumeMarker): JournalItemRevision[] | null => {
       const journal = deps.sessions.get(marker.sessionId)?.journal
       if (!journal || !marker.journalCursor) {
         return null
       }
       const read = journal.readSince(marker.journalCursor)
-      return read.ok
-        ? new Set([...journalItemsRevisedBy(read.rows)].map(journal.canonicalItemId))
-        : null
+      return read.ok ? journalItemRevisions(read.rows, journal.canonicalItemId) : null
     }
     return structuredAgentSessionResumableSet({
       markers,
@@ -126,12 +122,11 @@ export function createStructuredAgentSessionRestartCandidateReader(deps: {
       cutOff: (marker, midReply) =>
         structuredAgentSessionRestartCutOff({
           items: itemsFor(marker.sessionId),
-          revisedSinceCursor: revisedSince(marker),
+          revisionsSinceCursor: revisionsSince(marker),
           midReply
         }),
       ...(options.providerStopped ? { providerStopped: true } : {}),
       ...(options.childWorkAtStop ? { childWorkAtStop: true } : {}),
-      ...(options.admitted ? { admitted: options.admitted } : {}),
       latestPrompt: (sessionId) => latestStructuredAgentSessionPrompt(itemsFor(sessionId)),
       latestUserItemId: (sessionId) =>
         latestStructuredAgentSessionUserItem(itemsFor(sessionId))?.itemId ?? null,

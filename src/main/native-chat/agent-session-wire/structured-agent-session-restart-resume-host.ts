@@ -9,7 +9,6 @@ import type {
   AgentSessionResumeTrigger
 } from '../../../shared/agent-session-resume-marker'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
-import type { AgentSessionRestartActivity as RestartActivity } from '../../../shared/agent-session-restart-activity'
 import type {
   AgentSessionMutationEnvelope,
   AgentSessionMutationResult,
@@ -178,7 +177,7 @@ export function createStructuredAgentSessionRestartResume(
   const run = async (
     sessionIds: readonly string[] | undefined,
     owner: string,
-    afterAcquire?: (marker: AgentSessionResumeMarker, admitted?: RestartActivity) => Promise<void>,
+    afterAcquire?: (marker: AgentSessionResumeMarker) => Promise<void>,
     settlement: Omit<Parameters<typeof failures.settle>[2], 'candidates' | 'attempts'> = {
       failureAfterResume: () => null,
       failureReason: () => 'agent_session_resume_refused'
@@ -207,7 +206,6 @@ export function createStructuredAgentSessionRestartResume(
           ) ?? Promise.resolve([])
       )) ?? []
     const markersBySession = new Map(reserved.map((marker) => [marker.sessionId, marker]))
-    // Read before any session is reattached: the reattached provider restates what it lost.
     const candidates = derive(reserved, 'may-be-held')
     const attempts = failures.attempts(markersBySession)
 
@@ -230,8 +228,7 @@ export function createStructuredAgentSessionRestartResume(
               })
               const marker = markersBySession.get(sessionId)
               if (marker) {
-                const admitted = candidates.find((entry) => entry.sessionId === sessionId)
-                await afterAcquire?.(marker, admitted?.activity)
+                await afterAcquire?.(marker)
               }
             } finally {
               attempts.observe(sessionId)
@@ -271,10 +268,10 @@ export function createStructuredAgentSessionRestartResume(
     const resumed = await run(
       sessionIds,
       owner,
-      async (marker, admitted) => {
+      async (marker) => {
         continued.push(
           await continueStructuredAgentSessionAfterRestart(
-            restartContinuationDeps(continuationHost, marker, admitted),
+            restartContinuationDeps(continuationHost, marker),
             marker.sessionId,
             marker
           )

@@ -3,7 +3,6 @@
 
 import { describe, expect, it } from 'vitest'
 import type { AgentJournalRenderItem } from '../../../shared/agent-session-journal-types'
-import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
 import {
   EPOCH,
   marker,
@@ -260,16 +259,25 @@ describe('what a restart cut off, read from the journal', () => {
     expect(resumableSet({ ...settled, providerStopped: true })).toEqual([])
   })
 
-  // After reattach the provider restates the rows it lost in its own words; what the offer was
-  // acted on for still stands, and only the lead is re-read.
-  it('keeps what an acted-on offer was admitted for after the provider restates its rows', () => {
-    const admitted: AgentSessionRestartActivity = {
-      midReply: false,
-      prompts: [],
-      tasks: [{ kind: 'command', label: 'Watch CI' }]
-    }
-    const restated = [at(turnItem('turn-1', 'completed'), 5), backgroundCommand('done', 14)]
-    expect(resumableSet({ markers: [settledLead], items: restated })).toEqual([])
-    expect(resumableSet({ markers: [settledLead], items: restated, admitted })).toHaveLength(1)
+  // Opening the chat reattaches it, and the provider restates the rows it lost in its own words.
+  // The settlement's own rows still say what the restart cut off.
+  it('still offers the work after the provider restates its rows', () => {
+    const [candidate] = resumableSet({
+      markers: [settledLead],
+      items: [at(turnItem('turn-1', 'completed'), 5), backgroundCommand('done', 14)],
+      history: [backgroundCommand('unverifiable', 12)]
+    })
+
+    expect(candidate?.activity?.tasks).toEqual([{ kind: 'command', label: 'Watch CI' }])
+  })
+
+  it('names a stopped child once however many rows restate it', () => {
+    const [candidate] = resumableSet({
+      markers: [settledLead],
+      items: [at(turnItem('turn-1', 'completed'), 5), subagents('unverifiable', 14)],
+      history: [subagents('unverifiable', 12)]
+    })
+
+    expect(candidate?.activity?.tasks).toEqual([{ kind: 'agent', label: 'Review loop 4' }])
   })
 })

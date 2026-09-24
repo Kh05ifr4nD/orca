@@ -13,7 +13,6 @@ import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionResumeMarker } from '../../../shared/agent-session-resume-marker'
 import { newestStructuredAgentSessionTurn } from '../../../shared/structured-agent-session-live-turn'
 import { projectStructuredAgentSessionStatus } from '../../../shared/structured-agent-session-projection'
-import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
 import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
 import { structuredAgentSessionRestartCutOff } from './structured-agent-session-restart-cut-off'
 import { structuredAgentSessionResumableSet } from './structured-agent-session-restart-resume-set'
@@ -213,8 +212,9 @@ export function resumableSet(input: {
   latestUserItemId?: string | null
   providerStopped?: boolean
   childWorkAtStop?: boolean
-  admitted?: AgentSessionRestartActivity
   epoch?: string
+  /** Revisions a later row in `items` overwrote. */
+  history?: AgentJournalRenderItem[]
 }) {
   const items = input.items ?? [turnItem('turn-1', 'interrupted')]
   const submissions = input.submissions ?? []
@@ -230,23 +230,22 @@ export function resumableSet(input: {
     journalSubmission: (_sessionId, clientMessageId) =>
       submissions.find((entry) => entry.clientMessageId === clientMessageId) ?? null,
     liveWork: () => projectStructuredAgentSessionStatus(items) !== 'idle',
-    // In these fixtures an item's sequence stands for the row that last revised it.
+    // In these fixtures an item's sequence stands for the row that last revised it; `history` adds
+    // the earlier revisions a later one overwrote.
     cutOff: (entry, midReply) =>
       structuredAgentSessionRestartCutOff({
         items,
-        revisedSinceCursor:
+        revisionsSinceCursor:
           entry.journalCursor && entry.journalCursor.epoch === (input.epoch ?? EPOCH)
-            ? new Set(
-                items
-                  .filter((item) => item.sequence > (entry.journalCursor?.sequence ?? Infinity))
-                  .map((item) => item.itemId)
-              )
+            ? [...(input.history ?? []), ...items]
+                .filter((item) => item.sequence > (entry.journalCursor?.sequence ?? Infinity))
+                .sort((left, right) => left.sequence - right.sequence)
+                .map(({ itemId, body }) => ({ itemId, body }))
             : null,
         midReply
       }),
     ...(input.providerStopped ? { providerStopped: true } : {}),
     ...(input.childWorkAtStop ? { childWorkAtStop: true } : {}),
-    ...(input.admitted ? { admitted: input.admitted } : {}),
     latestPrompt: () => 'fix the auth bug',
     latestUserItemId: () => input.latestUserItemId ?? null,
     now: input.now ?? NOW

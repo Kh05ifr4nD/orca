@@ -23,7 +23,6 @@ import {
 import { AgentSessionPreDispatchError } from './structured-agent-session-operation-settlement'
 import { createHash } from 'node:crypto'
 import type { AgentSessionResumeMarker } from '../../../shared/agent-session-resume-marker'
-import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
 
 /**
  * All four dispatch states are preserved, never collapsed into transport success.
@@ -62,7 +61,7 @@ export type StructuredAgentSessionContinuationHost = {
    *  set aside. Re-asked right before dispatch, so newer user work refuses the send. */
   stillResumable: (
     marker: AgentSessionResumeMarker,
-    options: { pendingContinuationId: string; admitted?: AgentSessionRestartActivity }
+    options: { pendingContinuationId: string }
   ) => boolean
 }
 
@@ -70,9 +69,7 @@ export type StructuredAgentSessionContinuationHost = {
  *  waiter for the verdict, and the journal note that attributes the send to Orca. */
 export function restartContinuationDeps(
   host: StructuredAgentSessionContinuationHost,
-  marker: AgentSessionResumeMarker,
-  /** What the offer was acted on for, read before the session was reattached. */
-  admitted?: AgentSessionRestartActivity
+  marker: AgentSessionResumeMarker
 ): StructuredAgentSessionContinuationDeps {
   return {
     currentFence: (sessionId) => host.sessions.get(sessionId)?.fence ?? null,
@@ -80,11 +77,9 @@ export function restartContinuationDeps(
       host.send({
         ...input,
         beforeRun: () => {
-          const pendingContinuationId = input.envelope.clientOperationId
           if (
             !host.stillResumable(marker, {
-              pendingContinuationId,
-              ...(admitted ? { admitted } : {})
+              pendingContinuationId: input.envelope.clientOperationId
             })
           ) {
             throw new RestartContinuationSupersededError()

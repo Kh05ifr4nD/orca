@@ -19,9 +19,11 @@ export function structuredAgentSessionShowsWork(
     items: readonly AgentJournalRenderItem[]
     submissions: readonly AgentJournalSubmission[]
   },
-  backgroundTasks: readonly AgentSessionBackgroundTask[] | null | undefined
+  backgroundTasks: readonly AgentSessionBackgroundTask[] | null | undefined,
+  /** The session's lease fence, as the status feed passes it: a send from an older one is not work. */
+  fence: number | undefined
 ): boolean {
-  const status = projectStructuredAgentSessionStatus(journal.items, journal.submissions)
+  const status = projectStructuredAgentSessionStatus(journal.items, journal.submissions, fence)
   return (
     structuredAgentSessionAgentStatus({
       status,

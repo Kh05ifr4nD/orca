@@ -86,12 +86,6 @@ export type StructuredAgentSessionResumeSetInput = {
   /** Teardown only: the provider still ran children when the marker was captured, and eviction
    *  clears that roster before this can read it. */
   childWorkAtStop?: boolean
-  /**
-   * What the offer was acted on for, read before the session was reattached. A stopped child
-   * cannot resume and a cancelled prompt cannot reopen, but the reattached provider restates their
-   * rows in its own words, so the dispatch check keeps this and re-reads only the lead.
-   */
-  admitted?: AgentSessionRestartActivity
   latestPrompt: (sessionId: string) => string
   latestUserItemId: (sessionId: string) => string | null
   now: number
@@ -163,7 +157,7 @@ function owedWork(
       ? { midReply, prompts: [], tasks: [] }
       : null
   }
-  const cutOff = input.admitted ? { ...input.admitted, midReply } : input.cutOff(marker, midReply)
+  const cutOff = input.cutOff(marker, midReply)
   return midReply || cutOff.prompts.length > 0 || cutOff.tasks.length > 0 ? cutOff : null
 }
 

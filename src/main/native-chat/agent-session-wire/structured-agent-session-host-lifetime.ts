@@ -208,7 +208,8 @@ export function createStructuredAgentSessionHolds(
       return session
         ? structuredAgentSessionShowsWork(
             session.journal.snapshot(),
-            context.deps.adapter.backgroundTaskState?.(sessionId)?.tasks
+            context.deps.adapter.backgroundTaskState?.(sessionId)?.tasks,
+            session.fence
           )
         : false
     },

@@ -55,3 +55,34 @@ it('continues a stopped subagent after the provider restates its row', async () 
   expect(dispatch).toHaveBeenCalledTimes(1)
   host.release(SESSION, 'pane')
 })
+
+// The user opens the chat before choosing Resume, and the reattached provider restates its row.
+it('still offers and continues a chat the user opened before resuming', async () => {
+  const { host, acquire, dispatch } = await interruptedRestart('children')
+  await host.hold(SESSION, 'pane')
+  const events = acquire.mock.calls[0]?.[0].events
+  if (!events) {
+    throw new Error('missing resumed provider event sink')
+  }
+  events.appendItem(
+    { provider: 'codex', threadId: THREAD, turnId: 'settled-turn', ordinal: 2 },
+    {
+      kind: 'message',
+      role: 'system',
+      blocks: [
+        {
+          type: 'subagent-group',
+          groupId: 'settled-turn',
+          agents: [{ id: 'child-1', label: 'Review loop 4', state: 'completed' }]
+        }
+      ]
+    }
+  )
+  await host.flushStreamedEvents(SESSION)
+  expect(await host.restartResume.list()).toMatchObject([{ sessionId: SESSION }])
+  expect(
+    (await host.restartResume.continueAfterRestart([SESSION], 'modal')).continued
+  ).toMatchObject([{ outcome: 'continued' }])
+  expect(dispatch).toHaveBeenCalledTimes(1)
+  host.release(SESSION, 'pane')
+})
