@@ -10,6 +10,7 @@ import {
   reserveAgentSessionOwner,
   withLease
 } from './agent-session-lease-transitions'
+import type { AgentSessionHostRun } from './agent-session-host-run'
 
 export function recoverDeadTuiOwnerForHandoff(args: {
   record: AgentSessionRecord
@@ -137,6 +138,7 @@ export function reserveAgentSessionHandoffOwner(args: {
   claimKeyId: string
   now: number
   leaseTtlMs: number
+  hostRun: AgentSessionHostRun
 }): AgentSessionRecord {
   return reserveAgentSessionOwner({
     record: args.record,
@@ -144,6 +146,7 @@ export function reserveAgentSessionHandoffOwner(args: {
     probe: { outcome: 'reservation-unused' },
     reservation: {
       runtimeKind: args.runtimeKind,
+      hostRun: args.hostRun,
       spawnToken: args.spawnToken,
       claimKeyId: args.claimKeyId,
       handoffOperationId: args.operationId,

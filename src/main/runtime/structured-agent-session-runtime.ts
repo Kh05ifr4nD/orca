@@ -70,7 +70,7 @@ export type StructuredAgentSessionRuntimeDeps = {
   /** Execution host this runtime *is*. A record pinned elsewhere is not ours to
    *  probe and not ours to spawn for. */
   hostId: string
-  /** Whether this process holds the store alone, and the tabs a store without a tab index adopts. */
+  /** The tabs a store without a tab index adopts. */
   recordStore?: AgentSessionStoreOpenOptions
   /** Key id this host's claims are minted under. */
   claimKeyId: string

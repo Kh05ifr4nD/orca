@@ -4,6 +4,11 @@ import type { AgentSessionLease, AgentSessionRecord } from '../../shared/agent-s
 import type { AgentSessionStoreState } from './agent-session-record-store-file'
 import { agentSessionReconciliationTargetMatches } from './agent-session-reconciliation-target'
 import { applyAgentSessionRestartAdjudication } from './agent-session-restart-lease-transitions'
+import {
+  agentSessionHostRunEnded,
+  memoizeAgentSessionPidPresence,
+  type AgentSessionHostRun
+} from './agent-session-host-run'
 
 export type AgentSessionRestartProbeArgs = {
   probe: (record: AgentSessionRecord) => Promise<AgentSessionOwnerProbe>
@@ -11,6 +16,8 @@ export type AgentSessionRestartProbeArgs = {
     records: readonly AgentSessionRecord[]
   ) => Promise<Map<string, AgentSessionOwnerProbe>>
   now: number
+  /** False only when the pid is proven absent; defaults to a signal-0 probe. */
+  isPidPresent?: (pid: number) => boolean
 }
 
 type RestartProbe = { record: AgentSessionRecord; probe: AgentSessionOwnerProbe }
@@ -19,20 +26,38 @@ type RestartProbe = { record: AgentSessionRecord; probe: AgentSessionOwnerProbe 
 export type AgentSessionPreviousAppRunTest = (record: AgentSessionRecord) => boolean
 
 /**
- * A native owner is a child of the app run that spawned it, so a lease this process loaded at
- * open(), still at that fence, names a process that ended with the previous run. A TUI owner lives
- * in the terminal daemon and survives restarts, and another host's pid is not this run's child.
+ * A native owner is a child of the run that granted its fence, so it ended with that run once the
+ * run is gone. A TUI owner lives in the terminal daemon, a lease without a current stamp was
+ * granted by a build that kept none, and another machine's pid means nothing here: all are probed.
  */
-export function agentSessionLeaseEndedWithPreviousAppRun(
+function agentSessionLeaseEndedWithPreviousAppRun(
   lease: AgentSessionLease,
-  fenceLoadedAtOpen: number | undefined,
-  hostId: string
+  current: {
+    hostId: string
+    hostRun: AgentSessionHostRun
+    isPidPresent: (pid: number) => boolean
+  }
 ): boolean {
+  const stamp = lease.ownerHostRun
   return (
     lease.runtimeKind === 'native' &&
-    fenceLoadedAtOpen === lease.runtimeFence &&
-    (lease.ownerProcess === null || lease.ownerProcess.hostId === hostId)
+    stamp !== undefined &&
+    stamp.fence === lease.runtimeFence &&
+    stamp.machine === current.hostRun.machine &&
+    // A reservation has no owner process yet.
+    (lease.ownerProcess === null || lease.ownerProcess.hostId === current.hostId) &&
+    agentSessionHostRunEnded(stamp, current.hostRun, current.isPidPresent)
   )
+}
+
+/** The test for one reconcile: each stamped pid is asked about once. */
+export function agentSessionPreviousAppRunTest(
+  hostId: string,
+  hostRun: AgentSessionHostRun,
+  isPidPresent?: (pid: number) => boolean
+): AgentSessionPreviousAppRunTest {
+  const current = { hostId, hostRun, isPidPresent: memoizeAgentSessionPidPresence(isPidPresent) }
+  return (record) => agentSessionLeaseEndedWithPreviousAppRun(record.lease, current)
 }
 
 export async function collectAgentSessionRestartProbes(

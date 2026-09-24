@@ -7,6 +7,7 @@ import type {
   AgentSessionHandoffStatus
 } from '../../../shared/agent-session-wire'
 import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
+import { restartedAgentSessionHostRun } from '../../runtime/agent-session-host-run.test-fixture'
 import {
   reserveStoredAgentSessionHandoffOwner,
   setStoredAgentSessionHandoffStage,
@@ -543,7 +544,7 @@ describe('structured session ownership recovery on restore', () => {
     store = await AgentSessionRecordStore.open({
       directory: join(root, 'store'),
       hostId: 'local',
-      ownership: 'exclusive'
+      hostRun: await restartedAgentSessionHostRun()
     })
     await store.reconcileOnRestart({
       probe: async (record) =>

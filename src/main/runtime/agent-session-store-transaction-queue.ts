@@ -10,9 +10,8 @@ import {
   type LoadedAgentSessionStore
 } from './agent-session-record-store-file'
 import { withFileTransactionLock } from '../file-transaction-lock'
-import type { UserDataOwnership } from '../startup/single-instance-lock'
-import { agentSessionLeaseEndedWithPreviousAppRun } from './agent-session-restart-reconciliation'
 import { adoptSavedTabsIntoLegacyIndex } from './agent-session-visible-tab-index'
+import type { AgentSessionHostRun } from './agent-session-host-run'
 
 function markLoadedLeasesUnreconciled(state: AgentSessionStoreState): void {
   for (const [sessionId, record] of state.records) {
@@ -56,8 +55,8 @@ function agentSessionStoreStateChanged(
 
 /** How a host opens its record store, beyond where the file lives and which host it is. */
 export type AgentSessionStoreOpenOptions = {
-  /** Absent means shared: nothing proves the leases on disk were left by a previous run. */
-  ownership?: UserDataOwnership
+  /** The run that grants this store's fences; defaults to this process's own. */
+  hostRun?: AgentSessionHostRun
   /** The chat tabs a profile saved before this store kept a visible-tab index; read only at load. */
   savedTabSessionIds?: () => readonly string[]
 }
@@ -65,10 +64,6 @@ export type AgentSessionStoreOpenOptions = {
 export class AgentSessionStoreTransactionQueue {
   private queue: Promise<unknown> = Promise.resolve()
   private diskRecoveredFromBackup: boolean
-  /** Fence of every lease the previous app run left, as open() loaded it. Known only when this
-   *  process holds the store alone — with a live peer, a loaded lease may be the peer's — and
-   *  emptied when another writer's state replaces it. */
-  private readonly fencesLoadedAtOpen: Map<string, number>
   private readonly savedTabSessionIds: () => readonly string[]
 
   constructor(
@@ -84,19 +79,7 @@ export class AgentSessionStoreTransactionQueue {
   ) {
     this.diskRecoveredFromBackup = recoveredFromBackup
     this.savedTabSessionIds = options.savedTabSessionIds ?? (() => [])
-    this.fencesLoadedAtOpen = new Map(
-      options.ownership === 'exclusive'
-        ? [...state.records].map(([sessionId, record]) => [sessionId, record.lease.runtimeFence])
-        : []
-    )
   }
-
-  endedWithPreviousAppRun = (record: AgentSessionRecord): boolean =>
-    agentSessionLeaseEndedWithPreviousAppRun(
-      record.lease,
-      this.fencesLoadedAtOpen.get(record.sessionId),
-      this.hostId
-    )
 
   static fromLoadedStore(
     filePath: string,
@@ -199,7 +182,6 @@ export class AgentSessionStoreTransactionQueue {
       throw new Error('agent_session_legacy_required')
     }
     markLoadedLeasesUnreconciled(loaded.state)
-    this.fencesLoadedAtOpen.clear()
     this.state = loaded.state
     this.diskRevision = diskRevision
     this.needsRewrite = loaded.needsRewrite

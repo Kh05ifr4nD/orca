@@ -48,29 +48,6 @@ export function acquireSingleInstanceLock(
   return true
 }
 
-/** Whether this process holds its userData alone, which only a lock it actually acquired proves. */
-export type UserDataOwnership = 'exclusive' | 'shared'
-
-/**
- * Takes the lock unless it is skipped or bypassed. Null means another instance holds the profile;
- * a skipped or bypassed lock is `shared`, since a live peer may be running on the same userData.
- * So is an acquired one when a desktop launch of this build skips the lock: a dev serve run holds
- * it while a dev desktop run on the same userData never asks.
- */
-export function claimUserDataOwnership(
-  app: App,
-  onSecondInstance: (argv: readonly string[]) => void,
-  options: { skip: boolean; bypass: boolean; peersSkipLock: boolean }
-): UserDataOwnership | null {
-  if (options.skip || options.bypass) {
-    return 'shared'
-  }
-  if (!acquireSingleInstanceLock(app, onSecondInstance)) {
-    return null
-  }
-  return options.peersSkipLock ? 'shared' : 'exclusive'
-}
-
 export function shouldBypassSingleInstanceLock(options: {
   env?: NodeJS.ProcessEnv
   isDev: boolean

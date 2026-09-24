@@ -41,7 +41,7 @@ import { createServeDesktopActivationGate } from './serve-desktop-activation'
 import {
   shouldBypassSingleInstanceLock,
   shouldSkipSingleInstanceLock,
-  claimUserDataOwnership,
+  acquireSingleInstanceLock,
   logSingleInstanceLockBypass,
   logSingleInstanceLockFailure,
   SINGLE_INSTANCE_ALREADY_RUNNING_EXIT_CODE
@@ -214,12 +214,7 @@ export function runMainProcessPreflight(options: MainProcessPreflightOptions): b
     // Why: diagnostic escape hatch for macOS builds where Electron reports a false lock loss before any app logs exist.
     logSingleInstanceLockBypass()
   }
-  const ownership = claimUserDataOwnership(app, options.requestDesktopActivation, {
-    skip,
-    bypass,
-    peersSkipLock: shouldSkipSingleInstanceLock({ isDev, isServeMode: false })
-  })
-  const hasLock = ownership !== null
+  const hasLock = skip || bypass || acquireSingleInstanceLock(app, options.requestDesktopActivation)
   if (state.startupDiagnosticsEnabled) {
     logStartupDiagnostic('single-instance-lock-result', {
       acquired: hasLock,
@@ -234,7 +229,6 @@ export function runMainProcessPreflight(options: MainProcessPreflightOptions): b
     app.exit(SINGLE_INSTANCE_ALREADY_RUNNING_EXIT_CODE)
     return false
   }
-  state.userDataOwnership = ownership
   // Why first in this block: the accessor throws until installed and everything below may read a
   // credential. The constructor does not touch `safeStorage` — it resolves lazily per call — so
   // installing here changes no timing, in particular not the pre-ready Keychain service-name

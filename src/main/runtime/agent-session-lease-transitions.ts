@@ -24,9 +24,12 @@ import type {
   AgentSessionProcessIdentity,
   AgentSessionRecord
 } from '../../shared/agent-session-record'
+import { stampAgentSessionHostRun, type AgentSessionHostRun } from './agent-session-host-run'
 
 export type AgentSessionReservation = {
   runtimeKind: AgentSessionOwnerRuntimeKind
+  /** The run granting this fence, stamped on a native owner's lease. */
+  hostRun: AgentSessionHostRun
   spawnToken: string
   claimKeyId: string
   handoffOperationId: string | null
@@ -92,9 +95,20 @@ export function reserveAgentSessionOwner(args: {
       claimStatus: 'reserved',
       settlementRetryRequired: undefined,
       settlementRetryId: undefined,
-      deathEvidence: null
+      deathEvidence: null,
+      ownerHostRun: agentSessionReservationHostRunStamp(reservation, decision.nextFence)
     })
   }
+}
+
+/** A TUI owner lives in the terminal daemon, not in the run that reserved it. */
+export function agentSessionReservationHostRunStamp(
+  reservation: AgentSessionReservation,
+  fence: number
+): AgentSessionLease['ownerHostRun'] {
+  return reservation.runtimeKind === 'native'
+    ? stampAgentSessionHostRun(reservation.hostRun, fence)
+    : undefined
 }
 
 /** Step 4 of acquisition: write the observed identity back into the same lease row. */

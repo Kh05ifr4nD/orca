@@ -101,7 +101,7 @@ vi.mock('./serve-desktop-activation', () => ({
 vi.mock('./single-instance-lock', () => ({
   shouldBypassSingleInstanceLock: () => false,
   shouldSkipSingleInstanceLock: () => true,
-  claimUserDataOwnership: () => 'shared',
+  acquireSingleInstanceLock: vi.fn(),
   logSingleInstanceLockBypass: vi.fn(),
   logSingleInstanceLockFailure: vi.fn(),
   SINGLE_INSTANCE_ALREADY_RUNNING_EXIT_CODE: 1

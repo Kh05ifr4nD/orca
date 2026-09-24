@@ -10,6 +10,7 @@ import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-ses
 import type { AgentSessionMutationEnvelope } from '../../../shared/agent-session-wire'
 import type * as DurableFileWrite from '../../durable-file-write'
 import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
+import { restartedAgentSessionHostRun } from '../../runtime/agent-session-host-run.test-fixture'
 import type {
   AgentSessionDispatchOutcome,
   StructuredAgentSessionAdapter
@@ -264,7 +265,7 @@ describe('settled attach retry', () => {
     store = await AgentSessionRecordStore.open({
       directory: join(root, 'store'),
       hostId: 'local',
-      ownership: 'exclusive'
+      hostRun: await restartedAgentSessionHostRun()
     })
     host = new StructuredAgentSessionHost({
       store,
@@ -334,7 +335,7 @@ describe('settled attach retry', () => {
     store = await AgentSessionRecordStore.open({
       directory: join(root, 'store'),
       hostId: 'local',
-      ownership: 'exclusive'
+      hostRun: await restartedAgentSessionHostRun()
     })
     host = new StructuredAgentSessionHost({
       store,

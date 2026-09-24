@@ -43,7 +43,7 @@ export function parseLinuxStartTicks(statLine: string): string | null {
   return startTicks ?? null
 }
 
-async function readLinuxPidNamespace(pid: number): Promise<string | undefined> {
+export async function readLinuxPidNamespace(pid: number): Promise<string | undefined> {
   try {
     const namespace = await readlink(`/proc/${pid}/ns/pid`)
     return namespace.trim() || undefined

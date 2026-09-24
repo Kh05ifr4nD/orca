@@ -50,10 +50,12 @@ import {
   type AgentSessionLeaseRenewal
 } from './agent-session-lease-renewal'
 import {
+  agentSessionPreviousAppRunTest,
   applyAgentSessionRestartProbes,
   collectAgentSessionRestartProbes,
   type AgentSessionRestartProbeArgs
 } from './agent-session-restart-reconciliation'
+import { currentAgentSessionHostRun, type AgentSessionHostRun } from './agent-session-host-run'
 import { replaceAgentSessionRecordOptions } from './agent-session-record-options'
 import {
   setAgentSessionReservationProcesslessProof,
@@ -80,12 +82,17 @@ export const AGENT_SESSION_LEASE_TTL_MS = 30_000,
   AGENT_SESSION_LEASE_RENEW_INTERVAL_MS = 10_000
 
 export class AgentSessionRecordStore {
-  private constructor(private readonly transactions: AgentSessionStoreTransactionQueue) {}
+  private constructor(
+    private readonly transactions: AgentSessionStoreTransactionQueue,
+    /** Stamped on every native lease this store grants, and compared against at restart. */
+    readonly hostRun: AgentSessionHostRun
+  ) {}
 
   static async open(
     args: { directory: string; hostId: string } & AgentSessionStoreOpenOptions
   ): Promise<AgentSessionRecordStore> {
     const filePath = agentSessionStorePath(args.directory)
+    const hostRun = args.hostRun ?? (await currentAgentSessionHostRun())
     const loaded = await loadProtectedAgentSessionStore(filePath, args.hostId)
     // Why: every persisted lease is unreconciled until this host adjudicates it, so a restart
     // grants no writer on the strength of what the previous process wrote.
@@ -101,7 +108,7 @@ export class AgentSessionRecordStore {
     if (loaded.needsRewrite && !loaded.readOnly && !loaded.recoveredFromBackup) {
       await transactions.persistLoadedRewrite()
     }
-    return new AgentSessionRecordStore(transactions)
+    return new AgentSessionRecordStore(transactions, hostRun)
   }
 
   private get state(): AgentSessionStoreState {
@@ -177,7 +184,7 @@ export class AgentSessionRecordStore {
 
   async reserveOwner(request: AgentSessionReserveRequest): Promise<AgentSessionReserveResult> {
     return this.transact(() =>
-      commitAgentSessionReservation(this.state, request, AGENT_SESSION_LEASE_TTL_MS)
+      commitAgentSessionReservation(this.state, request, AGENT_SESSION_LEASE_TTL_MS, this.hostRun)
     )
   }
 
@@ -271,7 +278,11 @@ export class AgentSessionRecordStore {
     args: AgentSessionRestartProbeArgs
   ): Promise<Map<string, AgentSessionRecord>> {
     const pending = this.listRecords().filter((record) => record.lease.unreconciled)
-    const endedWithPreviousAppRun = this.transactions.endedWithPreviousAppRun
+    const endedWithPreviousAppRun = agentSessionPreviousAppRunTest(
+      this.transactions.hostId,
+      this.hostRun,
+      args.isPidPresent
+    )
     const probes = await collectAgentSessionRestartProbes(pending, args, endedWithPreviousAppRun)
     return this.transact(() =>
       applyAgentSessionRestartProbes(this.state, probes, args.now, endedWithPreviousAppRun)

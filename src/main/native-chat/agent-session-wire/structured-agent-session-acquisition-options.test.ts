@@ -6,6 +6,7 @@ import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-ses
 import type { AgentSessionOptionsResult } from '../../../shared/agent-session-wire'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
+import { restartedAgentSessionHostRun } from '../../runtime/agent-session-host-run.test-fixture'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { digestPayload } from '../agent-session-journal/journal-payload-bounds'
@@ -515,7 +516,7 @@ describe('structured session acquisition options', () => {
       const reopened = await AgentSessionRecordStore.open({
         directory: storeDir,
         hostId: 'local',
-        ownership: 'exclusive'
+        hostRun: await restartedAgentSessionHostRun()
       })
       const failedRecord = reopened.getRecord(SESSION)
       expectSettledAttachLease(failedRecord)
@@ -523,13 +524,14 @@ describe('structured session acquisition options', () => {
         reopened.listOperationRows().find((row) => row.operationId === CREATE_OPERATION)?.outcome
       ).toMatchObject({ status: 'failed' })
 
-      // Whatever cleanup proved, the child was spawned by the app run that just ended.
+      // An unsettled child was spawned by the app run that just ended; a released lease no longer
+      // names that run's grant, so it is probed as any other.
       const restartProbe = vi.fn(async () => ({
         outcome: 'identity-matched' as const,
         matchedOn: ['process-start-time' as const]
       }))
       await reopened.reconcileOnRestart({ probe: restartProbe, now: NOW + 1 })
-      expect(restartProbe).not.toHaveBeenCalled()
+      expect(restartProbe).toHaveBeenCalledTimes(exitProven ? 1 : 0)
 
       if (exitProven) {
         expect(failedRecord?.lease).toMatchObject({

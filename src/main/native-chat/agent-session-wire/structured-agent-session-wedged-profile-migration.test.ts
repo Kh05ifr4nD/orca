@@ -417,11 +417,9 @@ describe('already-wedged profiles become usable on load', () => {
     expect(acquire).not.toHaveBeenCalled()
   })
 
-  // A native owner loaded at open is assumed gone; a TUI owner survives restarts and is probed.
   it('leaves a conflicted record alone while its owner cannot be proven gone', async () => {
     await seedStore(
       wedgedRecord({
-        runtimeKind: 'tui',
         claimStatus: 'conflicted',
         handoffStage: 'manual-recovery',
         ownerProcess: DEAD_OWNER
@@ -531,7 +529,6 @@ describe('already-wedged profiles become usable on load', () => {
   it('names the missing evidence when a latched record still cannot be freed', async () => {
     await seedStore(
       wedgedRecord({
-        runtimeKind: 'tui',
         claimStatus: 'conflicted',
         handoffStage: 'manual-recovery',
         ownerProcess: DEAD_OWNER

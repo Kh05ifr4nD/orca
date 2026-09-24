@@ -24,7 +24,7 @@ describe('serve desktop activation wiring', () => {
   it('routes second-instance and windowless app activation through one safety gate', () => {
     expect(preflightSource).toContain('createServeDesktopActivationGate({')
     expect(preflightSource).toContain(
-      'claimUserDataOwnership(app, options.requestDesktopActivation'
+      'acquireSingleInstanceLock(app, options.requestDesktopActivation)'
     )
     expect(entrySource).toContain('createMacAppActivationHandler({')
     expect(runtimeSource).toContain("app.on('activate', options.handleMacAppActivation)")

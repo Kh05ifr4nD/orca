@@ -88,7 +88,8 @@ export function reserveStoredAgentSessionHandoffOwner(
     reserveAgentSessionHandoffOwner({
       ...args,
       record,
-      leaseTtlMs: args.leaseTtlMs ?? AGENT_SESSION_LEASE_TTL_MS
+      leaseTtlMs: args.leaseTtlMs ?? AGENT_SESSION_LEASE_TTL_MS,
+      hostRun: store.hostRun
     })
   )
 }

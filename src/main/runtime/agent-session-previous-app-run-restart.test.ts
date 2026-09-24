@@ -4,11 +4,15 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionOwnerProbe } from '../../shared/agent-session-lease-adjudication'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
-import { setStoredAgentSessionHandoffStage } from './agent-session-handoff-record-transitions'
+import {
+  reserveStoredAgentSessionHandoffOwner,
+  setStoredAgentSessionHandoffStage,
+  stopStoredAgentSessionOwnerForHandoff
+} from './agent-session-handoff-record-transitions'
 import { AgentSessionRecordStore } from './agent-session-record-store'
 import { agentSessionStorePath } from './agent-session-record-store-file'
 import type { AgentSessionReserveRequest } from './agent-session-reservation-admission'
-import type { UserDataOwnership } from '../startup/single-instance-lock'
+import { currentAgentSessionHostRun, type AgentSessionHostRun } from './agent-session-host-run'
 
 const NOW = 1_800_000_000_000
 const SESSION = 'session-alpha'
@@ -16,15 +20,49 @@ const MATCHED: AgentSessionOwnerProbe = { outcome: 'identity-matched', matchedOn
 
 let directory: string
 let counter = 0
+let runs = 0
+/** Pids of runs still alive; every other stamped pid reads as gone. */
+let livePids: Set<number>
 
 function operationId(): string {
   counter += 1
   return `${NOW}-${String(counter).padStart(32, '0')}`
 }
 
-/** Exclusive unless a test says otherwise: a restart of the only process on the profile. */
-function open(ownership: UserDataOwnership = 'exclusive'): Promise<AgentSessionRecordStore> {
-  return AgentSessionRecordStore.open({ directory, hostId: 'local', ownership })
+function hostRun(overrides: Partial<AgentSessionHostRun> = {}): AgentSessionHostRun {
+  runs += 1
+  return { runId: `run-${runs}`, pid: 40_000 + runs, machine: 'test-os:test-box', ...overrides }
+}
+
+/** A fresh app run unless a test names one. */
+function open(run: AgentSessionHostRun = hostRun()): Promise<AgentSessionRecordStore> {
+  return AgentSessionRecordStore.open({ directory, hostId: 'local', hostRun: run })
+}
+
+function reconcile(
+  store: AgentSessionRecordStore,
+  probe: (record: AgentSessionRecord) => Promise<AgentSessionOwnerProbe>,
+  probeMany?: () => Promise<Map<string, AgentSessionOwnerProbe>>
+): Promise<unknown> {
+  return store.reconcileOnRestart({
+    probe,
+    probeMany,
+    now: NOW + 1_000,
+    isPidPresent: (pid) => livePids.has(pid)
+  })
+}
+
+type PersistedLease = {
+  runtimeFence?: number
+  ownerHostRun?: unknown
+  deathEvidence?: { kind?: string }
+}
+
+async function editPersistedLease(edit: (lease: PersistedLease) => void): Promise<void> {
+  const path = agentSessionStorePath(directory)
+  const persisted = JSON.parse(await readFile(path, 'utf-8'))
+  edit(persisted.records[SESSION].lease)
+  await writeFile(path, JSON.stringify(persisted))
 }
 
 function reserve(
@@ -97,6 +135,7 @@ const previousAppRunEviction = {
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'orca-previous-app-run-'))
+  livePids = new Set()
 })
 
 afterEach(async () => {
@@ -110,7 +149,7 @@ describe('restart assumes a native owner ended with the previous app run', () =>
     const probe = vi.fn(async () => MATCHED)
     const probeMany = vi.fn(async () => new Map<string, AgentSessionOwnerProbe>())
 
-    await restarted.reconcileOnRestart({ probe, probeMany, now: NOW + 1_000 })
+    await reconcile(restarted, probe, probeMany)
 
     expect(probe).not.toHaveBeenCalled()
     expect(probeMany).not.toHaveBeenCalled()
@@ -122,7 +161,7 @@ describe('restart assumes a native owner ended with the previous app run', () =>
     const restarted = await open()
     const probe = vi.fn(async () => ({ outcome: 'indeterminate' as const, reason: 'no scan' }))
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+    await reconcile(restarted, probe)
 
     expect(probe).not.toHaveBeenCalled()
     // A reservation never proved a child, so there is no generation's journal work to settle.
@@ -143,7 +182,7 @@ describe('restart assumes a native owner ended with the previous app run', () =>
     const restarted = await open()
     const probe = vi.fn(async () => MATCHED)
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+    await reconcile(restarted, probe)
 
     expect(probe).not.toHaveBeenCalled()
     expect(restarted.getRecord(SESSION)?.lease).toMatchObject(previousAppRunEviction)
@@ -162,7 +201,7 @@ describe('restart assumes a native owner ended with the previous app run', () =>
     const restarted = await open()
     const probe = vi.fn(async () => MATCHED)
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+    await reconcile(restarted, probe)
 
     expect(probe).not.toHaveBeenCalled()
     expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
@@ -179,7 +218,7 @@ describe('restart assumes a native owner ended with the previous app run', () =>
     const restarted = await open()
     const probe = vi.fn(async () => MATCHED)
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+    await reconcile(restarted, probe)
 
     expect(probe).toHaveBeenCalledOnce()
     expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
@@ -194,7 +233,7 @@ describe('restart assumes a native owner ended with the previous app run', () =>
     const restarted = await open()
     const probe = vi.fn(async () => ({ outcome: 'indeterminate' as const, reason: 'remote' }))
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+    await reconcile(restarted, probe)
 
     expect(probe).toHaveBeenCalledOnce()
     expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
@@ -203,49 +242,188 @@ describe('restart assumes a native owner ended with the previous app run', () =>
     })
   })
 
-  it('probes a native owner when another process may hold the same profile', async () => {
-    // A dev run or a bypassed launch took no single-instance lock, so a live peer may own this.
-    await establishOwner(await open())
-    const restarted = await open('shared')
+  it('evicts under a new run id that reuses the stamped pid, as a restarted container does', async () => {
+    const previous = hostRun({ pid: 1 })
+    await establishOwner(await open(previous))
+    const restarted = await open(hostRun({ pid: 1 }))
+    livePids.add(1)
     const probe = vi.fn(async () => MATCHED)
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+    await reconcile(restarted, probe)
+
+    expect(probe).not.toHaveBeenCalled()
+    expect(restarted.getRecord(SESSION)?.lease).toMatchObject(previousAppRunEviction)
+  })
+
+  it('probes, and keeps, the live lease of a second process sharing the store', async () => {
+    // A dev desktop takes no single-instance lock, so a peer on this profile may be running.
+    const peerRun = hostRun()
+    const peer = await open(peerRun)
+    await establishOwner(peer)
+    livePids.add(peerRun.pid)
+    const second = await open()
+    const probe = vi.fn(async () => MATCHED)
+
+    await reconcile(second, probe)
 
     expect(probe).toHaveBeenCalledOnce()
-    expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
+    expect(second.getRecord(SESSION)?.lease).toMatchObject({
       runtimeFence: 1,
-      handoffStage: 'recovering',
+      claimStatus: 'live',
+      deathEvidence: null
+    })
+    expect(peer.getRecord(SESSION)?.lease.claimStatus).toBe('live')
+  })
+
+  it('probes a lease this run granted itself', async () => {
+    const run = hostRun()
+    await establishOwner(await open(run))
+    const reopened = await open(run)
+    const probe = vi.fn(async () => MATCHED)
+
+    await reconcile(reopened, probe)
+
+    expect(probe).toHaveBeenCalledOnce()
+    expect(reopened.getRecord(SESSION)?.lease).toMatchObject({
+      runtimeFence: 1,
       deathEvidence: null
     })
   })
 
-  it('opens a store as shared unless its opener proves it holds the profile alone', async () => {
-    await establishOwner(await open())
-    const restarted = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
-    const probe = vi.fn(async () => MATCHED)
+  it('probes a lease whose stamp names an older fence, as an older build re-reserving leaves it', async () => {
+    await reserve(await open())
+    // An older build keeps unknown lease fields when it moves the fence.
+    await editPersistedLease((lease) => {
+      lease.runtimeFence = 2
+    })
+    const restarted = await open()
+    const probe = vi.fn(async () => ({ outcome: 'indeterminate' as const, reason: 'no scan' }))
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+    await reconcile(restarted, probe)
 
     expect(probe).toHaveBeenCalledOnce()
+    expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
+      runtimeFence: 2,
+      claimStatus: 'reserved',
+      deathEvidence: null
+    })
   })
 
-  it('probes leases from another writer once that state replaces the loaded one', async () => {
+  it('probes a lease an older build granted without a stamp', async () => {
     await establishOwner(await open())
+    await editPersistedLease((lease) => {
+      delete lease.ownerHostRun
+    })
     const restarted = await open()
-    // A concurrent instance on the same profile commits after this one loaded.
-    await (await open()).setSessionTabVisibility(SESSION, true)
     const probe = vi.fn(async () => MATCHED)
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
-    expect(probe).not.toHaveBeenCalled()
-    expect(restarted.getRecord(SESSION)?.lease).toMatchObject({ unreconciled: true })
+    await reconcile(restarted, probe)
 
-    await restarted.reconcileOnRestart({ probe, now: NOW + 2_000 })
     expect(probe).toHaveBeenCalledOnce()
     expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
       runtimeFence: 1,
-      handoffStage: 'recovering',
       deathEvidence: null
+    })
+  })
+
+  it('probes a lease stamped on another machine, whose pid means nothing here', async () => {
+    await establishOwner(await open(hostRun({ machine: 'test-os:other-box' })))
+    const restarted = await open()
+    const probe = vi.fn(async () => MATCHED)
+
+    await reconcile(restarted, probe)
+
+    expect(probe).toHaveBeenCalledOnce()
+    expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
+      runtimeFence: 1,
+      deathEvidence: null
+    })
+  })
+
+  it('probes each stamped pid once per reconcile', async () => {
+    const run = hostRun()
+    const store = await open(run)
+    await establishOwner(store)
+    await reserve(store, { sessionId: 'session-bravo', spawnToken: 'spawn-b' })
+    const restarted = await open()
+    const isPidPresent = vi.fn(() => false)
+
+    await restarted.reconcileOnRestart({
+      probe: async () => MATCHED,
+      now: NOW + 1_000,
+      isPidPresent
+    })
+
+    expect(isPidPresent).toHaveBeenCalledOnce()
+    expect(isPidPresent).toHaveBeenCalledWith(run.pid)
+  })
+})
+
+describe('the host run a lease is stamped with', () => {
+  it('names the run that granted each fence', async () => {
+    const first = hostRun()
+    const store = await open(first)
+    await reserve(store)
+    expect(store.getRecord(SESSION)?.lease.ownerHostRun).toEqual({ ...first, fence: 1 })
+
+    const second = hostRun()
+    const restarted = await open(second)
+    await reconcile(restarted, async () => MATCHED)
+    await reserve(restarted, { expectedFence: 2, spawnToken: 'spawn-b' })
+
+    expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
+      runtimeFence: 3,
+      ownerHostRun: { ...second, fence: 3 }
+    })
+  })
+
+  it('stamps a handoff reservation with the fence it grants', async () => {
+    const run = hostRun()
+    const store = await open(run)
+    await establishOwner(store)
+    await setStoredAgentSessionHandoffStage(store, {
+      sessionId: SESSION,
+      fence: 1,
+      stage: 'preparing',
+      handoffOperationId: 'handoff-1',
+      now: NOW
+    })
+    await stopStoredAgentSessionOwnerForHandoff(store, {
+      sessionId: SESSION,
+      expectedFence: 1,
+      operationId: 'handoff-1',
+      now: NOW
+    })
+    await reserveStoredAgentSessionHandoffOwner(store, {
+      sessionId: SESSION,
+      expectedFence: 2,
+      runtimeKind: 'native',
+      spawnToken: 'spawn-b',
+      operationId: 'handoff-1',
+      claimKeyId: 'key-1',
+      now: NOW
+    })
+
+    expect(store.getRecord(SESSION)?.lease).toMatchObject({
+      runtimeFence: 3,
+      ownerHostRun: { ...run, fence: 3 }
+    })
+  })
+
+  it('leaves a TUI reservation unstamped, since the terminal daemon owns that process', async () => {
+    const store = await open()
+    await reserve(store, { runtimeKind: 'tui' })
+
+    expect(store.getRecord(SESSION)?.lease.ownerHostRun).toBeUndefined()
+  })
+
+  it("defaults to this process's own run", async () => {
+    const store = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
+
+    expect(store.hostRun).toEqual(await currentAgentSessionHostRun())
+    expect(store.hostRun).toMatchObject({
+      pid: process.pid,
+      machine: expect.stringMatching(new RegExp(`^${process.platform}:`))
     })
   })
 })
@@ -260,10 +438,9 @@ describe('death evidence kinds', () => {
       probe: { outcome: 'pid-absent' },
       now: NOW
     })
-    const path = agentSessionStorePath(directory)
-    const persisted = JSON.parse(await readFile(path, 'utf-8'))
-    persisted.records[SESSION].lease.deathEvidence.kind = 'written-by-a-newer-build'
-    await writeFile(path, JSON.stringify(persisted))
+    await editPersistedLease((lease) => {
+      lease.deathEvidence = { ...lease.deathEvidence, kind: 'written-by-a-newer-build' }
+    })
 
     const reopened = await open()
 

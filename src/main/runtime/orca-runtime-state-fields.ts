@@ -16,7 +16,6 @@ import type {
 } from '../../shared/ai-vault-resume-preparation'
 import type { RuntimeDesktopWindowStatus } from '../../shared/runtime-types'
 import type { AgentSessionClaimSigner } from './agent-session-claim-identity'
-import type { UserDataOwnership } from '../startup/single-instance-lock'
 import type { OrchestrationEnvironmentTransport } from './orchestration/environment-transport'
 import type { RuntimeCommandSurfaceHost } from './orca-runtime-core'
 import { installRuntimeFileCommandSurface } from './runtime-file-command-surface'
@@ -87,8 +86,6 @@ export class OrcaRuntimeWithStateFields extends OrcaRuntimeWithLinearCommands {
       canRecoverPersistentLocalPtys?: () => boolean
       /** Settles once the local PTY provider can list daemon terminals; resolved per call. */
       awaitLocalPtyProviderStartup?: () => Promise<void>
-      /** Absent proves nothing: a host that took no single-instance lock may share its store. */
-      userDataOwnership?: UserDataOwnership
       // Why: the device registry lives on the RPC server, which is constructed with this runtime;
       // a closure defers the lookup past that ordering instead of inverting ownership.
       getPairedDeviceName?: (pairedDeviceId: string) => string | null
@@ -234,7 +231,6 @@ export class OrcaRuntimeWithStateFields extends OrcaRuntimeWithLinearCommands {
     this.canRecoverPersistentLocalPtysFn = deps?.canRecoverPersistentLocalPtys ?? (() => true)
     this.awaitLocalPtyProviderStartupFn =
       deps?.awaitLocalPtyProviderStartup ?? (() => Promise.resolve())
-    this.userDataOwnership = deps?.userDataOwnership ?? 'shared'
     this.getPairedDeviceNameFn = deps?.getPairedDeviceName ?? (() => null)
     // Why: configure the shared AiVault scan cache from a serve-mode-reachable
     // seam so the aiVault.listSessions RPC includes managed-Codex + WSL sessions

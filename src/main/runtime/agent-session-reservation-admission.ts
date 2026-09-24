@@ -38,9 +38,11 @@ import {
   type AgentSessionProviderHandleLink
 } from '../../shared/agent-session-provider-handle'
 import {
+  agentSessionReservationHostRunStamp,
   reserveAgentSessionOwner,
   type AgentSessionReservation
 } from './agent-session-lease-transitions'
+import type { AgentSessionHostRun } from './agent-session-host-run'
 import type { AgentSessionStoreState } from './agent-session-record-store-file'
 
 export type AgentSessionReserveRequest = {
@@ -134,7 +136,8 @@ export function admitPendingAgentSessionReservationReplay(
 export function applyAgentSessionReservation(
   state: AgentSessionStoreState,
   request: AgentSessionReserveRequest,
-  leaseTtlMs: number
+  leaseTtlMs: number,
+  hostRun: AgentSessionHostRun
 ): {
   record: AgentSessionRecord
   disposition: Exclude<AgentSessionReserveDisposition, 'replayed'>
@@ -150,6 +153,7 @@ export function applyAgentSessionReservation(
   }
   const reservation: AgentSessionReservation = {
     runtimeKind: request.runtimeKind,
+    hostRun,
     spawnToken:
       typeof request.spawnToken === 'function' ? request.spawnToken() : request.spawnToken,
     claimKeyId: request.claimKeyId,
@@ -265,7 +269,8 @@ function createAgentSessionRecord(
       claimKeyId: reservation.claimKeyId,
       claimStatus: 'reserved',
       unreconciled: false,
-      deathEvidence: null
+      deathEvidence: null,
+      ownerHostRun: agentSessionReservationHostRunStamp(reservation, 1)
     }
   }
 }
@@ -277,7 +282,8 @@ function createAgentSessionRecord(
 export function commitAgentSessionReservation(
   state: AgentSessionStoreState,
   request: AgentSessionReserveRequest,
-  leaseTtlMs: number
+  leaseTtlMs: number,
+  hostRun: AgentSessionHostRun
 ): AgentSessionReserveResult {
   const decision = evaluateAgentSessionReserveOperation(state, request)
   if (decision.decision === 'refused') {
@@ -290,7 +296,7 @@ export function commitAgentSessionReservation(
     }
     return { record, disposition: 'replayed' as const, operationRow: decision.row }
   }
-  const result = applyAgentSessionReservation(state, request, leaseTtlMs)
+  const result = applyAgentSessionReservation(state, request, leaseTtlMs, hostRun)
   state.operations.set(
     agentSessionOperationKey(request.operation.callerKey, request.operation.operationId),
     decision.row

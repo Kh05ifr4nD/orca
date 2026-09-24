@@ -34,7 +34,7 @@ export type AgentSessionProcessProbeDeps = {
   platform?: NodeJS.Platform
 }
 
-function defaultIsPidPresent(pid: number): boolean {
+export function isProcessPidPresent(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true
@@ -238,7 +238,7 @@ export async function probeAgentSessionProcessIdentity(args: {
   if (args.observedExit) {
     return { outcome: 'exit-observed' }
   }
-  const isPidPresent = deps.isPidPresent ?? defaultIsPidPresent
+  const isPidPresent = deps.isPidPresent ?? isProcessPidPresent
   if (!isPidPresent(identity.pid)) {
     return { outcome: 'pid-absent' }
   }

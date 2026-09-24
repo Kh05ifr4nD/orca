@@ -146,7 +146,6 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
       stateDirectory: getProfileUserDataPath(),
       hostId: LOCAL_EXECUTION_HOST_ID,
       recordStore: {
-        ownership: this.userDataOwnership,
         savedTabSessionIds: () =>
           collectSavedStructuredAgentSessionIds(
             localStructuredAgentSessionWorkspaceSession(this.store)

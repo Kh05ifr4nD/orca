@@ -26,6 +26,7 @@ const LOCATION: AgentSessionExecutionLocation = {
   workspaceId: 'workspace-1',
   workspaceKind: 'git-worktree'
 }
+const HOST_RUN = { runId: 'run-1', pid: 4_000, machine: 'test-os:test-box' }
 const INDETERMINATE: AgentSessionOwnerProbe = { outcome: 'indeterminate', reason: 'no answer' }
 
 /** The link an adopting create seeds: fence 1, because that is a new record's first. */
@@ -80,7 +81,8 @@ describe('adopted handle chain seeding', () => {
     const { record, disposition } = applyAgentSessionReservation(
       storeState(),
       reserveRequest({ adoptedHandleLink: link }),
-      LEASE_TTL_MS
+      LEASE_TTL_MS,
+      HOST_RUN
     )
 
     expect(disposition).toBe('created')
@@ -90,9 +92,25 @@ describe('adopted handle chain seeding', () => {
   })
 
   it('leaves a blank create with no chain, so the adapter starts a conversation', () => {
-    const { record } = applyAgentSessionReservation(storeState(), reserveRequest(), LEASE_TTL_MS)
+    const { record } = applyAgentSessionReservation(
+      storeState(),
+      reserveRequest(),
+      LEASE_TTL_MS,
+      HOST_RUN
+    )
 
     expect(record.providerHandleChain).toEqual([])
+  })
+
+  it('stamps a new native record with the run granting its first fence', () => {
+    const { record } = applyAgentSessionReservation(
+      storeState(),
+      reserveRequest(),
+      LEASE_TTL_MS,
+      HOST_RUN
+    )
+
+    expect(record.lease.ownerHostRun).toEqual({ ...HOST_RUN, fence: 1 })
   })
 })
 
@@ -106,7 +124,8 @@ describe('adopted conversation ownership', () => {
       applyAgentSessionReservation(
         storeState([holder]),
         reserveRequest({ adoptedHandleLink: adoptedLink() }),
-        LEASE_TTL_MS
+        LEASE_TTL_MS,
+        HOST_RUN
       )
     ).toThrow('agent_session_conflict')
   })
@@ -122,7 +141,8 @@ describe('adopted conversation ownership', () => {
             handle: { provider: 'claude', sessionId: 'provider-session-other', leafUuid: null }
           })
         }),
-        LEASE_TTL_MS
+        LEASE_TTL_MS,
+        HOST_RUN
       )
     ).not.toThrow()
   })
@@ -156,7 +176,8 @@ describe('adopted conversation ownership', () => {
         expectedFence: 1,
         handoffOperationId: 'handoff-1'
       }),
-      LEASE_TTL_MS
+      LEASE_TTL_MS,
+      HOST_RUN
     )
 
     expect(disposition).toBe('retry-reservation')
@@ -191,7 +212,8 @@ describe('adopted conversation ownership', () => {
             handle: { provider: 'codex', threadId: 'thread-1' }
           })
         }),
-        LEASE_TTL_MS
+        LEASE_TTL_MS,
+        HOST_RUN
       )
     ).toThrow('agent_session_conflict')
   })

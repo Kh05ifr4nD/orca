@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { spawnProcess } from '../../../shared/child-process/run-process'
 import { CODEX_SPAWN_TOKEN_ENV } from '../../codex/codex-structured-owner-identity'
 import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
+import { restartedAgentSessionHostRun } from '../../runtime/agent-session-host-run.test-fixture'
 import { readProcessStartTimeMs } from '../../runtime/agent-session-process-identity-probe'
 import { createStructuredAgentSessionOwnerProbe } from '../../runtime/structured-agent-session-owner-probe'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
@@ -93,11 +94,11 @@ async function abandonHost(abandonedHost: StructuredAgentSessionHost): Promise<v
 
 async function reopenStore(): Promise<void> {
   await abandonHost(host)
-  // A restart of the only process on the profile.
+  // The next app run on this machine.
   store = await AgentSessionRecordStore.open({
     directory: join(root, 'store'),
     hostId: 'local',
-    ownership: 'exclusive'
+    hostRun: await restartedAgentSessionHostRun()
   })
 }
 

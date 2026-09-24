@@ -14,6 +14,10 @@ import {
   type AgentSessionDeathEvidence
 } from './agent-session-death-evidence'
 import {
+  isAgentSessionOwnerHostRun,
+  type AgentSessionOwnerHostRun
+} from './agent-session-owner-host-run'
+import {
   isAgentSessionConversationCommandRecord,
   type AgentSessionConversationCommandRecord
 } from './agent-session-conversation-command'
@@ -83,7 +87,7 @@ export type AgentSessionJournalCheckpoint = { epoch: number; sequence: number }
  */
 export type AgentSessionClaimStatus = 'reserved' | 'live' | 'conflicted' | 'released'
 
-export type { AgentSessionDeathEvidence }
+export type { AgentSessionDeathEvidence, AgentSessionOwnerHostRun }
 
 export type AgentSessionLease = {
   sessionId: string
@@ -116,6 +120,8 @@ export type AgentSessionLease = {
    */
   minimumNextFence?: number
   deathEvidence: AgentSessionDeathEvidence | null
+  /** Absent on leases an older build granted; a stale copy names an older fence. */
+  ownerHostRun?: AgentSessionOwnerHostRun
   /** A positively observed provider exit whose terminal journal settlement still needs retry. */
   settlementRetryRequired?: boolean
   /** Stable lifecycle batch id used when retrying the terminal settlement. */
@@ -313,7 +319,8 @@ function isAgentSessionLease(value: unknown): value is AgentSessionLease {
       typeof lease.settlementRetryRequired === 'boolean') &&
     (lease.settlementRetryId === undefined ||
       isBoundedString(lease.settlementRetryId, MAX_ID_LENGTH)) &&
-    (lease.deathEvidence === null || isAgentSessionDeathEvidence(lease.deathEvidence))
+    (lease.deathEvidence === null || isAgentSessionDeathEvidence(lease.deathEvidence)) &&
+    (lease.ownerHostRun === undefined || isAgentSessionOwnerHostRun(lease.ownerHostRun))
   )
 }
 

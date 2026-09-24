@@ -250,14 +250,15 @@ describe('structured agent-session runtime install', () => {
     expect(reapOrphanChildren).toHaveBeenCalledWith({ store: expect.anything() })
   })
 
-  it('opens the record store with the ownership the app proved', async () => {
+  it('opens the record store with the options the runtime was handed', async () => {
     stateDirectory = await mkdtemp(join(tmpdir(), 'orca-structured-runtime-'))
     const open = vi.spyOn(AgentSessionRecordStore, 'open')
+    const savedTabSessionIds = (): string[] => []
 
     await ensureStructuredAgentSessionHost({
       stateDirectory,
       hostId: HOST_ID,
-      recordStore: { ownership: 'exclusive' },
+      recordStore: { savedTabSessionIds },
       claimKeyId: 'key-1',
       resolveWorkspacePath: async () => stateDirectory!,
       resolveClaudeAuthPolicy: () => ({ stripAuthEnv: true }),
@@ -265,7 +266,7 @@ describe('structured agent-session runtime install', () => {
       reapOrphanChildren: async () => []
     })
 
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({ ownership: 'exclusive' }))
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ savedTabSessionIds }))
   })
 
   it('builds no host once the app has stopped the runtime', async () => {
