@@ -119,7 +119,7 @@ export function useMobileBrowserCommands(args: MobileBrowserCommandArgs) {
         return
       }
       try {
-        const reply = browserPointerClick.interpret(
+        browserPointerClick.interpret(
           await browserPointerClick.request(
             client,
             {
@@ -143,17 +143,12 @@ export function useMobileBrowserCommands(args: MobileBrowserCommandArgs) {
           )
         )
         setError(null)
-        if (reply !== null) {
-          return
-        }
+        return
       } catch (error) {
         // Why: a timed-out click may still run on the host; replaying it as move/down/up double-taps.
-        if (isRpcDeliveryUnknown(error)) {
+        if (isRpcDeliveryUnknown(error) || pointerModifiers.length > 0) {
           return
         }
-      }
-      if (pointerModifiers.length > 0) {
-        return
       }
       try {
         const moveReply = await browserPointerMove.request(client, {

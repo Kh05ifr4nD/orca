@@ -11,17 +11,21 @@ import type { RpcClient } from '../transport/rpc-client'
 import { useMobileBrowserCommands } from './use-mobile-browser-commands'
 import { useMobileBrowserRequest } from './use-mobile-browser-request'
 
-const { sent, clickFailure } = vi.hoisted(() => {
+const { sent, clickFailure, clickReply } = vi.hoisted(() => {
   const failure: { current: Error | null } = { current: null }
-  return { sent: new Array<string>(), clickFailure: failure }
+  const reply: { current: unknown } = { current: {} }
+  return { sent: new Array<string>(), clickFailure: failure, clickReply: reply }
 })
 
 vi.mock('./mobile-browser-command-operations', () => {
   const command = (method: string) => ({
     request: vi.fn(async () => {
       sent.push(method)
-      if (method === 'browser.mouseClick' && clickFailure.current) {
-        throw clickFailure.current
+      if (method === 'browser.mouseClick') {
+        if (clickFailure.current) {
+          throw clickFailure.current
+        }
+        return clickReply.current
       }
       return {}
     }),
@@ -85,6 +89,7 @@ describe('tap fallback', () => {
   beforeEach(() => {
     sent.length = 0
     clickFailure.current = null
+    clickReply.current = {}
   })
 
   it('does not replay a click whose delivery is unknown', async () => {
@@ -95,6 +100,18 @@ describe('tap fallback', () => {
 
     await act(async () => {
       await commands.sendPointerClick({ x: 10, y: 20 }, 'left')
+    })
+
+    expect(sent).toEqual(['browser.mouseClick'])
+  })
+
+  // The external-Chromium provider answers a delivered click with agent-browser's `data`, which can be null.
+  it('does not replay a click the host answered, whatever the answer', async () => {
+    clickReply.current = null
+    const commands = mountCommands()
+
+    await act(async () => {
+      await commands.sendPointerClick({ x: 10, y: 20 }, 'right')
     })
 
     expect(sent).toEqual(['browser.mouseClick'])
