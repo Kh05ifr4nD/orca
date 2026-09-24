@@ -145,12 +145,12 @@ ${postDoneInstructions}`
 ${params.taskSpec}`
 }
 
-export function dispatchPreambleSendOptions(
-  requestId: string
-): Pick<
+export type DispatchPreambleSendOptions = Pick<
   RuntimeAgentPromptWriteOptions,
   'leadLine' | 'acceptQueued' | 'observationTimeoutMs' | 'requestId'
-> {
+>
+
+export function dispatchPreambleSendOptions(requestId: string): DispatchPreambleSendOptions {
   // Why: a delayed provider hook must not revoke an accepted Dispatch.
   return {
     leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
