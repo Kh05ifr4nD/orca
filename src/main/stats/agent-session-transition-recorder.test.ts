@@ -302,7 +302,34 @@ describe('AgentSessionTransitionRecorder reading the main agent fact', () => {
     expect(stats.getSummary().totalAgentTimeMs).toBe(60_000)
   })
 
-  it('opens a new session dated by the main agent clock when the main agent resumes after monitoring', () => {
+  it('dates a subagent reopening a monitoring row by the evidence, not the pinned row clock', () => {
+    // The hook lane keeps the row's clock across a watch-loop mode change, so it still reads T,
+    // the start of the main agent's turn; dating the reopen by it would bill the monitoring window.
+    const stats = new StatsCollector()
+    const recorder = new AgentSessionTransitionRecorder(stats)
+    const mainAgentDone = { state: 'done' as const, stateStartedAt: T + 5_000 }
+
+    recorder.onStatus(mainAgentHook({ state: 'working', mainAgent: MAIN_AGENT_WORKING }, T))
+    recorder.onStatus(
+      mainAgentHook({ state: 'working', workingMode: 'monitoring', mainAgent: mainAgentDone }, T, {
+        receivedAt: T + 5_000
+      })
+    )
+    recorder.onStatus(
+      mainAgentHook({ state: 'working', mainAgent: mainAgentDone }, T, {
+        receivedAt: T + 600_000
+      })
+    )
+    recorder.onStatus(
+      mainAgentHook({ state: 'done', mainAgent: mainAgentDone }, T + 630_000, {
+        receivedAt: T + 630_000
+      })
+    )
+
+    expect(stats.getSummary().totalAgentTimeMs).toBe(35_000)
+  })
+
+  it('opens a new session dated by the observation when the main agent resumes after monitoring', () => {
     const stats = new StatsCollector()
     const recorder = new AgentSessionTransitionRecorder(stats)
 
@@ -322,7 +349,8 @@ describe('AgentSessionTransitionRecorder reading the main agent fact', () => {
     recorder.onStatus(
       mainAgentHook(
         { state: 'working', mainAgent: { state: 'working', stateStartedAt: T + 300_000 } },
-        T
+        T,
+        { receivedAt: T + 300_000 }
       )
     )
     recorder.onStatus(
@@ -334,6 +362,43 @@ describe('AgentSessionTransitionRecorder reading the main agent fact', () => {
 
     expect(stats.getSummary().totalAgentsSpawned).toBe(2)
     expect(stats.getSummary().totalAgentTimeMs).toBe(17_000)
+  })
+
+  it("never dates an edge by an SSH host's main agent clock", () => {
+    // An SSH host stamps `mainAgent.stateStartedAt` with its own clock (an hour behind here), while
+    // every other edge is dated by this host; mixing them would add the skew to the span.
+    const skewed = new StatsCollector()
+    const remote = new AgentSessionTransitionRecorder(skewed)
+    remote.onStatus(
+      mainAgentHook(
+        { state: 'working', mainAgent: { state: 'working', stateStartedAt: T - 3_600_000 } },
+        T
+      )
+    )
+    remote.onStatus(
+      mainAgentHook(
+        { state: 'done', mainAgent: { state: 'done', stateStartedAt: T - 3_540_000 } },
+        T + 60_000
+      )
+    )
+    expect(skewed.getSummary().totalAgentTimeMs).toBe(60_000)
+  })
+
+  it('never dates a reopen before the close a fact-less OSC repaint caused', () => {
+    // An OSC repaint to a different state carries no main agent fact and closes the span; the next
+    // hook row restores the fact with its unchanged clock, which predates that close.
+    const osc = new StatsCollector()
+    const local = new AgentSessionTransitionRecorder(osc)
+    local.onStatus(mainAgentHook({ state: 'working', mainAgent: MAIN_AGENT_WORKING }, T))
+    local.onStatus(hook('done', T + 10_000))
+    local.onStatus(mainAgentHook({ state: 'working', mainAgent: MAIN_AGENT_WORKING }, T + 12_000))
+    local.onStatus(
+      mainAgentHook(
+        { state: 'done', mainAgent: { state: 'done', stateStartedAt: T + 20_000 } },
+        T + 20_000
+      )
+    )
+    expect(osc.getSummary().totalAgentTimeMs).toBe(18_000)
   })
 
   it("keeps one span across a child's approval wait while the main agent's own turn runs", () => {

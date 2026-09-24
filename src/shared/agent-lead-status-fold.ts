@@ -61,14 +61,13 @@ export function isAgentStatusHeldOpenByChildWork(row: {
 }
 
 /**
- * Agent execution is owed: the main agent's own turn runs, or a settled main agent's live agent
- * child work still holds the row `working`. A watch loop (`monitoring`) owes nothing — the fold
- * reads it that way on purpose — and a main agent paused on a prompt owes nothing even if a child
- * runs, matching the combined `state` a reader saw before `mainAgent` existed. Without
- * `mainAgent` (an old host) the combined `state` is all there is, and `working` is read exactly
- * as it was before.
+ * The stats question, "does this row accrue agent time": the main agent's own turn runs (a child's
+ * approval wait included), or a settled main agent's live agent child work still holds the row
+ * `working`. A watch loop (`monitoring`) accrues nothing, and a main agent paused on a prompt
+ * accrues nothing even if a child runs. Without `mainAgent` (an old host) `working` is read as before.
+ * Not a liveness gate: a watch loop is still live work that lifecycle gates must keep honoring.
  */
-export function isAgentExecutionOwed(row: {
+export function isAgentTimeAccruing(row: {
   state: AgentStatusState
   workingMode?: AgentWorkingMode
   mainAgent?: Pick<AgentMainAgentStatus, 'state'>

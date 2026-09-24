@@ -3,7 +3,7 @@ import {
   continueMainAgentStatus,
   mainAgentTurnInterrupted,
   foldAgentLeadStatus,
-  isAgentExecutionOwed,
+  isAgentTimeAccruing,
   isAgentStatusHeldOpenByChildWork
 } from './agent-lead-status-fold'
 
@@ -95,37 +95,37 @@ describe('isAgentStatusHeldOpenByChildWork', () => {
   })
 })
 
-describe('isAgentExecutionOwed', () => {
-  it('is owed while the main agent itself works, whatever the row shows', () => {
-    expect(isAgentExecutionOwed({ state: 'working', mainAgent: { state: 'working' } })).toBe(true)
+describe('isAgentTimeAccruing', () => {
+  it('accrues while the main agent itself works, whatever the row shows', () => {
+    expect(isAgentTimeAccruing({ state: 'working', mainAgent: { state: 'working' } })).toBe(true)
     // Codex: a child's approval prompt turns the combined row `waiting` while the root's own
     // turn keeps running; the main agent fact wins over the row it is folded into.
-    expect(isAgentExecutionOwed({ state: 'waiting', mainAgent: { state: 'working' } })).toBe(true)
+    expect(isAgentTimeAccruing({ state: 'waiting', mainAgent: { state: 'working' } })).toBe(true)
   })
 
-  it('is owed while a settled main agent is held working by live agent child work', () => {
-    expect(isAgentExecutionOwed({ state: 'working', mainAgent: { state: 'done' } })).toBe(true)
+  it('accrues while a settled main agent is held working by live agent child work', () => {
+    expect(isAgentTimeAccruing({ state: 'working', mainAgent: { state: 'done' } })).toBe(true)
   })
 
-  it('is not owed by a watch loop, a paused main agent, or a settled row', () => {
+  it('does not accrue for a watch loop, a paused main agent, or a settled row', () => {
     expect(
-      isAgentExecutionOwed({
+      isAgentTimeAccruing({
         state: 'working',
         workingMode: 'monitoring',
         mainAgent: { state: 'done' }
       })
     ).toBe(false)
-    expect(isAgentExecutionOwed({ state: 'blocked', mainAgent: { state: 'blocked' } })).toBe(false)
+    expect(isAgentTimeAccruing({ state: 'blocked', mainAgent: { state: 'blocked' } })).toBe(false)
     // A child's permission prompt while the main agent is settled parks the row; nothing executes.
-    expect(isAgentExecutionOwed({ state: 'blocked', mainAgent: { state: 'done' } })).toBe(false)
-    expect(isAgentExecutionOwed({ state: 'done', mainAgent: { state: 'done' } })).toBe(false)
+    expect(isAgentTimeAccruing({ state: 'blocked', mainAgent: { state: 'done' } })).toBe(false)
+    expect(isAgentTimeAccruing({ state: 'done', mainAgent: { state: 'done' } })).toBe(false)
   })
 
   it("falls back to today's read of the combined state when an old host sends no main agent fact", () => {
-    expect(isAgentExecutionOwed({ state: 'working' })).toBe(true)
+    expect(isAgentTimeAccruing({ state: 'working' })).toBe(true)
     // An old host's monitoring row read as working before `mainAgent` existed; it still does.
-    expect(isAgentExecutionOwed({ state: 'working', workingMode: 'monitoring' })).toBe(true)
-    expect(isAgentExecutionOwed({ state: 'done' })).toBe(false)
+    expect(isAgentTimeAccruing({ state: 'working', workingMode: 'monitoring' })).toBe(true)
+    expect(isAgentTimeAccruing({ state: 'done' })).toBe(false)
   })
 })
 

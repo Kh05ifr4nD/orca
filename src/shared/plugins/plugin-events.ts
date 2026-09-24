@@ -40,6 +40,7 @@ export const agentStatusChangedPayloadSchema = z.object({
       /** The provider's verdict on the main agent's last finished turn; present only while `state` is done. */
       outcome: z.string().min(1).max(256).optional(),
       // Why: the same bound the row normalizer applies; a stricter one here would reject the whole event.
+      /** Stamped by the host the agent runs on (an SSH host's own clock), unlike `receivedAt`. */
       stateStartedAt: z.number().finite()
     })
     .optional()

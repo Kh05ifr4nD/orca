@@ -4,7 +4,7 @@
 // agent. Hook status is the same truth the sidebar, dashboard, and mobile rows
 // read, so stats now agree with what the user sees.
 
-import { isAgentExecutionOwed } from '../../shared/agent-lead-status-fold'
+import { isAgentTimeAccruing } from '../../shared/agent-lead-status-fold'
 import type { AgentStatusPayload } from '../../shared/agent-status-types'
 
 /** Structural subset of the agent-hook enriched payload this module needs. */
@@ -80,7 +80,7 @@ export function classifyAgentSessionTransition(
   if (event.providerSessionOnly) {
     return 'none'
   }
-  const executing = isAgentExecutionOwed(event.payload)
+  const executing = isAgentTimeAccruing(event.payload)
   if (previous && previous.executing === executing) {
     return 'none'
   }
@@ -92,29 +92,18 @@ export function classifyAgentSessionTransition(
 }
 
 /**
- * The instant an execution edge happened. Each clock on the row dates one fact, and the edge
- * belongs to whichever fact moved:
- * - the main agent's own turn started or ended: the main agent's clock;
- * - the row settled or paused with the main agent: the row's clock, which moved with it;
- * - a settled main agent's child work moved the row: the row's clock when the row changed state, and
- *   the evidence clock when only the watch-loop mode changed (a shell outliving the last
- *   subagent moves neither state clock).
- * A host that publishes no `mainAgent` has only the row's clock, as before.
+ * When an execution edge happened, dated only by this host's clocks: the producer's
+ * `mainAgent.stateStartedAt` is an SSH host's own clock and can predate an edge already sent.
+ * A row that settled or paused dates the edge by its own clock. A row that stays `working` across
+ * it does not move that clock (the hook lane pins it across a watch-loop change), so the evidence
+ * clock dates it. A host that publishes no `mainAgent` has only the row's clock, as before.
  */
 export function agentExecutionEdgeAt(event: AgentSessionStatusEvent): number {
   const { mainAgent, state } = event.payload
-  if (!mainAgent) {
+  if (!mainAgent || (mainAgent.state !== 'working' && state !== 'working')) {
     return event.stateStartedAt
   }
-  if (mainAgent.state === 'working') {
-    return mainAgent.stateStartedAt
-  }
-  if (state !== 'working') {
-    return event.stateStartedAt
-  }
-  return isAgentExecutionOwed(event.payload)
-    ? event.stateStartedAt
-    : (event.evidenceObservedAt ?? event.receivedAt)
+  return event.evidenceObservedAt ?? event.receivedAt
 }
 
 /**
@@ -135,7 +124,7 @@ export class AgentSessionTransitionRecorder {
     }
     const previous = this.sessions.get(event.paneKey)
     const transition = classifyAgentSessionTransition(previous, event)
-    const executing = isAgentExecutionOwed(event.payload)
+    const executing = isAgentTimeAccruing(event.payload)
     if (transition === 'none' && previous?.executing === executing) {
       // Refresh recency without touching session state so a long-running pane
       // isn't evicted ahead of an idle one.
