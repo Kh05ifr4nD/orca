@@ -4,7 +4,7 @@
  * the answer whenever that binary is absent or cannot launch on this host.
  */
 import { existsSync, statSync } from 'node:fs'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { delimiter, join, win32 } from 'node:path'
 import {
   isRipgrepSpawnCwdUsable,
   isTransientRipgrepSpawnError
@@ -20,12 +20,21 @@ export const PATH_RIPGREP_COMMAND = 'rg'
  * bare `rg` there runs a planted `rg.exe` from a cloned repository. POSIX `execvp` never consults
  * the cwd, so a bare name stays correct and free there.
  */
+export function isDriveRootedWindowsPath(dir: string): boolean {
+  // Why not path.isAbsolute: on Windows it accepts `\tools` and `/tools`, which are rooted but
+  // carry no drive, so they resolve against whatever drive the process is on. The probe would
+  // then validate `C:\tools\rg.exe` while the spawn, running with the user's repo as cwd,
+  // executes `D:\tools\rg.exe` -- the same cwd-dependence this lookup exists to remove.
+  const { root } = win32.parse(dir)
+  return /^[A-Za-z]:[\\/]/.test(root) || root.startsWith('\\\\')
+}
+
+// Why only rg.exe, though libuv honours %PATHEXT%: `.bat`/`.cmd` shims are not spawnable without
+// `shell: true`, and every ripgrep installer (winget, choco, scoop, cargo) lays down rg.exe.
 function resolveWindowsPathRipgrep(): string | null {
   for (const entry of (process.env.PATH ?? '').split(delimiter)) {
     const dir = entry.replace(/^"|"$/g, '').trim()
-    // Why skip relative entries: a relative PATH entry resolves against the cwd, the very thing
-    // this lookup exists to avoid.
-    if (!dir || !isAbsolute(dir)) {
+    if (!dir || !isDriveRootedWindowsPath(dir)) {
       continue
     }
     const candidate = join(dir, 'rg.exe')
@@ -60,8 +69,12 @@ export function pathRipgrepCommand(): string | null {
   if (process.platform !== 'win32') {
     return PATH_RIPGREP_COMMAND
   }
-  // Why cached: PATH does not change under a running relay, and this runs per spawn.
-  windowsPathRipgrep ??= resolveWindowsPathRipgrep()
+  // Why the explicit undefined check and not `??=`: a miss resolves to null, which is nullish, so
+  // `??=` would re-walk every PATH entry on each call -- and a miss is the expensive case, since
+  // it stats every directory instead of stopping at the first hit.
+  if (windowsPathRipgrep === undefined) {
+    windowsPathRipgrep = resolveWindowsPathRipgrep()
+  }
   return windowsPathRipgrep
 }
 

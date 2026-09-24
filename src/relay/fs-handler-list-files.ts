@@ -179,7 +179,7 @@ export function listFilesWithRg(
               // Why distinguish: RipgrepUnavailableError is what engages the git/readdir chain,
               // and that chain cannot help when the root itself is gone.
               rejectPass(
-                (await classifyRipgrepLaunchFailure(rootPath, pathRipgrepCommand())) ===
+                (await classifyRipgrepLaunchFailure(rootPath, [command, pathRipgrepCommand()])) ===
                   'cwd-unreachable'
                   ? ripgrepMissingCwdError(rootPath)
                   : new RipgrepUnavailableError()

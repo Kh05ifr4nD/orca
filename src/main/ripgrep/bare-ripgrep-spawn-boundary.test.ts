@@ -11,14 +11,21 @@ import { describe, expect, it } from 'vitest'
  *
  * The allowlist only shrinks. Each entry is a deliberate PATH fallback that has to stay.
  */
-// Empty on purpose: the relay's PATH probe was the last entry, and it is gone -- on Windows the
-// relay now resolves rg.exe from PATH itself, and everywhere else an unreachable root is
-// classified rather than probed. Nothing in production spawns a bare `rg`.
+// Empty on purpose: no production file names a bare `rg` AT a spawn site any more.
+//
+// What this guard cannot see, stated plainly so nobody reads the empty list as a stronger promise
+// than it is: on POSIX `pathRipgrepCommand()` still RETURNS the bare name, and
+// `probeRipgrepVersion` spawns it through a parameter. A textual guard cannot follow a value, and
+// that case is safe regardless -- execvp never consults the cwd. The hazard is Windows-only, and
+// the Windows branch of that same function resolves an absolute rg.exe instead.
 const ALLOWED_BARE_RIPGREP_SPAWNS: readonly string[] = []
 
-// A spawn/exec whose command argument is the literal string 'rg' (or "rg").
+// A spawn/exec whose command argument is the literal 'rg', or the constant that holds it. Why the
+// constant too: moving the bare name behind `PATH_RIPGREP_COMMAND` would otherwise hide it from
+// this guard, and `spawn(PATH_RIPGREP_COMMAND, args, { cwd: userRepo })` is exactly the hijack
+// this file exists to catch.
 const BARE_SPAWN_PATTERN =
-  /\b(?:spawn|spawnSync|exec|execFile|execFileSync|execSync)\w*\(\s*['"]rg['"]/
+  /\b(?:spawn|spawnSync|exec|execFile|execFileSync|execSync)\w*\(\s*(?:['"]rg['"]|PATH_RIPGREP_COMMAND)/
 
 const SCANNED_EXTENSIONS = ['.ts', '.tsx']
 const IGNORED_DIRECTORIES = new Set([

@@ -81,24 +81,35 @@ function probeRipgrepVersion(command: string): Promise<boolean> {
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
-      child = spawn(command, ['--version'], { stdio: 'ignore' })
+      // windowsHide: a probe must never flash a console window on Windows.
+      child = spawn(command, ['--version'], { stdio: 'ignore', windowsHide: true })
     } catch {
       resolve(false)
       return
     }
     let settled = false
-    const settle = (available: boolean): void => {
+    // Why kill on timeout: a `rg --version` that hangs -- a stalled network mount, or antivirus
+    // holding a just-installed rg.exe -- would otherwise leave a live process and a ref'd handle
+    // behind for the relay's lifetime, once per launch failure.
+    const settle = (available: boolean, kill = false): void => {
       if (settled) {
         return
       }
       settled = true
       clearTimeout(timeout)
+      child.off('close', onClose)
+      if (kill) {
+        killSpawnedRipgrepProcess(child)
+      }
+      // Why leave one 'error' listener attached: a spawn error can still arrive after this
+      // settles, and an unhandled 'error' on a ChildProcess throws.
       child.once('error', ignoreRipgrepSpawnError)
       resolve(available)
     }
+    const onClose = (code: number | null): void => settle(code === 0)
     child.once('error', () => settle(false))
-    child.once('close', (code) => settle(code === 0))
-    const timeout = setTimeout(() => settle(false), RIPGREP_FAILURE_PROBE_TIMEOUT_MS)
+    child.once('close', onClose)
+    const timeout = setTimeout(() => settle(false, true), RIPGREP_FAILURE_PROBE_TIMEOUT_MS)
     timeout.unref?.()
   })
 }
@@ -108,21 +119,26 @@ function probeRipgrepVersion(command: string): Promise<boolean> {
  * a missing binary. Telling a user to install ripgrep because their workspace moved sends them
  * down the wrong path, and resolving an empty result hides the move entirely.
  *
- * `pathRipgrepCommand` is the host's PATH ripgrep, already resolved to an absolute path where a
- * bare name would be unsafe, or null when the host has none. A missing ripgrep keeps precedence
- * over an unreachable root, because only that verdict engages the git/readdir fallback chain.
+ * `candidates` are the ripgreps worth asking about, in order -- the command that actually failed
+ * first, then the host's PATH one. Probing only PATH would misclassify the normal remote setup,
+ * where Orca uploaded a bundled binary precisely because the host has no `rg` of its own: the
+ * probe would fail and a moved workspace would be reported as a missing ripgrep. Nulls are
+ * skipped, and a host with no working ripgrep at all keeps 'ripgrep-unavailable', because only
+ * that verdict engages the git/readdir fallback chain.
  */
 export async function classifyRipgrepLaunchFailure(
   cwd: string,
-  pathRipgrepCommand: string | null
+  candidates: readonly (string | null)[]
 ): Promise<'cwd-unreachable' | 'ripgrep-unavailable'> {
   if (await isRipgrepSpawnCwdUsable(cwd)) {
     return 'ripgrep-unavailable'
   }
-  if (pathRipgrepCommand === null) {
-    return 'ripgrep-unavailable'
+  for (const command of new Set(candidates.filter((entry) => entry !== null))) {
+    if (await probeRipgrepVersion(command)) {
+      return 'cwd-unreachable'
+    }
   }
-  return (await probeRipgrepVersion(pathRipgrepCommand)) ? 'cwd-unreachable' : 'ripgrep-unavailable'
+  return 'ripgrep-unavailable'
 }
 
 /**

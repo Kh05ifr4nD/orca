@@ -185,7 +185,7 @@ export function searchWithRg(
           // ripgrep. The workspace moving would otherwise look like a successful empty scan.
           if (settle()) {
             reject(
-              (await classifyRipgrepLaunchFailure(rootPath, pathRipgrepCommand())) ===
+              (await classifyRipgrepLaunchFailure(rootPath, [command, pathRipgrepCommand()])) ===
                 'cwd-unreachable'
                 ? ripgrepMissingCwdError(rootPath)
                 : new RipgrepUnavailableError()
