@@ -33,5 +33,6 @@ export function projectNativeChatTranscriptMessages(
   messages: readonly NativeChatMessage[],
   compare: (a: NativeChatMessage, b: NativeChatMessage) => number = compareNativeChatMessagesByTime
 ): NativeChatMessage[] {
-  return stripNoiseMessages(foldToolMessages(messages.toSorted(compare)))
+  // Not `toSorted`: mobile's Hermes lacks it, and src/shared must stay loadable there.
+  return stripNoiseMessages(foldToolMessages(Array.from(messages).sort(compare)))
 }
