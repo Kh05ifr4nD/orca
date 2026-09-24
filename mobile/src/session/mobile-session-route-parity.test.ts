@@ -167,10 +167,13 @@ const HEAD_TIMER_CLEANUP_SHA256 = 'c73f1d1c2cc89642f3d727d6f3b6b81860a9d6f342345
 // the page's provider hands out none. Nothing a phone renders or does changed.
 //
 // 530 -> 529: `'hardwareBackPress'` left with the Markdown actions' registration for `useBackClaim`.
+//
+// 529 -> 531: the live field's `autoCorrect`/`spellCheck` each gained an `'ios'` platform guard.
 const HEAD_RUNTIME_STRING_SHA256 =
-  '9b76ff573df10cf370d53f82e4c5864379298fdc3b2c1f607c86bf80c20f2a78'
+  '658c14b5090c4d7da9567134ef92a8c39fa4cda15aebd197dc4834f2396de84c'
 // Moved by both of the dock's fields: their refs, and the live one's submit handler, are the seam's now.
-const HEAD_HOST_JSX_SHA256 = 'ac7547dd0e25be2339111ac01ce5e1ec20f00b05bf59dde85664039308cf8593'
+// Moved again: the live field's `autoCorrect`/`spellCheck` are platform-guarded expressions, not `false`.
+const HEAD_HOST_JSX_SHA256 = '1525cd1f51907c4afed603fd49310dec985d51f0934ec5c0cb65a0f3989e8776'
 const HEAD_LEAF_JSX_SHA256 = 'c7e1a4b90197697f1eaa640c38da63281b4f7b84fb036ae2152f00c2f7d7cb77'
 const HEAD_STYLE_REFERENCE_SHA256 =
   '295a3501c2c6d7bea7c8bbf38b3f3534f01344cd7e1b91bb8e07c040821d596a'
@@ -607,7 +610,7 @@ describe('mobile session route extraction parity', () => {
 
   it('preserves runtime strings, styles, and the expanded JSX tree', () => {
     const strings = readRuntimeStrings()
-    expect(strings).toHaveLength(529)
+    expect(strings).toHaveLength(531)
     expect(hash(strings)).toBe(HEAD_RUNTIME_STRING_SHA256)
     const jsx = readJsxFacts(readDefinitions())
     expect(jsx.host).toHaveLength(124)
