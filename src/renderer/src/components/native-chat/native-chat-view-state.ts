@@ -12,7 +12,7 @@ import { AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE } from '../../../../share
 export type NativeChatViewState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  /** The chat's saved history is missing or damaged; the tab stays and says so. */
+  /** The chat's journal file is unusable; the tab stays and says so. */
   | { kind: 'history-unavailable' }
   | { kind: 'empty' }
   | { kind: 'ready'; isWorking: false }

@@ -3,7 +3,7 @@ import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import { NativeChatEmptyState } from './NativeChatEmptyState'
 
-/** A restored chat whose saved history is missing or damaged keeps its tab and says so here. */
+/** A restored chat whose journal file is unusable keeps its tab and says so here. */
 export function NativeChatHistoryUnavailable({ tabId }: { tabId: string }): React.JSX.Element {
   return (
     <NativeChatEmptyState

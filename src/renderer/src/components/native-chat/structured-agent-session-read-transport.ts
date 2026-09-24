@@ -46,7 +46,7 @@ export function startStructuredAgentSessionReadTransport(args: {
   dispose: () => void
 } {
   let stopped = false
-  // A missing or damaged journal answers the same on every ask, so nothing re-asks it.
+  // An unusable journal file answers the same on every ask, so nothing re-asks it.
   let journalUnreadable = false
   let connected = false
   let unattachedSince: number | null = null

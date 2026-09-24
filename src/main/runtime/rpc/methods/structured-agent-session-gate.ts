@@ -98,7 +98,7 @@ export async function requireReadableStructuredHost(
   await ensureStructuredHostInstalled(ctx)
   const host = requireStructuredHost(ctx)
   if ((await host.ensureReadable(sessionId)) === 'journal-unreadable') {
-    // Final, unlike an unattached read: re-asking reads the same missing or damaged file.
+    // Final, unlike an unattached read: re-asking reads the same unusable file.
     throw new Error('agent_session_journal_unreadable')
   }
   return host

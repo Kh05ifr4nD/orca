@@ -24,7 +24,7 @@ export const AGENT_SESSION_UNATTACHED_REFUSAL_CODE = 'agent_session_ownership_un
  */
 export const AGENT_SESSION_UNATTACHED_READ_GRACE_MS = 5_000
 
-/** Raised for a chat whose saved journal is missing or damaged. Final: re-asking reads the same file. */
+/** Raised for a chat whose journal file is not a usable database. Final: re-asking reads the same file. */
 export const AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE = 'agent_session_journal_unreadable'
 
 function isReadRefusal(error: unknown, code: string): boolean {
