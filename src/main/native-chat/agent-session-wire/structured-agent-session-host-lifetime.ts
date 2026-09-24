@@ -88,7 +88,7 @@ export async function evictHeldStructuredAgentSession(
     },
     forget: async () => {
       await forgetStructuredAgentSession(context, sessionId)
-      context.deps.adapter.acknowledgeSessionRelease?.(sessionId)
+      context.deps.adapter.acknowledgeSessionRelease?.(sessionId, session.fence)
     },
     discardSink: () => context.runtimeState.discardEventSink(sessionId),
     settleWork: async () => {

@@ -139,7 +139,7 @@ describe('Claude acknowledged session release', () => {
       AgentSessionAcquisitionRootExitObservedError
     )
 
-    adapter.acknowledgeSessionRelease('session-1')
+    adapter.acknowledgeSessionRelease('session-1', 7)
 
     expect(adapter.recordsContextUsage('session-1')).toBe(false)
     await expect(adapter.closeSession('session-1')).resolves.toBe(true)
@@ -157,10 +157,27 @@ describe('Claude acknowledged session release', () => {
     claude.connections[0]!.handlers.onExit?.(new Error('claude stream-json exited (code 1)'))
     await adapter.drainObservedExits()
 
-    adapter.acknowledgeSessionRelease('session-1')
+    adapter.acknowledgeSessionRelease('session-1', 7)
 
     await expect(adapter.releaseAcquisition({ sessionId: 'session-1' })).resolves.toBe(true)
     await cleanup.closeAll()
+    expect(unverified).toHaveLength(1)
+  })
+  it('leaves a child acquired since alone when a stale release arrives late', async () => {
+    const { adapter, claude, cleanup, unverified } = await acquiredWithCleanup(
+      ROOT_EXITED_TREE_UNVERIFIABLE
+    )
+    await expect(adapter.closeSession('session-1')).rejects.toBeInstanceOf(
+      AgentSessionAcquisitionRootExitObservedError
+    )
+    await adapter.acquire({ identity: identityFor(), fence: 8, spawnToken: 'spawn-8' })
+    const current = claude.connections[1]!
+
+    adapter.acknowledgeSessionRelease('session-1', 7)
+
+    expect(adapter.recordsContextUsage('session-1')).toBe(true)
+    await cleanup.closeAll()
+    expect(current.closeCount).toBe(0)
     expect(unverified).toHaveLength(1)
   })
 })

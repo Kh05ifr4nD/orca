@@ -264,7 +264,7 @@ export type StructuredAgentSessionAdapter = {
   disposeSession?(sessionId: string): Promise<boolean>
   /** Host acknowledgement that the lease and journal owner are released. This is the close
    *  decision: the root is gone, though its descendants may still be unverified. */
-  acknowledgeSessionRelease?(sessionId: string): void
+  acknowledgeSessionRelease?(sessionId: string, releasedFence: number): void
 }
 
 export async function rethrowAfterAgentSessionAcquisitionCleanup(

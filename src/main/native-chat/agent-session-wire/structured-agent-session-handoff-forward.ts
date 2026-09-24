@@ -52,13 +52,14 @@ export async function handoffStructuredSessionToTui(
     await rollbackPreparingNativeOwner(context, sessionId, operationId)
     throw new Error('agent_session_owner_exit_unproven')
   }
+  const nativeFence = record.lease.runtimeFence
   record = await stopStoredAgentSessionOwnerForHandoff(deps.store, {
     sessionId,
-    expectedFence: record.lease.runtimeFence,
+    expectedFence: nativeFence,
     operationId,
     now: deps.now()
   })
-  deps.acknowledgeNativeRelease?.(sessionId)
+  deps.acknowledgeNativeRelease?.(sessionId, nativeFence)
   context.publishStage(record, 'to-tui')
   if (nativeSuspend.state === 'stopped-cleanup-failed') {
     await markStructuredHandoffManualRecovery(context, sessionId, operationId)

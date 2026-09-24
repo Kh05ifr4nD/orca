@@ -6,7 +6,11 @@ import type {
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 
 type RoutedAgent = 'claude' | 'codex'
-type SessionRoute = { adapter: StructuredAgentSessionAdapter; state: 'live' | 'stopped' }
+type SessionRoute = {
+  adapter: StructuredAgentSessionAdapter
+  state: 'live' | 'stopped'
+  fence: number
+}
 
 export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessionAdapter {
   private readonly routes = new Map<string, SessionRoute>()
@@ -38,7 +42,7 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
     if (this.allAdaptersClosed) {
       throw new Error('structured session adapter router is closed')
     }
-    this.routes.set(input.identity.sessionId, { adapter, state: 'live' })
+    this.routes.set(input.identity.sessionId, { adapter, state: 'live', fence: input.fence })
     return acquired
   }
 
@@ -200,10 +204,14 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
 
   /** Drops a per-session stop receipt after the host releases its durable owner, and hands that
    *  release to the owning provider so its own session index cannot outlive the lease. */
-  acknowledgeSessionRelease = (sessionId: string): void => {
+  acknowledgeSessionRelease = (sessionId: string, releasedFence: number): void => {
     const route = this.routes.get(sessionId)
+    // A release for an older fence says nothing about a route acquired since.
+    if (!route || route.fence > releasedFence) {
+      return
+    }
     this.routes.delete(sessionId)
-    route?.adapter.acknowledgeSessionRelease?.(sessionId)
+    route.adapter.acknowledgeSessionRelease?.(sessionId, releasedFence)
   }
 
   private owner(sessionId: string): StructuredAgentSessionAdapter {

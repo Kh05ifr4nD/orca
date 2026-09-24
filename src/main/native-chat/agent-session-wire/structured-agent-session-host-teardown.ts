@@ -107,7 +107,7 @@ export async function tearDownStructuredAgentSessionHost(input: {
   phases: readonly StructuredAgentSessionTeardownPhase[]
   sessions: Map<string, StructuredAgentSessionHostSession>
   retainSessionIds?: ReadonlySet<string>
-  acknowledgeSessionRelease?: (sessionId: string) => void
+  acknowledgeSessionRelease?: (sessionId: string, releasedFence: number) => void
 }): Promise<void> {
   const failures: unknown[] = []
   for (const phase of input.phases) {
@@ -124,13 +124,13 @@ export async function tearDownStructuredAgentSessionHost(input: {
   // `allSettled`, so one rejected close cannot skip the others.
   const closed = await Promise.allSettled(entries.map(([, session]) => session.journal.close()))
   closed.forEach((result, index) => {
-    const sessionId = entries[index]?.[0]
+    const [sessionId, session] = entries[index] ?? []
     if (result.status === 'fulfilled') {
       // Only a FULFILLED close drops the entry. One that rejected stays indexed,
       // which is what makes a later close a real retry rather than a no-op.
-      if (sessionId !== undefined) {
+      if (sessionId !== undefined && session !== undefined) {
         input.sessions.delete(sessionId)
-        input.acknowledgeSessionRelease?.(sessionId)
+        input.acknowledgeSessionRelease?.(sessionId, session.fence)
       }
       return
     }
@@ -171,7 +171,7 @@ export async function flushStructuredAgentSessionHost(
     }),
     sessions: context.sessions,
     retainSessionIds,
-    acknowledgeSessionRelease: (sessionId) =>
-      context.deps.adapter.acknowledgeSessionRelease?.(sessionId)
+    acknowledgeSessionRelease: (sessionId, releasedFence) =>
+      context.deps.adapter.acknowledgeSessionRelease?.(sessionId, releasedFence)
   })
 }

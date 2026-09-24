@@ -205,7 +205,10 @@ describe('site 11: host teardown is failure-complete', () => {
     })
 
     expect(sessions.size).toBe(0)
-    expect(acknowledgeSessionRelease.mock.calls).toEqual([[SESSION], [`${SESSION}-b`]])
+    expect(acknowledgeSessionRelease.mock.calls).toEqual([
+      [SESSION, 1],
+      [`${SESSION}-b`, 1]
+    ])
     await expectNothingHoldsTheDirectory(journalDir)
     await expectNothingHoldsTheDirectory(join(root, 'journal-b'))
   })
@@ -252,7 +255,7 @@ describe('site 11: host teardown is failure-complete', () => {
 
     // Only the failure stays indexed — `status === 'fulfilled'`, not "settled".
     expect([...sessions.keys()]).toEqual([SESSION])
-    expect(acknowledgeSessionRelease).toHaveBeenCalledExactlyOnceWith(`${SESSION}-b`)
+    expect(acknowledgeSessionRelease).toHaveBeenCalledExactlyOnceWith(`${SESSION}-b`, 1)
     await expectNothingHoldsTheDirectory(join(root, 'journal-b'))
   })
 })

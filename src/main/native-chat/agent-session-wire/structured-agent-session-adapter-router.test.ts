@@ -51,11 +51,30 @@ describe('StructuredAgentSessionAdapterRouter.acknowledgeSessionRelease', () => 
     const router = new StructuredAgentSessionAdapterRouter({ claude, codex }, async () => {})
     await router.acquire({ identity: claudeIdentity('session-1'), fence: 1, spawnToken: 's-1' })
 
-    router.acknowledgeSessionRelease('session-1')
-    router.acknowledgeSessionRelease('session-1')
+    router.acknowledgeSessionRelease('session-1', 1)
+    router.acknowledgeSessionRelease('session-1', 1)
 
-    expect(claude.acknowledgeSessionRelease).toHaveBeenCalledExactlyOnceWith('session-1')
+    expect(claude.acknowledgeSessionRelease).toHaveBeenCalledExactlyOnceWith('session-1', 1)
     expect(codex.acknowledgeSessionRelease).not.toHaveBeenCalled()
+  })
+
+  it('ignores a release for an older fence than the route acquired since', async () => {
+    const closeSession = vi.fn(async () => true)
+    const claude = adapterOf(vi.fn(async () => true))
+    claude.closeSession = closeSession
+    claude.acknowledgeSessionRelease = vi.fn()
+    const router = new StructuredAgentSessionAdapterRouter(
+      { claude, codex: adapterOf(vi.fn(async () => true)) },
+      async () => {}
+    )
+    await router.acquire({ identity: claudeIdentity('session-1'), fence: 1, spawnToken: 's-1' })
+    await router.acquire({ identity: claudeIdentity('session-1'), fence: 3, spawnToken: 's-3' })
+
+    router.acknowledgeSessionRelease('session-1', 1)
+
+    expect(claude.acknowledgeSessionRelease).not.toHaveBeenCalled()
+    await expect(router.closeSession('session-1')).resolves.toBe(true)
+    expect(closeSession).toHaveBeenCalledOnce()
   })
 })
 
@@ -120,7 +139,7 @@ describe('StructuredAgentSessionAdapterRouter.closeSession', () => {
     await expect(closeJournal()).rejects.toThrow('journal close failed')
     await expect(router.closeSession('session-1')).resolves.toBe(true)
     expect(closeSession).toHaveBeenCalledOnce()
-    router.acknowledgeSessionRelease('session-1')
+    router.acknowledgeSessionRelease('session-1', 1)
     await expect(router.closeSession('session-1')).resolves.toBe(false)
 
     await router.acquire({ identity, fence: 2, spawnToken: 'spawn-2' })
@@ -223,7 +242,7 @@ describe('StructuredAgentSessionAdapterRouter.closeAll', () => {
     // router has no record of, and an absent record is not a stop it can report.
     await expect(router.closeSession('session-1')).resolves.toBe(true)
     await expect(router.closeSession('never-routed')).resolves.toBe(false)
-    router.acknowledgeSessionRelease('session-1')
+    router.acknowledgeSessionRelease('session-1', 1)
     await expect(router.closeSession('session-1')).resolves.toBe(false)
     await router.closeAll()
     expect(closeAdapters).toHaveBeenCalledOnce()

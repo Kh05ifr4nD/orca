@@ -78,7 +78,7 @@ export type StructuredAgentSessionHandoffDeps = {
   session: (sessionId: string) => { journal: AgentSessionJournal; fence: number }
   suspendNative: (sessionId: string) => Promise<StructuredNativeSuspendResult>
   /** Consumes the router's stop proof after `old-owner-stopped` is durable. */
-  acknowledgeNativeRelease?: (sessionId: string) => void
+  acknowledgeNativeRelease?: (sessionId: string, releasedFence: number) => void
   acquireNative: (input: {
     sessionId: string
     fence: number

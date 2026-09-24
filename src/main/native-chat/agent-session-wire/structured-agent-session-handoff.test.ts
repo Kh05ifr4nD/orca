@@ -302,6 +302,7 @@ describe('structured session handoff failure handling', () => {
       }
     })
 
+    const nativeFence = store.getRecord(SESSION)!.lease.runtimeFence
     await expect(handoffStructuredSessionToTui(context, request(operation), false)).rejects.toBe(
       cleanupError
     )
@@ -309,7 +310,7 @@ describe('structured session handoff failure handling', () => {
     expect(launchTui).not.toHaveBeenCalled()
     expect(retainOwner).not.toHaveBeenCalled()
     expect(releaseOwner).not.toHaveBeenCalled()
-    expect(acknowledgeNativeRelease).toHaveBeenCalledExactlyOnceWith(SESSION)
+    expect(acknowledgeNativeRelease).toHaveBeenCalledExactlyOnceWith(SESSION, nativeFence)
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
       runtimeKind: 'native',
       claimStatus: 'released',
