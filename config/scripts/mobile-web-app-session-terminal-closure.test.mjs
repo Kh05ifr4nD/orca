@@ -432,8 +432,15 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *
  *   modules        4216 -> 4218   (+2)
  *   local modules  1030 -> 1032   (+2)
+ *
+ * The main agent's own status (#22452) then added `src/shared/main-agent-status.ts` and
+ * `src/shared/agent-turn-outcome.ts`, which `agent-status-types.ts` imports. Two local modules,
+ * measured; the change was src/shared-only, so its own CI never ran this suite.
+ *
+ *   modules        4218 -> 4220   (+2)
+ *   local modules  1032 -> 1034   (+2)
  */
-const SESSION_ROUTE_MODULES = 4218
+const SESSION_ROUTE_MODULES = 4220
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [
