@@ -3,6 +3,7 @@ import { OrchestrationError } from '../../../../orchestration/orchestration-erro
 import type { DispatchContextRow, DispatchStatus } from '../../../../orchestration/types'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { readAgentSessionRecordStore } from '../../../../orchestration/structured-session-mail-target'
+import { sessionOrchestrationIdentity } from '../../../../orchestration/structured-session-mail-address'
 import {
   readSessionRecipient,
   refuseUndeliverableSessionRecipient,
@@ -71,9 +72,13 @@ export function resolveBareOrchestrationRecipient(params: {
   if (session && 'code' in session) {
     return refused(params.handle, session)
   }
-  // A session is addressed by its actor, which Run and Dispatch ownership already match.
-  const handle = session?.address ?? params.handle
-  const paneKey = session ? undefined : (runtime.getLiveTerminalPaneKey(handle) ?? undefined)
+  // One session, one identity: mail is addressed where that session's `check` reads — a structured
+  // worker's own handle mailbox, a chat's actor — whichever spelling the sender used.
+  const identity = session ? sessionOrchestrationIdentity(session.sessionId, db) : null
+  const handle = identity?.address ?? params.handle
+  const paneKey = identity
+    ? (identity.paneKey ?? undefined)
+    : (runtime.getLiveTerminalPaneKey(handle) ?? undefined)
   const boundRun = paneKey ? db.getCurrentRunForPane(paneKey) : undefined
   if (boundRun) {
     const mismatch = runMismatch(handle, boundRun.id, params.explicitRunId)
@@ -110,7 +115,7 @@ export function resolveBareOrchestrationRecipient(params: {
     const refusal = refuseUndeliverableSessionRecipient(session, sessionStore, db)
     return refusal
       ? refused(params.handle, refusal)
-      : { ok: true, to: session.address, runId: params.senderRunId }
+      : { ok: true, to: handle, runId: params.senderRunId }
   }
 
   if (paneKey) {
