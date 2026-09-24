@@ -1,4 +1,4 @@
-// Real-store coverage: the floating "+" New Terminal must select its tab in the floating panel only.
+// Real-store coverage: the floating New Terminal ("+" menu and Cmd+T) selects its tab in the floating panel only.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FLOATING_TERMINAL_WORKTREE_ID, getDefaultSettings } from '../../../../shared/constants'
@@ -59,7 +59,6 @@ describe('floating "+" New Terminal', () => {
     const { createFloatingTerminalTab } = useFloatingTerminalCreateActions({
       activateTab: seeded.activateTab,
       setActiveTab: seeded.setActiveTab,
-      createTab: seeded.createTab,
       createBrowserTab: seeded.createBrowserTab,
       browserDefaultUrl: seeded.browserDefaultUrl,
       openFile: seeded.openFile,
