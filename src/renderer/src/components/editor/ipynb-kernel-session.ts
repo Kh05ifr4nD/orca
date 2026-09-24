@@ -24,8 +24,10 @@ export function ipykernelInstallCommand(
   python: string,
   windows = navigator.userAgent.includes('Windows')
 ): string {
-  // PowerShell only runs a quoted path through its call operator.
-  const program = !/\s/.test(python) ? python : windows ? `& "${python}"` : `"${python}"`
+  // Why single quotes: literal in POSIX shells and PowerShell; PowerShell runs a quoted path via `&`.
+  const program = windows
+    ? `& '${python.replaceAll("'", "''")}'`
+    : `'${python.replaceAll("'", "'\\''")}'`
   return `${program} -m pip install -U ipykernel`
 }
 

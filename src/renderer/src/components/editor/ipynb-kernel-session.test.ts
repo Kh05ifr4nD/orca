@@ -164,15 +164,16 @@ describe('notebook kernel session', () => {
   })
 
   it('quotes the copyable install command only when the path needs it', () => {
-    expect(session.ipykernelInstallCommand('/v/bin/python', false)).toBe(
-      '/v/bin/python -m pip install -U ipykernel'
-    )
-    expect(session.ipykernelInstallCommand('/my env/bin/python', false)).toBe(
-      '"/my env/bin/python" -m pip install -U ipykernel'
-    )
-    expect(session.ipykernelInstallCommand('C:\\My Env\\python.exe', true)).toBe(
-      '& "C:\\My Env\\python.exe" -m pip install -U ipykernel'
-    )
+    const posix = (path: string): string => session.ipykernelInstallCommand(path, false)
+    const windows = (path: string): string => session.ipykernelInstallCommand(path, true)
+    const pip = ' -m pip install -U ipykernel'
+    expect(posix('/v/bin/python')).toBe(`'/v/bin/python'${pip}`)
+    expect(posix('/my env/bin/python')).toBe(`'/my env/bin/python'${pip}`)
+    expect(posix('/Dev&Test/bin/python')).toBe(`'/Dev&Test/bin/python'${pip}`)
+    expect(posix("/Bob's/bin/python")).toBe(`'/Bob'\\''s/bin/python'${pip}`)
+    expect(windows('C:\\My Env\\python.exe')).toBe(`& 'C:\\My Env\\python.exe'${pip}`)
+    expect(windows('C:\\Dev&Test\\python.exe')).toBe(`& 'C:\\Dev&Test\\python.exe'${pip}`)
+    expect(windows("C:\\Bob's\\python.exe")).toBe(`& 'C:\\Bob''s\\python.exe'${pip}`)
   })
 
   it('shuts the kernel down when the notebook tab closes', async () => {
