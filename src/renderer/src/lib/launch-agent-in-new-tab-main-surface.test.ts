@@ -36,7 +36,7 @@ function seedMainWindowOnEditor(): ReturnType<typeof createTestStore> {
   })
   const mainTerminal = store.getState().createTab(MAIN_WORKTREE_ID)
   // The main window is showing a non-terminal tab, as in the report.
-  store.getState().setActiveTabType('editor')
+  store.getState().setActiveTabType('editor', MAIN_WORKTREE_ID)
   expect(store.getState().activeTabId).toBe(mainTerminal.id)
   return store
 }
