@@ -458,10 +458,8 @@ describe('connectPanePty', () => {
     mockStoreState = {
       ...mockStoreState,
       tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'tab-pty' }] }
-    } as StoreState
-    const getMainBufferSnapshot = window.api.pty.getMainBufferSnapshot as unknown as ReturnType<
-      typeof vi.fn
-    >
+    }
+    const getMainBufferSnapshot = vi.mocked(window.api.pty.getMainBufferSnapshot)
     getMainBufferSnapshot.mockResolvedValue({
       data: '\x1b[?1049hMODEL-FRAME',
       scrollbackAnsi: '',
@@ -475,8 +473,7 @@ describe('connectPanePty', () => {
     const pane = createPane(1)
     pane.terminal.cols = 200
     pane.terminal.rows = 50
-    const writtenText = (): string =>
-      (pane.terminal.write as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]).join('')
+    const writtenText = (): string => pane.terminal.write.mock.calls.map((c) => c[0]).join('')
     // The replay measures a transient narrower grid; the fit then lands back on the capture grid.
     pane.fitAddon.proposeDimensions = vi.fn(() =>
       writtenText().includes('RESTORE-LIVE-STATE')
