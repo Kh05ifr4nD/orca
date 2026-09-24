@@ -7,7 +7,9 @@
 import { describe, expect, it } from 'vitest'
 import { Terminal } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { HeadlessEmulator } from './headless-emulator'
+import { activateOrcaTerminalUnicodeProvider } from '../../shared/terminal-unicode-provider'
 
 const WIDE = 135
 const NARROW = 48
@@ -85,4 +87,48 @@ describe('snapshot after a column shrink', () => {
 
     expect(visibleRows(restored)).toEqual(NARROW_GRID)
   })
+
+  it.each([
+    ['CJK', '中'],
+    ['emoji', '😀']
+  ])('blanks a %s cell whose trailing half fell past the grid', async (_kind, glyph) => {
+    const emu = new HeadlessEmulator({ cols: 10, rows: 3 })
+    await emu.write(`\x1b[?1049h\x1b[1;1Habcdefgh${glyph}\x1b[2;1Hrow2\x1b[3;1Hrow3`)
+    emu.resize(9, 3)
+
+    const rows = await replayEmulatorAt(emu, 9, 3)
+
+    expect(rows).toEqual(['abcdefgh', 'row2', 'row3'])
+    emu.dispose()
+  })
+
+  it.each([
+    ['CJK', '中'],
+    ['emoji', '😀']
+  ])('keeps a %s cell that ends exactly at the grid edge', async (_kind, glyph) => {
+    const emu = new HeadlessEmulator({ cols: 10, rows: 3 })
+    await emu.write(`\x1b[?1049h\x1b[1;1Habcdefg${glyph}x\x1b[2;1Hrow2\x1b[3;1Hrow3`)
+    emu.resize(9, 3)
+
+    const rows = await replayEmulatorAt(emu, 9, 3)
+
+    expect(rows).toEqual([`abcdefg${glyph}`, 'row2', 'row3'])
+    emu.dispose()
+  })
 })
+
+async function replayEmulatorAt(
+  emu: HeadlessEmulator,
+  cols: number,
+  rows: number
+): Promise<string[]> {
+  const snapshot = emu.getSnapshot()
+  const restored = new Terminal({ cols, rows, allowProposedApi: true })
+  restored.loadAddon(new Unicode11Addon())
+  activateOrcaTerminalUnicodeProvider(restored)
+  await writeTerminal(
+    restored,
+    `${snapshot.scrollbackAnsi ?? ''}\x1b[?1049h${snapshot.snapshotAnsi}`
+  )
+  return visibleRows(restored)
+}

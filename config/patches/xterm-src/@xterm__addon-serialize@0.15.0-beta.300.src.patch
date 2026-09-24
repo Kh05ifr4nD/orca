@@ -1,8 +1,8 @@
 diff --git a/src/SerializeAddon.ts b/src/SerializeAddon.ts
-index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b9349901738710f74 100644
+index e1728feb219c362dfa2ecb602ff99f830d520757..f333068374107e3827ca37f596f4143dbf9cf715 100644
 --- a/src/SerializeAddon.ts
 +++ b/src/SerializeAddon.ts
-@@ -5,13 +5,50 @@
+@@ -5,13 +5,57 @@
   * (EXPERIMENTAL) This Addon is still under development
   */
  
@@ -51,10 +51,17 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
 +  return Math.min(line.length, cols);
 +}
 +
++// PATCH(orca): a wide glyph whose trailing half fell past the grid cannot be
++// replayed in the last column (it would wrap and shift every row below), so it
++// is serialized as a blank that keeps the row exactly the grid's width.
++function isClippedWideCell(line: IBufferLine, col: number, cols: number, cell: IBufferCell): boolean {
++  return col === cols - 1 && line.length > cols && cell.getWidth() > 1;
++}
++
  function constrain(value: number, low: number, high: number): number {
    return Math.max(low, Math.min(value, high));
  }
-@@ -27,7 +64,8 @@ function escapeHTMLChar(c: string): string {
+@@ -27,7 +71,8 @@ function escapeHTMLChar(c: string): string {
  // TODO: Refine this template class later
  abstract class BaseSerializeHandler {
    constructor(
@@ -64,16 +71,34 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
    ) {
    }
  
-@@ -48,7 +86,7 @@ abstract class BaseSerializeHandler {
+@@ -35,6 +80,7 @@ abstract class BaseSerializeHandler {
+     // we need two of them to flip between old and new cell
+     const cell1 = this._buffer.getNullCell();
+     const cell2 = this._buffer.getNullCell();
++    const clippedWideCellBlank = this._buffer.getNullCell();
+     let oldCell = cell1;
+ 
+     const startRow = range.start.y;
+@@ -48,13 +94,16 @@ abstract class BaseSerializeHandler {
        const line = this._buffer.getLine(row);
        if (line) {
          const startLineColumn = row === range.start.y ? startColumn : 0;
 -        const endLineColumn = row === range.end.y ? endColumn: line.length;
 +        const endLineColumn = row === range.end.y ? endColumn: visibleCellCount(line, this._cols);
          for (let col = startLineColumn; col < endLineColumn; col++) {
-           const c = line.getCell(col, oldCell === cell1 ? cell2 : cell1);
+-          const c = line.getCell(col, oldCell === cell1 ? cell2 : cell1);
++          let c = line.getCell(col, oldCell === cell1 ? cell2 : cell1);
            if (!c) {
-@@ -148,18 +186,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
+             console.warn(`Can't get cell at row=${row}, col=${col}`);
+             continue;
+           }
++          if (isClippedWideCell(line, col, this._cols, c)) {
++            c = clippedWideCellBlank;
++          }
+           this._nextCell(c, oldCell, row, col);
+           oldCell = c;
+         }
+@@ -148,18 +197,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
  
    // this is a null cell for reference for checking whether background is empty or not
    private _backgroundCell: IBufferCell = this._buffer.getNullCell();
@@ -95,19 +120,22 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
    }
  
    protected _beforeSerialize(rows: number, start: number, end: number): void {
-@@ -202,8 +242,9 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -202,8 +253,12 @@ class StringSerializeHandler extends BaseSerializeHandler {
          this._lastCursorCol = 0;
        } else {
          rowSeparator = '';
 -        const thisRowLastChar = currentLine.getCell(currentLine.length - 1, this._thisRowLastChar)!;
 -        const thisRowLastSecondChar = currentLine.getCell(currentLine.length - 2, this._thisRowLastSecondChar)!;
 +        const currentLineCells = visibleCellCount(currentLine, this._terminal.cols);
-+        const thisRowLastChar = currentLine.getCell(currentLineCells - 1, this._thisRowLastChar)!;
++        let thisRowLastChar = currentLine.getCell(currentLineCells - 1, this._thisRowLastChar)!;
++        if (isClippedWideCell(currentLine, currentLineCells - 1, this._terminal.cols, thisRowLastChar)) {
++          thisRowLastChar = this._backgroundCell;
++        }
 +        const thisRowLastSecondChar = currentLine.getCell(currentLineCells - 2, this._thisRowLastSecondChar)!;
          const nextRowFirstChar = nextLine.getCell(0, this._nextRowFirstChar)!;
          const isNextRowFirstCharDoubleWidth = nextRowFirstChar.getWidth() > 1;
  
-@@ -214,7 +255,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -214,7 +269,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
          if (
            // you must output character to cause overflow, control sequence can't do this
            nextRowFirstChar.getChars() &&
@@ -116,7 +144,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
          ) {
            if (
              // the last character can't be null,
-@@ -251,9 +292,14 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -251,9 +306,14 @@ class StringSerializeHandler extends BaseSerializeHandler {
            if (this._nullCellCount > 0) {
              // do these because we filled the last several null slot, which we shouldn't
              rowSeparator += '\u001b[A';
@@ -133,7 +161,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
              rowSeparator += '\u001b[B';
            }
  
-@@ -310,7 +356,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -310,7 +370,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
          }
          if (flagsChanged) {
            if (cell.isInverse() !== oldCell.isInverse()) { sgrSeq.push(cell.isInverse() ? 7 : 27); }
@@ -155,7 +183,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
            if (!equalUnderline(cell, oldCell)) {
              const style = cell.getUnderlineStyle();
              if (style === UnderlineStyle.NONE) {
-@@ -337,7 +396,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -337,7 +410,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
            if (cell.isBlink() !== oldCell.isBlink()) { sgrSeq.push(cell.isBlink() ? 5 : 25); }
            if (cell.isInvisible() !== oldCell.isInvisible()) { sgrSeq.push(cell.isInvisible() ? 8 : 28); }
            if (cell.isItalic() !== oldCell.isItalic()) { sgrSeq.push(cell.isItalic() ? 3 : 23); }
@@ -164,7 +192,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
            if (cell.isStrikethrough() !== oldCell.isStrikethrough()) { sgrSeq.push(cell.isStrikethrough() ? 9 : 29); }
          }
        }
-@@ -346,6 +405,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -346,6 +419,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
      return sgrSeq;
    }
  
@@ -185,7 +213,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
    protected _nextCell(cell: IBufferCell, oldCell: IBufferCell, row: number, col: number): void {
      // a width 0 cell don't need to be count because it is just a placeholder after a CJK character;
      const isPlaceHolderCell = cell.getWidth() === 0;
-@@ -356,12 +429,21 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -356,12 +443,21 @@ class StringSerializeHandler extends BaseSerializeHandler {
  
      // this cell don't have content
      const isEmptyCell = cell.getChars() === '';
@@ -210,7 +238,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
  
      /**
       *  handles style change
-@@ -395,7 +477,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -395,7 +491,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
      /**
       *  handles actual content
       */
@@ -219,7 +247,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
        this._nullCellCount += cell.getWidth();
      } else {
        if (this._nullCellCount > 0) {
-@@ -411,7 +493,22 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -411,7 +507,22 @@ class StringSerializeHandler extends BaseSerializeHandler {
          this._nullCellCount = 0;
        }
  
@@ -243,7 +271,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
  
        // update cursor
        this._lastContentCursorRow = this._lastCursorRow = row;
-@@ -439,6 +536,9 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -439,6 +550,9 @@ class StringSerializeHandler extends BaseSerializeHandler {
        }
      }
  
@@ -253,7 +281,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
      // restore the cursor
      if (!excludeFinalCursorPosition) {
        const realCursorRow = this._buffer.baseY + this._buffer.cursorY;
-@@ -616,6 +716,9 @@ export class SerializeAddon implements ITerminalAddon, ISerializeApi {
+@@ -616,6 +730,9 @@ export class SerializeAddon implements ITerminalAddon, ISerializeApi {
        content += this._serializeScrollRegion(this._terminal);
      }
  
@@ -263,7 +291,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..14fe10b8efe11676bcbae75b93499017
      return content;
    }
  
-@@ -642,7 +745,7 @@ export class HTMLSerializeHandler extends BaseSerializeHandler {
+@@ -642,7 +759,7 @@ export class HTMLSerializeHandler extends BaseSerializeHandler {
      private readonly _terminal: Terminal,
      private readonly _options: Partial<IHTMLSerializeOptions>
    ) {
