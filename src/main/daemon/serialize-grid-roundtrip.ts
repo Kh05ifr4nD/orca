@@ -84,12 +84,43 @@ export function createFuzzTerminal(opts: {
 /** Thrown when xterm itself crashes on a fuzz stream; unrelated to serialization. */
 export class XtermWriteCrash extends Error {}
 
+/** The private xterm core members the oracle needs: sync writes and the active DECSTBM region. */
+type XtermCoreInternals = {
+  writeSync: (data: string) => void
+  region: { top: number; bottom: number }
+}
+
+function readRegion(buffer: unknown): { top: number; bottom: number } {
+  if (typeof buffer !== 'object' || buffer === null) {
+    return { top: -1, bottom: -1 }
+  }
+  const top = 'scrollTop' in buffer && typeof buffer.scrollTop === 'number' ? buffer.scrollTop : -1
+  const bottom =
+    'scrollBottom' in buffer && typeof buffer.scrollBottom === 'number' ? buffer.scrollBottom : -1
+  return { top, bottom }
+}
+
+function readXtermCore(terminal: Terminal): XtermCoreInternals {
+  const core: unknown = '_core' in terminal ? terminal._core : undefined
+  if (typeof core !== 'object' || core === null || !('writeSync' in core)) {
+    throw new Error('headless xterm core without writeSync')
+  }
+  const { writeSync } = core
+  if (typeof writeSync !== 'function') {
+    throw new Error('headless xterm core without writeSync')
+  }
+  return {
+    writeSync: (data) => writeSync.call(core, data),
+    region: readRegion('buffer' in core ? core.buffer : undefined)
+  }
+}
+
 // Why sync: an xterm parser exception inside async write() never resolves its callback and hangs the sweep.
 export function writeTerminal(terminal: Terminal, data: string): void {
   // Headless Terminal's core exposes writeSync(data); the public API only has async write().
-  const core: { writeSync(data: string): void } = Reflect.get(terminal, '_core')
+  const { writeSync } = readXtermCore(terminal)
   try {
-    core.writeSync(data)
+    writeSync(data)
   } catch (error) {
     throw new XtermWriteCrash(String(error))
   }
@@ -97,11 +128,7 @@ export function writeTerminal(terminal: Terminal, data: string): void {
 
 function coreRegion(terminal: Terminal): { top: number; bottom: number } {
   // xterm keeps DECSTBM on the private _core.buffer.
-  const core: { buffer?: { scrollTop?: number; scrollBottom?: number } } | undefined = Reflect.get(
-    terminal,
-    '_core'
-  )
-  return { top: core?.buffer?.scrollTop ?? -1, bottom: core?.buffer?.scrollBottom ?? -1 }
+  return readXtermCore(terminal).region
 }
 
 function modeState(terminal: Terminal): string {
