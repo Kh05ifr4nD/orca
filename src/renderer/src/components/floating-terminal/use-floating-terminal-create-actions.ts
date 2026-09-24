@@ -65,13 +65,10 @@ export function useFloatingTerminalCreateActions({
 
   const createFloatingTerminalTab = useCallback(
     (shellOverride?: string) => {
-      const tab = createTab(FLOATING_TERMINAL_WORKTREE_ID, activeGroup?.id, shellOverride, {
-        activate: false
-      })
-      activateTab(tab.id)
+      const tab = createTab(FLOATING_TERMINAL_WORKTREE_ID, activeGroup?.id, shellOverride)
       focusTerminalTabSurface(tab.id)
     },
-    [activateTab, activeGroup, createTab]
+    [activeGroup, createTab]
   )
 
   const createFloatingBrowserTab = useCallback(() => {
