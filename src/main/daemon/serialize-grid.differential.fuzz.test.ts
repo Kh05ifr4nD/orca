@@ -6,6 +6,8 @@ import {
   type SerializeFuzzCategory
 } from './serialize-grid-fuzz-stream'
 import {
+  i1Applies,
+  i1BytesDifferByVariant,
   loadOldSerializer,
   NEW_SERIALIZER,
   runSerializeFuzzCase,
@@ -16,7 +18,8 @@ import {
 } from './serialize-grid-roundtrip'
 
 // Serialize→replay round-trip fuzz for the addon-serialize patch. Invariants:
-//   I1 no line in the serialized range is wider than the grid ⇒ new bytes === old bytes
+//   I1 no line in the serialized range is wider than the grid, and no blank background-colored
+//      row follows its last text row (the old build trimmed those) ⇒ new bytes === old bytes
 //   I2 replaying the new bytes reproduces the source grid, cursor, buffer and modes
 //   I3 every checkpoint the old build replayed faithfully, the new one does too
 // I1/I3 need a baseline build: ORCA_OLD_SERIALIZE_ADDON=$(node
@@ -128,10 +131,11 @@ function addToTally(tally: Tally, check: SerializeCheckResult, differential: boo
   tally.oldI2Fail += check.gridDiff.old ? 1 : 0
   const oldFaithful = !check.gridDiff.old && !check.wrapDiff.old
   tally.wrapRegression += oldFaithful && check.wrapDiff.new ? 1 : 0
-  check.overlong.forEach((overlong, v) => {
-    if (!overlong) {
+  const differs = i1BytesDifferByVariant(check)
+  i1Applies(check).forEach((applies, v) => {
+    if (applies) {
       tally.i1Applicable++
-      tally.i1Fail += check.outputs.old![v] !== check.outputs.new![v] ? 1 : 0
+      tally.i1Fail += differs[v] ? 1 : 0
     }
   })
   const v = verdicts(check, true)
@@ -206,17 +210,18 @@ async function describeFailures(
 
 // Seeds 1-25 whose NEW replay already diverges and whose OLD replay diverges
 // the same way (verified with ORCA_OLD_SERIALIZE_ADDON): upstream limitations
-// such as trailing background-only rows, orphan combining marks in column 0 and
-// wide glyphs reflowed into the last column. Shrink this list when one is fixed.
+// such as orphan combining marks in column 0 and wide glyphs reflowed into the
+// last column. Shrink this list when one is fixed.
 const CI_SEEDS = 25
 const KNOWN_PREEXISTING_I2_FAILURES: Record<SerializeFuzzCategory, number[]> = {
   normal: [4, 5, 8, 9, 14, 19, 25],
   alt: [1, 2, 3, 4, 6, 7, 8, 11, 12, 14, 17, 19, 20, 21, 22, 23],
-  conpty: [4, 5, 8, 9, 11, 19]
+  conpty: [4, 8, 9, 11, 19]
 }
 
-// I3 regressions found at 7000 seeds per mode against origin/main (#22586):
-// 1149 = clipped-wide blank has width 0; the rest = trailing background-only rows dropped.
+// I3 regressions found at 7000 seeds per mode against origin/main (#22586), kept as guards
+// now that both are fixed: 1149 = clipped-wide blank had width 0; the rest = trailing
+// background-only rows were trimmed.
 const FOUND_I3_REGRESSIONS: Record<SerializeFuzzCategory, number[]> = {
   normal: [4681],
   alt: [1674],

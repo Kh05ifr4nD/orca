@@ -1,5 +1,5 @@
 diff --git a/src/SerializeAddon.ts b/src/SerializeAddon.ts
-index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b6d6050bb 100644
+index e1728feb219c362dfa2ecb602ff99f830d520757..265b9792403601c286bc341f9d046dcd3062e1be 100644
 --- a/src/SerializeAddon.ts
 +++ b/src/SerializeAddon.ts
 @@ -5,13 +5,66 @@
@@ -99,7 +99,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
            this._nextCell(c, oldCell, row, col);
            oldCell = c;
          }
-@@ -148,18 +205,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -148,18 +205,22 @@ class StringSerializeHandler extends BaseSerializeHandler {
  
    // this is a null cell for reference for checking whether background is empty or not
    private _backgroundCell: IBufferCell = this._buffer.getNullCell();
@@ -111,6 +111,8 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
    private _lastContentCursorRow: number = 0;
    private _lastContentCursorCol: number = 0;
 +  private _activeOscLinkId: number = 0;
++  private _lastBackgroundCursorRow: number = -1;
++  private _lastBackgroundCursorCol: number = 0;
  
    constructor(
      buffer: IBuffer,
@@ -121,7 +123,17 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
    }
  
    protected _beforeSerialize(rows: number, start: number, end: number): void {
-@@ -202,8 +261,12 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -178,6 +239,9 @@ class StringSerializeHandler extends BaseSerializeHandler {
+     if (this._nullCellCount > 0 && !equalBg(this._cursorStyle, this._backgroundCell)) {
+       // use clear right to set background.
+       this._currentRow += `\u001b[${this._nullCellCount}X`;
++      // PATCH(orca): the erase paints this row, so _serializeString must not trim it as trailing blank.
++      this._lastBackgroundCursorRow = this._lastCursorRow;
++      this._lastBackgroundCursorCol = this._lastCursorCol;
+     }
+ 
+     let rowSeparator = '';
+@@ -202,8 +266,12 @@ class StringSerializeHandler extends BaseSerializeHandler {
          this._lastCursorCol = 0;
        } else {
          rowSeparator = '';
@@ -136,7 +148,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
          const nextRowFirstChar = nextLine.getCell(0, this._nextRowFirstChar)!;
          const isNextRowFirstCharDoubleWidth = nextRowFirstChar.getWidth() > 1;
  
-@@ -214,7 +277,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -214,7 +282,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
          if (
            // you must output character to cause overflow, control sequence can't do this
            nextRowFirstChar.getChars() &&
@@ -145,7 +157,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
          ) {
            if (
              // the last character can't be null,
-@@ -251,9 +314,14 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -251,9 +319,14 @@ class StringSerializeHandler extends BaseSerializeHandler {
            if (this._nullCellCount > 0) {
              // do these because we filled the last several null slot, which we shouldn't
              rowSeparator += '\u001b[A';
@@ -162,7 +174,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
              rowSeparator += '\u001b[B';
            }
  
-@@ -310,7 +378,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -310,7 +383,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
          }
          if (flagsChanged) {
            if (cell.isInverse() !== oldCell.isInverse()) { sgrSeq.push(cell.isInverse() ? 7 : 27); }
@@ -184,7 +196,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
            if (!equalUnderline(cell, oldCell)) {
              const style = cell.getUnderlineStyle();
              if (style === UnderlineStyle.NONE) {
-@@ -337,7 +418,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -337,7 +423,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
            if (cell.isBlink() !== oldCell.isBlink()) { sgrSeq.push(cell.isBlink() ? 5 : 25); }
            if (cell.isInvisible() !== oldCell.isInvisible()) { sgrSeq.push(cell.isInvisible() ? 8 : 28); }
            if (cell.isItalic() !== oldCell.isItalic()) { sgrSeq.push(cell.isItalic() ? 3 : 23); }
@@ -193,7 +205,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
            if (cell.isStrikethrough() !== oldCell.isStrikethrough()) { sgrSeq.push(cell.isStrikethrough() ? 9 : 29); }
          }
        }
-@@ -346,6 +427,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -346,6 +432,20 @@ class StringSerializeHandler extends BaseSerializeHandler {
      return sgrSeq;
    }
  
@@ -214,7 +226,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
    protected _nextCell(cell: IBufferCell, oldCell: IBufferCell, row: number, col: number): void {
      // a width 0 cell don't need to be count because it is just a placeholder after a CJK character;
      const isPlaceHolderCell = cell.getWidth() === 0;
-@@ -356,12 +451,21 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -356,12 +456,21 @@ class StringSerializeHandler extends BaseSerializeHandler {
  
      // this cell don't have content
      const isEmptyCell = cell.getChars() === '';
@@ -239,7 +251,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
  
      /**
       *  handles style change
-@@ -395,7 +499,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -395,7 +504,7 @@ class StringSerializeHandler extends BaseSerializeHandler {
      /**
       *  handles actual content
       */
@@ -248,7 +260,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
        this._nullCellCount += cell.getWidth();
      } else {
        if (this._nullCellCount > 0) {
-@@ -411,7 +515,22 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -411,7 +520,22 @@ class StringSerializeHandler extends BaseSerializeHandler {
          this._nullCellCount = 0;
        }
  
@@ -272,7 +284,23 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
  
        // update cursor
        this._lastContentCursorRow = this._lastCursorRow = row;
-@@ -439,6 +558,9 @@ class StringSerializeHandler extends BaseSerializeHandler {
+@@ -425,6 +549,15 @@ class StringSerializeHandler extends BaseSerializeHandler {
+     // the fixup is only required for data without scrollback
+     // because it will always be placed at last line otherwise
+     if (this._buffer.length - this._firstRow <= this._terminal.rows) {
++      // PATCH(orca): keep trailing background-only rows, unless the cursor is wrap-pending:
++      // relative moves back from those rows cannot re-create that state.
++      if (
++        this._lastBackgroundCursorRow > this._lastContentCursorRow &&
++        this._buffer.cursorX < this._terminal.cols
++      ) {
++        this._lastContentCursorRow = this._lastBackgroundCursorRow;
++        this._lastContentCursorCol = this._lastBackgroundCursorCol;
++      }
+       rowEnd = this._lastContentCursorRow + 1 - this._firstRow;
+       this._lastCursorCol = this._lastContentCursorCol;
+       this._lastCursorRow = this._lastContentCursorRow;
+@@ -439,6 +572,9 @@ class StringSerializeHandler extends BaseSerializeHandler {
        }
      }
  
@@ -282,7 +310,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
      // restore the cursor
      if (!excludeFinalCursorPosition) {
        const realCursorRow = this._buffer.baseY + this._buffer.cursorY;
-@@ -616,6 +738,9 @@ export class SerializeAddon implements ITerminalAddon, ISerializeApi {
+@@ -616,6 +752,9 @@ export class SerializeAddon implements ITerminalAddon, ISerializeApi {
        content += this._serializeScrollRegion(this._terminal);
      }
  
@@ -292,7 +320,7 @@ index e1728feb219c362dfa2ecb602ff99f830d520757..743d16091369eb17cddaab92e2ee327b
      return content;
    }
  
-@@ -642,7 +767,7 @@ export class HTMLSerializeHandler extends BaseSerializeHandler {
+@@ -642,7 +781,7 @@ export class HTMLSerializeHandler extends BaseSerializeHandler {
      private readonly _terminal: Terminal,
      private readonly _options: Partial<IHTMLSerializeOptions>
    ) {

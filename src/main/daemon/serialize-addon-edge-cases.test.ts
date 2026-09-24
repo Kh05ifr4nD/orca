@@ -47,4 +47,17 @@ describe('SerializeAddon round-trip edge cases', () => {
 
     expect(roundTrip(source)).toEqual(expected)
   })
+
+  it.each([
+    ['normal', ''],
+    ['alternate', '\x1b[?1049h']
+  ])(
+    'keeps trailing background-only rows on the %s buffer (seeds 4681/1674)',
+    (_buffer, prefix) => {
+      const source = createFuzzTerminal({ cols: 4, rows: 3, scrollback: 1000 })
+      writeTerminal(source, `${prefix}r1\r\n\x1b[48;5;157m\x1b[J\x1b[0m\x1b[3;1H`)
+
+      expect(roundTrip(source)).toEqual(snapshotState(source))
+    }
+  )
 })

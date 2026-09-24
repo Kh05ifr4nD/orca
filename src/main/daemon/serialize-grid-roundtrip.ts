@@ -12,6 +12,11 @@ import {
   serializeWithAbsoluteCursor
 } from '../../shared/terminal-serialize-absolute-cursor'
 import type { SerializeFuzzCase } from './serialize-grid-fuzz-stream'
+import {
+  serializedNormalStart,
+  variantOverlong,
+  variantTrailingBackgroundRows
+} from './serialize-grid-variant-scope'
 import type { GridDiff } from './serialize-grid-cell-descriptors'
 import {
   bufferRows,
@@ -43,6 +48,8 @@ export type SerializeCheckResult = {
   stepIndex: number
   /** Per serialize variant: some line in the serialized range is wider than the grid. */
   overlong: boolean[]
+  /** Per serialize variant: a blank background-colored row follows the last row with text. */
+  trailingBackgroundRows: boolean[]
   /** outputs[serializerName][variant] */
   outputs: Record<string, string[]>
   /** First I2 diff per serializer (cells, cursor, buffer, modes); null = faithful. */
@@ -51,8 +58,6 @@ export type SerializeCheckResult = {
   wrapDiff: Record<string, GridDiff | null>
   clippedWideCells: number
 }
-
-type Buffer = Terminal['buffer']['active']
 
 const REPLAY_SCROLLBACK = 20_000
 
@@ -102,20 +107,6 @@ function coreRegion(terminal: Terminal): { top: number; bottom: number } {
 function modeState(terminal: Terminal): string {
   const { synchronizedOutputMode: _sync, ...modes } = terminal.modes
   return JSON.stringify({ ...modes, region: coreRegion(terminal) })
-}
-
-function serializedNormalStart(terminal: Terminal, scrollback: number | undefined): number {
-  const length = terminal.buffer.normal.length
-  return scrollback === undefined ? 0 : length - Math.min(length, scrollback + terminal.rows)
-}
-
-function hasOverlongLine(buffer: Buffer, start: number, end: number, cols: number): boolean {
-  for (let y = start; y < end; y++) {
-    if ((buffer.getLine(y)?.length ?? 0) > cols) {
-      return true
-    }
-  }
-  return false
 }
 
 async function compareReplay(
@@ -203,24 +194,6 @@ function serializeVariants(
   ]
 }
 
-function variantOverlong(
-  source: Terminal,
-  scrollback: number | undefined,
-  rangeRow: number
-): boolean[] {
-  const { cols } = source
-  const normal = source.buffer.normal
-  const alt = source.buffer.active.type === 'alternate'
-  const altOverlong =
-    alt && hasOverlongLine(source.buffer.alternate, 0, source.buffer.alternate.length, cols)
-  return [
-    altOverlong ||
-      hasOverlongLine(normal, serializedNormalStart(source, scrollback), normal.length, cols),
-    altOverlong || hasOverlongLine(normal, 0, normal.length, cols),
-    hasOverlongLine(normal, rangeRow, Math.min(rangeRow + 2, normal.length - 1) + 1, cols)
-  ]
-}
-
 export type SerializeCaseRun = {
   checks: SerializeCheckResult[]
   /** xterm threw while the SOURCE parsed the stream; later checkpoints are skipped. */
@@ -260,6 +233,7 @@ export async function runSerializeFuzzCase(
       const result: SerializeCheckResult = {
         stepIndex,
         overlong: variantOverlong(source, step.scrollback, rangeRow),
+        trailingBackgroundRows: variantTrailingBackgroundRows(source, step.scrollback, rangeRow),
         outputs: {},
         gridDiff: {},
         wrapDiff: {},
@@ -295,6 +269,17 @@ export async function runSerializeFuzzCase(
 export type Verdict = 'i1-bytes-differ' | 'regression' | 'fixed' | 'both-fail' | 'new-fail'
 
 /** I1 byte identity, then I2/I3 classification; single-serializer runs only report new-fail. */
+export function i1Applies(check: SerializeCheckResult): boolean[] {
+  return check.overlong.map((overlong, v) => !overlong && !check.trailingBackgroundRows[v])
+}
+
+/** Per variant: I1 applies, yet the bytes changed. */
+export function i1BytesDifferByVariant(check: SerializeCheckResult): boolean[] {
+  return i1Applies(check).map(
+    (applies, v) => applies && check.outputs.old![v] !== check.outputs.new![v]
+  )
+}
+
 export function verdicts(check: SerializeCheckResult, differential: boolean): Verdict[] {
   const out: Verdict[] = []
   const newFail = check.gridDiff.new !== null
@@ -302,11 +287,7 @@ export function verdicts(check: SerializeCheckResult, differential: boolean): Ve
     return newFail ? ['new-fail'] : []
   }
   const oldFail = check.gridDiff.old !== null
-  if (
-    check.overlong.some(
-      (overlong, v) => !overlong && check.outputs.old![v] !== check.outputs.new![v]
-    )
-  ) {
+  if (i1BytesDifferByVariant(check).some(Boolean)) {
     out.push('i1-bytes-differ')
   }
   if (newFail && !oldFail) {
