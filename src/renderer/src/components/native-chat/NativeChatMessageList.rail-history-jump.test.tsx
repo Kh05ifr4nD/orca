@@ -5,9 +5,15 @@ import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useCallback, useMemo, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type {
+  AgentJournalItemBody,
+  AgentJournalRenderItem
+} from '../../../../shared/agent-session-journal-types'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
+import { projectStructuredItemsToNativeChat } from '../../../../shared/structured-agent-session-projection'
 import { NativeChatMessageList } from './NativeChatMessageList'
 import type { NativeChatRailOutlineEntry } from './native-chat-message-rail-items'
+import type { NativeChatOlderPageResult } from './native-chat-pagination'
 import {
   estimateNativeChatRowHeight,
   nativeChatRowContentMetrics
@@ -17,6 +23,7 @@ import {
   layout,
   marker,
   overrideLayoutProperty,
+  scrollTranscript,
   session,
   stubLayout,
   stubResizeObserver
@@ -69,9 +76,10 @@ function PagedTranscript({
   holdPage?: () => Promise<void>
 }): React.JSX.Element {
   const [loaded, setLoaded] = useState(PAGE)
-  const loadEarlier = useCallback(async () => {
+  const loadEarlier = useCallback(async (): Promise<NativeChatOlderPageResult> => {
     await (holdPage?.() ?? Promise.resolve())
     setLoaded((current) => Math.min(TOTAL, current + PAGE))
+    return 'applied'
   }, [holdPage])
   const messages = useMemo(() => HISTORY.slice(TOTAL - loaded), [loaded])
   const railOutline = useMemo<NativeChatRailOutlineEntry[]>(
@@ -309,5 +317,181 @@ describe('jumping from the rail while following the end', () => {
     // The superseded jump would have kept paging and pulled the reader to prompt-5.
     expect(screen.queryByText('prompt-5')).toBeNull()
     expect(Math.abs(rowOffsetFromViewportTop('prompt-45'))).toBeLessThanOrEqual(2)
+  })
+  /** Holds the first older page in flight until released; later pages land at once. */
+  function holdFirstPage(): {
+    holdPage: () => Promise<void>
+    release: () => void
+    asked: () => number
+  } {
+    let release: (() => void) | null = null
+    let asked = 0
+    return {
+      holdPage: () => {
+        asked += 1
+        return asked > 1
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => {
+              release = resolve
+            })
+      },
+      release: () => act(() => release?.()),
+      asked: () => asked
+    }
+  }
+
+  async function pickUnloadedWhilePaging(prompt: string): Promise<void> {
+    fireEvent.click(screen.getByRole('button', { name: 'Your messages' }))
+    await frame()
+    fireEvent.click(screen.getByRole('button', { name: prompt }))
+    await frame()
+  }
+
+  it.each([
+    ['a wheel over the transcript', () => fireEvent.wheel(scroller(), { deltaY: -40 })],
+    ['a scroll key', () => fireEvent.keyDown(scroller(), { key: 'PageUp' })],
+    ['a touch drag', () => fireEvent.touchMove(scroller())],
+    ['a scrollbar grab', () => fireEvent.pointerDown(scroller())]
+  ])('leaves the reader where they are after %s while the jump pages', async (_case, input) => {
+    const pages = holdFirstPage()
+    render(<PagedTranscript holdPage={pages.holdPage} />)
+    await settle(10)
+    await pickUnloadedWhilePaging('prompt-5')
+    // Anti-vacuous: the older page is in flight.
+    expect(pages.asked()).toBe(1)
+
+    input()
+    pages.release()
+    await settle(60)
+
+    // The abandoned jump would have paged on and pulled the reader up to prompt-5.
+    expect(pages.asked()).toBe(1)
+    expect(screen.queryByText('prompt-5')).toBeNull()
+    expect(distanceFromBottom()).toBe(0)
+  })
+
+  it('stays at the latest message when "Jump to latest" is pressed while the jump pages', async () => {
+    const pages = holdFirstPage()
+    render(<PagedTranscript holdPage={pages.holdPage} />)
+    await settle(10)
+    // A reader parked above the end, so the button shows.
+    act(() => {
+      scroller().scrollTop = 200
+    })
+    await settle(2)
+    await pickUnloadedWhilePaging('prompt-5')
+    expect(pages.asked()).toBe(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to latest' }))
+    await frame()
+    pages.release()
+    await settle(60)
+
+    expect(pages.asked()).toBe(1)
+    expect(screen.queryByText('prompt-5')).toBeNull()
+    expect(distanceFromBottom()).toBe(0)
+  })
+})
+
+describe('revealing a diff while a rail jump pages', () => {
+  let restoreLayout = (): void => {}
+  beforeEach(() => {
+    restoreLayout = stubLayout()
+  })
+  afterEach(() => {
+    restoreLayout()
+    vi.restoreAllMocks()
+  })
+
+  function journalItem(itemId: string, body: AgentJournalItemBody, sequence: number) {
+    return { itemId, body, sequence, observedAt: sequence * 1000, revision: 1 }
+  }
+  function prompt(itemId: string, text: string, sequence: number) {
+    return journalItem(
+      itemId,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text }] },
+      sequence
+    )
+  }
+
+  const patch = '@@ -1 +1 @@\n-before\n+after'
+  const OLDER = prompt('older', 'Oldest prompt', 1)
+  const LOADED: AgentJournalRenderItem[] = [
+    prompt('user', 'Edit it', 2),
+    journalItem(
+      'diff',
+      {
+        kind: 'diff',
+        path: 'src/a.ts',
+        patch: { head: patch, truncated: false, digest: 'fixture', byteLength: patch.length }
+      },
+      3
+    ),
+    prompt('user-2', 'Second prompt', 4),
+    prompt('user-3', 'Third prompt', 5),
+    ...Array.from({ length: 200 }, (_, index) =>
+      journalItem(
+        `tail-${index}`,
+        { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: `marker-${index}` }] },
+        index + 6
+      )
+    )
+  ]
+
+  function DiffTranscript({ holdPage }: { holdPage: () => Promise<void> }): React.JSX.Element {
+    const [loadedOlder, setLoadedOlder] = useState(false)
+    const items = useMemo(() => (loadedOlder ? [OLDER, ...LOADED] : LOADED), [loadedOlder])
+    const loadEarlier = useCallback(async (): Promise<NativeChatOlderPageResult> => {
+      await holdPage()
+      setLoadedOlder(true)
+      return 'applied'
+    }, [holdPage])
+    return (
+      <NativeChatMessageList
+        session={{
+          ...session(projectStructuredItemsToNativeChat(items)),
+          hasMore: !loadedOlder,
+          loadEarlier
+        }}
+        journalItems={items}
+        railOutline={loadedOlder ? [] : [{ id: 'older', text: 'Oldest prompt', hasImages: false }]}
+        isWorking={false}
+        expandSignal={false}
+        fontScale={1}
+      />
+    )
+  }
+
+  it('keeps the diff in view when its page lands', async () => {
+    let release = (): void => {}
+    const holdPage = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        })
+    )
+    const scrollTo = vi.fn()
+    vi.spyOn(HTMLElement.prototype, 'scrollTo').mockImplementation(scrollTo)
+    const { container } = render(<DiffTranscript holdPage={holdPage} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Your messages' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Oldest prompt' }))
+    // Anti-vacuous: the older page is in flight.
+    expect(holdPage).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: /1 changed file/ }))
+    fireEvent.click(screen.getByRole('button', { name: /src\/a.ts/ }))
+    scrollTranscript(container, 6000)
+    expect(screen.getByText('Edited file')).toBeInTheDocument()
+    scrollTo.mockClear()
+
+    await act(async () => {
+      release()
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    })
+
+    // The abandoned jump would have taken the pin and smooth-scrolled up to the oldest
+    // prompt; the prepend's own anchoring is an instant write.
+    expect(scrollTo.mock.calls.filter(([options]) => options?.behavior === 'smooth')).toEqual([])
+    expect(screen.getByText('Edited file')).toBeInTheDocument()
   })
 })

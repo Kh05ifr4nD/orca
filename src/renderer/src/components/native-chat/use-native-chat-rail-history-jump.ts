@@ -1,106 +1,133 @@
 // Jumping to a rail tick whose message is not loaded yet: page older history in
 // until the message has a slot, then hand it to the ordinary rail jump.
 //
-// Driven by commits rather than an awaited loop: each step re-reads the rail after
-// React has applied the last page, so "has a slot yet?" is always asked of what
-// the list will actually render. One jump at a time, aimed at the latest pick; it
-// stops quietly when history runs out, when a page brings no progress, when the
-// loaded window passes the message without it drawing a row, or after a bounded
-// number of pages.
+// One awaited loop per jump, owning its own lifecycle. Each step reads the rail
+// from a commit made after the last page landed, so "has a slot yet?" is always
+// asked of what the list will actually render. It stops on anything but a page
+// that moved the window, when the window passes the message without it drawing a
+// row, after a bounded number of pages, or when aborted — by a later pick, any
+// other navigation, reader input, a session switch or unmount.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { NativeChatRailItem } from './native-chat-message-rail-items'
+import type { NativeChatOlderPageResult } from './native-chat-pagination'
 
 /** Far past any real session (pages are up to 200 journal items); only a
  *  runaway loop reaches it. */
 export const NATIVE_CHAT_RAIL_JUMP_MAX_PAGES = 1000
 
-type PendingJump = {
-  messageId: string
-  pages: number
-  /** Token of the page this jump is waiting on; null between pages. */
-  awaitingPage: number | null
+function railItemById(
+  items: readonly NativeChatRailItem[],
+  id: string
+): NativeChatRailItem | undefined {
+  return items.find((item) => item.id === id)
 }
 
 export function useNativeChatRailHistoryJump({
   items,
-  messages,
-  hasMore,
-  loadingEarlier,
+  sessionKey,
   loadEarlier,
   jumpToLoaded
 }: {
   items: readonly NativeChatRailItem[]
-  /** The lane's message list, compared by identity to detect a page that added nothing. */
-  messages: unknown
-  hasMore: boolean
-  /** Whether an older page is already in flight, e.g. from scrolling to the top. */
-  loadingEarlier: boolean
-  loadEarlier: () => void | Promise<void>
+  /** A change abandons the jump: its target belongs to the previous session. */
+  sessionKey: string
+  loadEarlier: () => Promise<NativeChatOlderPageResult>
   jumpToLoaded: (item: NativeChatRailItem) => void
 }): {
   pendingId: string | null
-  jump: (item: NativeChatRailItem) => void
-  cancel: () => void
+  start: (item: NativeChatRailItem) => void
+  abort: () => void
 } {
-  const [pending, setPending] = useState<PendingJump | null>(null)
-  // The lane's message list when the last page was requested; a page that lands
-  // without changing it made no progress.
-  const pagedFromRef = useRef<unknown>(undefined)
-  const pageTokenRef = useRef(0)
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const [, requestCommit] = useReducer((count: number) => count + 1, 0)
+  const controllerRef = useRef<AbortController | null>(null)
+  const committedRef = useRef({ items, loadEarlier, jumpToLoaded })
+  const commitWaitersRef = useRef(new Set<() => void>())
 
-  // A later pick retargets the jump; a page already in flight still counts toward it.
-  const jump = useCallback((item: NativeChatRailItem) => {
-    setPending((current) =>
-      !current
-        ? { messageId: item.id, pages: 0, awaitingPage: null }
-        : current.messageId === item.id
-          ? current
-          : { ...current, messageId: item.id }
-    )
+  // Every commit: the loop reads what the list last rendered, never a render in progress.
+  useLayoutEffect(() => {
+    committedRef.current = { items, loadEarlier, jumpToLoaded }
+    const waiters = [...commitWaitersRef.current]
+    commitWaitersRef.current.clear()
+    for (const resolve of waiters) {
+      resolve()
+    }
+  })
+
+  // Forces a commit rather than waiting for one: the page may already have rendered
+  // before its promise settled, and nothing else is owed a render after it.
+  const nextCommit = useCallback((signal: AbortSignal): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      const done = (): void => {
+        commitWaitersRef.current.delete(done)
+        signal.removeEventListener('abort', done)
+        resolve()
+      }
+      commitWaitersRef.current.add(done)
+      signal.addEventListener('abort', done)
+      requestCommit()
+    })
   }, [])
-  const cancel = useCallback(() => setPending(null), [])
 
-  useEffect(() => {
-    if (!pending || pending.awaitingPage !== null) {
-      return
-    }
-    const target = items.find((item) => item.id === pending.messageId)
-    if (target && target.slotIndex !== null) {
-      setPending(null)
-      jumpToLoaded(target)
-      return
-    }
-    // The lane ignores a second request while one is in flight; asking now would read
-    // as a page that brought no progress. Its landing re-runs this.
-    if (loadingEarlier) {
-      return
-    }
-    if (
-      !target ||
-      !hasMore ||
-      (pending.pages > 0 && pagedFromRef.current === messages) ||
-      pending.pages >= NATIVE_CHAT_RAIL_JUMP_MAX_PAGES
-    ) {
-      setPending(null)
-      return
-    }
-    pagedFromRef.current = messages
-    pageTokenRef.current += 1
-    const token = pageTokenRef.current
-    // Functional: a pick or cancel queued since this commit must survive the step.
-    setPending((current) =>
-      current ? { ...current, pages: current.pages + 1, awaitingPage: token } : current
-    )
-    const settle = (): void =>
-      setPending((current) =>
-        current?.awaitingPage === token ? { ...current, awaitingPage: null } : current
-      )
-    // A rejected page is the lane's own error to surface; the jump just stops trying.
-    void Promise.resolve(loadEarlier()).then(settle, () =>
-      setPending((current) => (current?.awaitingPage === token ? null : current))
-    )
-  }, [hasMore, items, jumpToLoaded, loadEarlier, loadingEarlier, messages, pending])
+  const run = useCallback(
+    async (id: string, signal: AbortSignal): Promise<void> => {
+      for (let pages = 0; ; pages += 1) {
+        // Each pass reads a newer commit's rail, so there is no list to index up front.
+        const target = railItemById(committedRef.current.items, id)
+        if (!target) {
+          return
+        }
+        if (target.slotIndex !== null) {
+          committedRef.current.jumpToLoaded(target)
+          return
+        }
+        if (pages >= NATIVE_CHAT_RAIL_JUMP_MAX_PAGES) {
+          return
+        }
+        const result = await committedRef.current.loadEarlier()
+        if (signal.aborted || result !== 'applied') {
+          return
+        }
+        await nextCommit(signal)
+        if (signal.aborted) {
+          return
+        }
+      }
+    },
+    [nextCommit]
+  )
 
-  return { pendingId: pending?.messageId ?? null, jump, cancel }
+  const abort = useCallback(() => {
+    const controller = controllerRef.current
+    if (!controller) {
+      return
+    }
+    controllerRef.current = null
+    controller.abort()
+    setPendingId(null)
+  }, [])
+
+  // The latest pick wins; a page the previous jump started is joined, not repeated.
+  const start = useCallback(
+    (item: NativeChatRailItem) => {
+      controllerRef.current?.abort()
+      const controller = new AbortController()
+      controllerRef.current = controller
+      setPendingId(item.id)
+      void run(item.id, controller.signal)
+        .catch(() => undefined)
+        .finally(() => {
+          if (controllerRef.current === controller) {
+            controllerRef.current = null
+            setPendingId(null)
+          }
+        })
+    },
+    [run]
+  )
+
+  useEffect(() => abort, [abort, sessionKey])
+
+  return { pendingId, start, abort }
 }
