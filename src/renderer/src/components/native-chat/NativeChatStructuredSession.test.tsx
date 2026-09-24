@@ -151,13 +151,13 @@ describe('NativeChatStructuredSession', () => {
     expect(mocks.messageListProps?.isVisible).toBe(isVisible)
   })
 
-  // The list pages automatically and stops on a rejected page, so the controller's
-  // promise has to reach it rather than be swallowed on the way.
-  it('hands the list the controller older-history state and its load promise', async () => {
-    const failure = new Error('older page failed')
+  // The list stops auto-loading on a failed page and re-arms on a new paging
+  // generation, so both the page result and the generation must reach it.
+  it('hands the list the controller older-history state, generation, and page result', async () => {
     mocks.hasOlder = true
     mocks.loadingOlder = true
-    mocks.loadOlder.mockRejectedValueOnce(failure)
+    mocks.olderHistoryGeneration = 3
+    mocks.loadOlder.mockResolvedValueOnce('failed')
     render(
       <NativeChatStructuredSession
         isVisible
@@ -169,8 +169,12 @@ describe('NativeChatStructuredSession', () => {
       />
     )
 
-    expect(mocks.messageListProps?.session).toMatchObject({ hasMore: true, loadingEarlier: true })
-    await expect(mocks.messageListProps?.session?.loadEarlier()).rejects.toBe(failure)
+    expect(mocks.messageListProps?.session).toMatchObject({
+      hasMore: true,
+      loadingEarlier: true,
+      olderHistoryGeneration: 3
+    })
+    await expect(mocks.messageListProps?.session?.loadEarlier()).resolves.toBe('failed')
     expect(mocks.loadOlder).toHaveBeenCalledOnce()
   })
 
