@@ -165,10 +165,12 @@ export async function evictOwnedStructuredAgentSessions(
   }
 }
 
-/** The first hold on a childless session: reconcile the lease, settle recovery, then attach. */
+/** The first hold on a childless session: reconcile the lease, settle recovery, make it readable,
+ *  then attach. */
 export async function resumeStructuredAgentSessionForHold(
   context: StructuredAgentSessionLifetimeContext & {
     reconcileLeases: (sessionId: string) => Promise<AgentSessionWireRefusal | null>
+    makeReadable: (sessionId: string) => Promise<unknown>
   },
   sessionId: string,
   attach: Parameters<typeof resumeHeldStructuredAgentSession>[0]['attach']
@@ -178,6 +180,11 @@ export async function resumeStructuredAgentSessionForHold(
     throw new Error(unreconciled.code)
   }
   await context.runtimeState.resolveRecovery(sessionId)
+  // Why first: attach keeps the session's task queue for the whole provider start, so a read
+  // arriving meanwhile would wait on the child. Best effort; the attach decides the hold.
+  await context
+    .makeReadable(sessionId)
+    .catch((error: unknown) => context.deps.onEventSinkError?.({ sessionId, error }))
   await resumeHeldStructuredAgentSession({
     sessionId,
     deps: context.deps,
@@ -190,6 +197,7 @@ export function createStructuredAgentSessionHolds(
   context: StructuredAgentSessionLifetimeContext,
   input: {
     reconcileLeases: (sessionId: string) => Promise<AgentSessionWireRefusal | null>
+    makeReadable: (sessionId: string) => Promise<unknown>
     attach: Parameters<typeof resumeHeldStructuredAgentSession>[0]['attach']
     close: (sessionId: string) => Promise<void>
   }
@@ -197,7 +205,7 @@ export function createStructuredAgentSessionHolds(
   return new StructuredAgentSessionHolds({
     resume: (sessionId) =>
       resumeStructuredAgentSessionForHold(
-        { ...context, reconcileLeases: input.reconcileLeases },
+        { ...context, reconcileLeases: input.reconcileLeases, makeReadable: input.makeReadable },
         sessionId,
         input.attach
       ),

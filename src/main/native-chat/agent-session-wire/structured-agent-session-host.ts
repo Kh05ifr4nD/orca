@@ -42,8 +42,7 @@ import { flushStructuredAgentSessionHost } from './structured-agent-session-host
 import type {
   StructuredAgentSessionCaller,
   StructuredAgentSessionHostDeps,
-  StructuredAgentSessionHostSession,
-  StructuredAgentSessionReveal
+  StructuredAgentSessionHostSession
 } from './structured-agent-session-host-types'
 import type { StructuredAgentSessionStatusSubscriber } from './structured-agent-session-status-feed'
 import type { StructuredAgentSessionTurnCompletionSubscriber } from './structured-agent-session-turn-completion-feed'
@@ -120,6 +119,7 @@ export class StructuredAgentSessionHost {
     })
     this.holds = createStructuredAgentSessionHolds(this.lifetimeContext(), {
       reconcileLeases: this.reconcileLeases,
+      makeReadable: (sessionId) => this.restore.ensureReadable(sessionId),
       attach: (params) => this.attach({ callerKey: 'trusted-local:surface-hold' }, params),
       close: (sessionId) => this.close(sessionId)
     })
@@ -230,8 +230,7 @@ export class StructuredAgentSessionHost {
     this.restore.restoreReadableSessions(sessionIds)
 
   /** Make one persisted session addressable again; see `structured-agent-session-reveal`. */
-  revealSession = (sessionId: string): Promise<StructuredAgentSessionReveal> =>
-    this.restore.revealSession(sessionId)
+  revealSession = (sessionId: string) => this.restore.revealSession(sessionId)
 
   /** Opens a visible persisted chat for reading, never a provider child; see the readable restorer. */
   ensureReadable = (sessionId: string): Promise<boolean> => this.restore.ensureReadable(sessionId)

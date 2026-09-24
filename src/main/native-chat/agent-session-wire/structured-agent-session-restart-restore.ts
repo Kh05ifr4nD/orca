@@ -54,6 +54,10 @@ export async function restoreStructuredAgentSessionReadPhase(
     // A session latched in recovery exits here at startup, without waiting for a client.
     await input.resolveRecovery(sessionId)
   }
+  if (input.hasSession(sessionId)) {
+    // Opened while this awaited; queueing anyway could wait out a hold's whole provider start.
+    return
+  }
   await input.serialize(sessionId, async () => {
     if (input.hasSession(sessionId)) {
       // A surface that took a hold, or read it, mid-restore already opened this one.

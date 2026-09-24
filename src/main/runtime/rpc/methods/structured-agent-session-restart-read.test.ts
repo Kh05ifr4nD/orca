@@ -73,20 +73,30 @@ async function quitWithChat(visible: boolean): Promise<void> {
   await before.flushAllStreamedEvents()
 }
 
-/** The restarted process: a fresh store read from disk, a host that has run no sweep. */
-async function restart(): Promise<RpcDispatcher> {
+/**
+ * The restarted process: a fresh store read from disk, a host that has run no sweep. With
+ * `installed: false` the host is not built until a method installs it — the state a chat pane
+ * finds when it mounts before startup restoration has run.
+ */
+async function restart(options: { installed?: boolean } = {}): Promise<RpcDispatcher> {
   const store = await AgentSessionRecordStore.open({
     directory: join(root, 'store'),
     hostId: 'local'
   })
-  host = hostFor(store)
-  setStructuredAgentSessionHost(host)
+  const restarted = hostFor(store)
+  host = restarted
+  if (options.installed !== false) {
+    setStructuredAgentSessionHost(restarted)
+  }
   acquire.mockClear()
   const runtime = new OrcaRuntimeService()
   vi.spyOn(runtime, 'getClientSettings').mockReturnValue({
     ...getDefaultSettings(root),
     hostSettingOverrides: {},
     experimentalStructuredNativeChat: structuredNativeChatEnabled
+  })
+  vi.spyOn(runtime, 'ensureStructuredAgentSessionHost').mockImplementation(async () => {
+    setStructuredAgentSessionHost(restarted)
   })
   return new RpcDispatcher({ runtime, methods: STRUCTURED_AGENT_SESSION_METHODS })
 }
@@ -166,6 +176,57 @@ describe('reading a restored chat before the startup sweep', () => {
       })
     }
     expect(host?.hasSession(SESSION)).toBe(false)
+  })
+
+  it('reads a chat whose host nothing has installed yet', async () => {
+    // The pane mounts before startup restoration builds the host; its first read must not fail
+    // for that alone, or the pane paints the load error while its own hold is installing it.
+    await quitWithChat(true)
+    const dispatcher = await restart({ installed: false })
+
+    const reply = await call(dispatcher, 'agentSession.history', {
+      sessionId: SESSION,
+      direction: 'tail'
+    })
+
+    expect(reply).toMatchObject({ ok: true })
+    expect(acquire).not.toHaveBeenCalled()
+  })
+
+  it("answers the read while the pane's own hold is still starting the provider", async () => {
+    // The hold's attach keeps the session's task queue for the whole provider start; a read
+    // queued behind it would leave the chat loading until the child is up.
+    await quitWithChat(true)
+    const dispatcher = await restart()
+    const started = Promise.withResolvers<void>()
+    const acquired = Promise.withResolvers<void>()
+    const acquireProvider = acquire.getMockImplementation()!
+    acquire.mockImplementation(async (input) => {
+      started.resolve()
+      await acquired.promise
+      return acquireProvider(input)
+    })
+
+    const hold = call(dispatcher, 'agentSession.hold', { sessionId: SESSION, holderId: 'pane' })
+    await started.promise
+    const history = call(dispatcher, 'agentSession.history', {
+      sessionId: SESSION,
+      direction: 'tail'
+    })
+    const subscribe = call(dispatcher, 'agentSession.subscribe', { sessionId: SESSION })
+
+    let read: [RpcResponse | undefined, RpcResponse | undefined] | undefined
+    void Promise.all([history, subscribe]).then((replies) => {
+      read = replies
+    })
+    try {
+      await vi.waitFor(() => expect(read).toBeDefined())
+      expect(read).toMatchObject([{ ok: true }, { ok: true, result: { type: 'snapshot' } }])
+    } finally {
+      acquired.resolve()
+    }
+    // Only that it settles: this stub provider cannot finish an attach, with or without the read.
+    await hold
   })
 
   it('opens nothing while structured chat is off', async () => {
