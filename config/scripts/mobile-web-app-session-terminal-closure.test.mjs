@@ -439,8 +439,14 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *
  *   modules        4218 -> 4220   (+2)
  *   local modules  1032 -> 1034   (+2)
+ *
+ * The browser pane's double buffer then moved into one pacer module, replacing the frame-apply
+ * hook, the pane-layers hook and the layer-flip module. Measured.
+ *
+ *   modules        4220 -> 4218   (-2)
+ *   local modules  1034 -> 1032   (-2)
  */
-const SESSION_ROUTE_MODULES = 4220
+const SESSION_ROUTE_MODULES = 4218
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [
