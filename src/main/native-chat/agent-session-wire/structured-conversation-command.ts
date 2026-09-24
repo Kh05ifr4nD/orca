@@ -15,6 +15,7 @@ import {
   type AgentSessionAttachParams
 } from './structured-agent-session-attach'
 import { admitAndRunAgentSessionMutation } from './structured-agent-session-mutation-admission'
+import { withUnansweredSavedOptions } from './structured-agent-session-option-restoration'
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
 import type { StructuredAgentSessionCaller } from './structured-agent-session-host-types'
 import type { StructuredAgentSessionHost } from './structured-agent-session-host'
@@ -116,15 +117,21 @@ export function runStructuredConversationCommand(
           if (command === 'clear' && !prior) {
             try {
               const options = await ctx.adapter.readOptions?.({ sessionId, fence: ctx.fence })
-              effectiveOptions = {
-                ...record.options,
-                ...(options
-                  ? {
-                      model: options.current.model,
-                      ...(options.current.effort ? { effort: options.current.effort } : {})
-                    }
-                  : {})
-              }
+              // The replacement starts from the live values, except a saved choice the child
+              // never answered, which its start retries.
+              effectiveOptions = withUnansweredSavedOptions(
+                {
+                  ...record.options,
+                  ...(options
+                    ? {
+                        model: options.current.model,
+                        ...(options.current.effort ? { effort: options.current.effort } : {})
+                      }
+                    : {})
+                },
+                record.options,
+                ctx.adapter.readOptionRestoreUnanswered?.(sessionId) ?? []
+              )
             } catch {
               return {
                 ok: false,

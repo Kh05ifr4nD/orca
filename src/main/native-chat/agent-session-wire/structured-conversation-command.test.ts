@@ -163,6 +163,27 @@ describe('host conversation commands', () => {
     })
   })
 
+  // The replacement's start then retries it, as the source's next start would have.
+  it('starts the replacement from a saved choice the child never answered, not the live value', async () => {
+    await store.replaceSessionOptions({
+      sessionId: HOST_TEST_SESSION,
+      fence: store.getRecord(HOST_TEST_SESSION)!.lease.runtimeFence,
+      options: { model: 'test-model', effort: 'low' },
+      now: HOST_TEST_NOW
+    })
+    adapter.readOptionRestoreUnanswered = (sessionId) =>
+      sessionId === HOST_TEST_SESSION ? ['effort'] : []
+    const attach = vi.spyOn(host, 'attach')
+    expect(await host.conversationCommand(caller, commandParams('clear'))).toMatchObject({
+      ok: true
+    })
+    expect(attach.mock.calls[0]?.[1].options).toEqual({ model: 'test-model', effort: 'low' })
+    expect(store.getRecord(HOST_TEST_SESSION)?.options).toEqual({
+      model: 'test-model',
+      effort: 'low'
+    })
+  })
+
   it('clears with a fresh record and effective options, retaining old history and idempotent mapping', async () => {
     const before = store.getRecord(HOST_TEST_SESSION)!
     const params = commandParams('clear')
