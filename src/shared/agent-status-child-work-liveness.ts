@@ -1,6 +1,6 @@
 import type { AgentChildWorkKind, AgentChildWorkState } from './agent-status-child-work'
 
-/** Three live arms by design, ranked: a child blocked on a human is `waiting`; otherwise any live
+/** Three live arms by design, ranked: a child waiting on a human is `waiting`; otherwise any live
  *  agent work reads as `working`; `monitoring` only when shells and monitors are the sole live
  *  work; null when nothing runs. */
 export type AgentChildWorkLiveness = 'waiting' | 'working' | 'monitoring' | null
@@ -11,7 +11,7 @@ export type AgentChildWorkLivenessCandidate = {
 }
 
 export type AgentChildWorkLivenessEvidence = {
-  /** A live child of any kind needs a human before it can go on. */
+  /** A live child of any kind is waiting on a human before it can go on. */
   hasWaitingChildWork: boolean
   hasLiveAgentWork: boolean
   hasLiveNonAgentWork: boolean
@@ -29,16 +29,16 @@ export function isAgentChildWorkKind(kind: AgentChildWorkKind): boolean {
  *  retire — and a blocked subagent cannot count for less than the shell beside it.
  *  The escape hatch is the roster's own lifetime, not a state: it is per-session host memory that
  *  dies when the session closes (Claude also clears it on provider `ended`), so a producer that
- *  ever reported a failure IN PLACE (as `blocked`) rather than settling it would pin `waiting`
+ *  ever reported a failure IN PLACE (as `blocked`) rather than settling it would pin `working`
  *  until then. */
 function isLiveChildWork(child: AgentChildWorkLivenessCandidate): boolean {
   return child.state !== 'done' && child.state !== 'idle'
 }
 
-/** The child-state vocabulary mirrors the row's: `waiting` and `blocked` both mean a human must
- *  act. Lost contact (`unverifiable`) is not a request for one. */
+/** Only `waiting` asks for a human. A child's `blocked` means it failed (its sole producer maps a
+ *  failed task to it), unlike the row's `blocked`; lost contact (`unverifiable`) asks for no one. */
 function isWaitingChildWork(child: AgentChildWorkLivenessCandidate): boolean {
-  return child.state === 'waiting' || child.state === 'blocked'
+  return child.state === 'waiting'
 }
 
 export function agentChildWorkLivenessFromEvidence(

@@ -234,10 +234,11 @@ repaint, an inferred answer) keeps it only while `mainAgent` is unchanged. A chi
 sticky permission prompt still records the main agent's own progress and background
 evidence in the held row, and pushes the held row to subscribers when `mainAgent` changes.
 
-Every lane, Codex included, combines through the fold. A child blocked on a
+Every lane, Codex included, combines through the fold. A child waiting on a
 human is a fold input (`childWorkLiveness: 'waiting'`, derived from the child's
-own `waiting` or `blocked` state) and makes the row wait whatever the main
-agent is doing, unless the main agent is itself asking. The Claude hook lane
+own `waiting` state; a child's `blocked` means it failed and stays live work)
+and makes the row wait whatever the main agent is doing, unless the main agent
+is itself asking. The Claude hook lane
 still holds a child's permission wait on the displaced main agent record
 (`waitingAgentId`, `stateBeforeWait`) rather than on the child, but publishes
 the displaced state as `mainAgent`, so its rows match Codex. One known

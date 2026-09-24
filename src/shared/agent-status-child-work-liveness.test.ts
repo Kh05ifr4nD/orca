@@ -61,21 +61,20 @@ describe('agentChildWorkLiveness', () => {
     )
   })
 
-  it('keeps an unverifiable agent live, the way a shell out of contact is', () => {
-    expect(agentChildWorkLiveness([child({ state: 'unverifiable' })])).toBe('working')
-    expect(agentChildWorkLiveness([child({ kind: 'command', state: 'unverifiable' })])).toBe(
-      'monitoring'
-    )
+  // A child's `blocked` is a failure, not a request for a human; neither it nor lost contact waits.
+  it('keeps a failed or unverifiable agent live without asking for a human', () => {
+    for (const state of ['blocked', 'unverifiable'] as const) {
+      expect(agentChildWorkLiveness([child({ state })])).toBe('working')
+      expect(agentChildWorkLiveness([child({ kind: 'command', state })])).toBe('monitoring')
+    }
   })
 
-  it('reads a child of any kind that needs a human as waiting, above every other live child', () => {
-    for (const state of ['waiting', 'blocked'] as const) {
-      expect(agentChildWorkLiveness([child({ state })])).toBe('waiting')
-      expect(agentChildWorkLiveness([child({ kind: 'command', state })])).toBe('waiting')
-      expect(agentChildWorkLiveness([child(), child({ kind: 'command' }), child({ state })])).toBe(
-        'waiting'
-      )
-    }
+  it('reads a child of any kind waiting on a human as waiting, above every other live child', () => {
+    expect(agentChildWorkLiveness([child({ state: 'waiting' })])).toBe('waiting')
+    expect(agentChildWorkLiveness([child({ kind: 'command', state: 'waiting' })])).toBe('waiting')
+    expect(
+      agentChildWorkLiveness([child(), child({ kind: 'command' }), child({ state: 'waiting' })])
+    ).toBe('waiting')
   })
 
   it('does not read a settled child as waiting whatever it was doing before', () => {

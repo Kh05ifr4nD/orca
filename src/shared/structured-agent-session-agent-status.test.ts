@@ -39,21 +39,21 @@ describe('structuredAgentSessionAgentStatus', () => {
     ).toEqual({ state: 'working', workingMode: 'monitoring', mainAgent: { state: 'done' } })
   })
 
-  it('keeps an idle main agent working while a subagent is out of contact', () => {
+  it('keeps an idle main agent working while a subagent failed in place or is out of contact', () => {
+    for (const state of ['blocked', 'unverifiable'] as const) {
+      expect(
+        structuredAgentSessionAgentStatus({ status: 'idle', backgroundTasks: [task({ state })] })
+      ).toEqual({ state: 'working', mainAgent: { state: 'done' } })
+    }
+  })
+
+  it('reads an idle main agent as waiting while a subagent waits on a human', () => {
     expect(
       structuredAgentSessionAgentStatus({
         status: 'idle',
-        backgroundTasks: [task({ state: 'unverifiable' })]
+        backgroundTasks: [task({ state: 'waiting' })]
       })
-    ).toEqual({ state: 'working', mainAgent: { state: 'done' } })
-  })
-
-  it('reads an idle main agent as waiting while a subagent needs a human', () => {
-    for (const state of ['waiting', 'blocked'] as const) {
-      expect(
-        structuredAgentSessionAgentStatus({ status: 'idle', backgroundTasks: [task({ state })] })
-      ).toEqual({ state: 'waiting', mainAgent: { state: 'done' } })
-    }
+    ).toEqual({ state: 'waiting', mainAgent: { state: 'done' } })
   })
 
   // The spinner and the expandable child list are built from the same summary, so a workflow must
