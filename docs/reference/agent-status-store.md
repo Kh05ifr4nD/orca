@@ -249,11 +249,23 @@ running. That work leaves the row only when its own inventory omits it or the
 session ends, so a cancelled turn with a still-running shell reads
 `monitoring` in every lane, and the parity table in
 `src/shared/main-agent-status-parity.test.ts` drives that story through all of
-them. In the Claude hook lane the same rule governs the cancel Orca infers
-from Ctrl+C: the inference is admitted when the row's `mainAgent.state` is
-`working` (a Ctrl+C at the idle prompt of a row held open by child work
-cancels nothing) and the synthesized row is the fold of the cancelled main
-agent with the child work the row already evidences.
+them. The same rule governs the cancel Orca infers from Ctrl+C: for any row
+that publishes `mainAgent`, the inference is admitted only when
+`mainAgent.state` is `working` (a Ctrl+C at the idle prompt of a row held open
+by child work cancels nothing; Codex also keeps the child-evidence guard, and a
+row without `mainAgent` keeps only that guard). The synthesized row is the fold
+of the cancelled main agent with the child work the pane's owner can see: the
+local listener's roster for a local pane, the row's own subagents and shell fact
+for a relayed one, whose provider records live on the relay.
+
+The store holds that verdict against restatements that predate it
+(`server-cancel-verdict-latch.ts`), because a relay never learns of a cancel
+the desktop infers and some TUIs emit late same-turn hooks. The hold is read
+off the row (`mainAgent.outcome: 'cancellation'`), never stored beside it, and
+dies on a new turn (a main agent prompt submission, a changed or explicit
+prompt, a session start) or the provider's own settled `mainAgent`. Child and
+replayed events under the hold keep the cancelled main agent and are re-folded
+with their own child evidence.
 
 ## PR 1b: the runtime's retained row store is deleted
 
