@@ -114,7 +114,7 @@ describe('isAgentTimeAccruing', () => {
     // Every lane folds through here (Codex never emits monitoring), so a monitoring row can never
     // hide a running main agent turn from the stats.
     const leadStates = ['working', 'waiting', 'blocked', 'done'] as const
-    const liveness = ['working', 'monitoring', null] as const
+    const liveness = ['waiting', 'working', 'monitoring', null] as const
     for (const leadState of leadStates) {
       for (const interrupted of [false, true]) {
         for (const childWorkLiveness of liveness) {
@@ -123,8 +123,10 @@ describe('isAgentTimeAccruing', () => {
             state: folded.stateName,
             workingMode: folded.workingMode
           })
+          // A child waiting on a human pauses the row, whatever the main agent is doing.
           expect(accrues).toBe(
-            leadState === 'working' || (leadState === 'done' && childWorkLiveness === 'working')
+            childWorkLiveness !== 'waiting' &&
+              (leadState === 'working' || (leadState === 'done' && childWorkLiveness === 'working'))
           )
         }
       }
