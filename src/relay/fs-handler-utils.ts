@@ -19,13 +19,15 @@ import { IMAGE_FILE_MIME_TYPES } from '../shared/image-file-extensions'
 import type { SearchResult as SharedSearchResult } from '../shared/code-search-types'
 import {
   absorbPendingRipgrepSpawnError,
-  isRipgrepUnavailableAfterLaunchFailure,
+  classifyRipgrepLaunchFailure,
   isRipgrepUnavailableExit,
   killSpawnedRipgrepProcess,
+  ripgrepMissingCwdError,
   RipgrepUnavailableError
 } from '../shared/ripgrep-process-availability'
 import { buildRelayCommandEnv } from './relay-command-env'
 import {
+  pathRipgrepCommand,
   resolveRelayRipgrepCommand,
   retryRipgrepOnPathAfterLaunchFailure
 } from './relay-bundled-ripgrep'
@@ -115,7 +117,15 @@ export function searchWithRg(
     // which would leak out of the `new Promise` executor and leave the
     // promise forever pending. Treat a synchronous throw as a clean
     // "no results" fallback, the same way an async 'error' event is handled.
-    const command = resolveRelayRipgrepCommand()
+    const resolvedRgCommand = resolveRelayRipgrepCommand()
+    // Why not spawn a bare name when this is null: on Windows CreateProcessW searches the spawn
+    // cwd -- the user's repo -- before PATH, so a planted rg.exe would run instead.
+    if (resolvedRgCommand === null) {
+      reject(new RipgrepUnavailableError())
+      return
+    }
+    // Why a second binding: the closures below capture it, and narrowing does not reach them.
+    const command: string = resolvedRgCommand
     let child: ReturnType<typeof spawn>
     try {
       child = spawn(command, rgArgs, {
@@ -170,10 +180,16 @@ export function searchWithRg(
             }
             return
           }
-          if (!(await isRipgrepUnavailableAfterLaunchFailure(rootPath))) {
-            resolveOnce()
-          } else if (settle()) {
-            reject(new RipgrepUnavailableError())
+          // Why not resolveOnce() on an unreachable root: an empty result reads as "no matches"
+          // and the git/readdir chain never engages, because it only triggers on an unavailable
+          // ripgrep. The workspace moving would otherwise look like a successful empty scan.
+          if (settle()) {
+            reject(
+              (await classifyRipgrepLaunchFailure(rootPath, pathRipgrepCommand())) ===
+                'cwd-unreachable'
+                ? ripgrepMissingCwdError(rootPath)
+                : new RipgrepUnavailableError()
+            )
           }
         }
       )

@@ -79,6 +79,29 @@ describe('ensureRemoteBundledRipgrep', () => {
     )
   })
 
+  // Why this needs a test: nothing else collects this tree -- the relay's version GC only matches
+  // `relay-*` -- so without it every rg bump left another ~5 MB on every host, forever.
+  it('collects superseded builds while sparing the current one and live stages', async () => {
+    execCommandMock.mockResolvedValueOnce('ORCA-RG-PRESENT\n')
+
+    await ensureRemoteBundledRipgrep(connection(), LINUX, '/home/me')
+
+    const script = execScripts()[0]
+    expect(script).toContain("! -name 'c0ffee0123456789-linux-x64'")
+    expect(script).toContain("! -name '.upload-*'")
+    expect(script).toContain('-mtime +14')
+  })
+
+  it('collects superseded builds on Windows hosts too', async () => {
+    execCommandMock.mockResolvedValueOnce('ORCA-RG-PRESENT\n')
+
+    await ensureRemoteBundledRipgrep(connection(), WINDOWS, 'C:/Users/me user')
+
+    const script = execScripts()[0]
+    expect(script).toContain("-ne 'c0ffee0123456789-win32-x64'")
+    expect(script).toContain('AddDays(-14)')
+  })
+
   it('skips the upload in one round trip when the binary is already installed', async () => {
     execCommandMock.mockResolvedValueOnce('ORCA-RG-PRESENT\n')
 

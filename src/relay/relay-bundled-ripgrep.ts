@@ -3,7 +3,8 @@
  * and passes its path via `--ripgrep-path`; PATH `rg` (and then the git/readdir fallbacks) stays
  * the answer whenever that binary is absent or cannot launch on this host.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
+import { delimiter, isAbsolute, join } from 'node:path'
 import {
   isRipgrepSpawnCwdUsable,
   isTransientRipgrepSpawnError
@@ -11,6 +12,35 @@ import {
 import { relayLogLine } from './relay-diagnostic-log'
 
 export const PATH_RIPGREP_COMMAND = 'rg'
+
+/**
+ * Absolute path to a PATH `rg` on Windows, or null when there is none.
+ *
+ * Why Windows only: CreateProcessW searches the spawn cwd -- the user's repo -- before PATH, so a
+ * bare `rg` there runs a planted `rg.exe` from a cloned repository. POSIX `execvp` never consults
+ * the cwd, so a bare name stays correct and free there.
+ */
+function resolveWindowsPathRipgrep(): string | null {
+  for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+    const dir = entry.replace(/^"|"$/g, '').trim()
+    // Why skip relative entries: a relative PATH entry resolves against the cwd, the very thing
+    // this lookup exists to avoid.
+    if (!dir || !isAbsolute(dir)) {
+      continue
+    }
+    const candidate = join(dir, 'rg.exe')
+    try {
+      if (statSync(candidate).isFile()) {
+        return candidate
+      }
+    } catch {
+      /* next entry */
+    }
+  }
+  return null
+}
+
+let windowsPathRipgrep: string | null | undefined
 
 let bundledRipgrepPath: string | null = null
 // Why a back-off, not forever: Windows AV often locks a just-installed rg.exe for its first spawns.
@@ -22,7 +52,21 @@ export function configureRelayBundledRipgrep(path: string | undefined): void {
   bundledRipgrepUnusableUntil = 0
 }
 
-export function resolveRelayRipgrepCommand(): string {
+/**
+ * The host's PATH ripgrep, safe to spawn directly, or null when it has none. On Windows that is an
+ * absolute path, because a bare name would resolve against the spawn cwd first.
+ */
+export function pathRipgrepCommand(): string | null {
+  if (process.platform !== 'win32') {
+    return PATH_RIPGREP_COMMAND
+  }
+  // Why cached: PATH does not change under a running relay, and this runs per spawn.
+  windowsPathRipgrep ??= resolveWindowsPathRipgrep()
+  return windowsPathRipgrep
+}
+
+/** Null means this host has no usable rg, so the caller falls back to git/readdir. */
+export function resolveRelayRipgrepCommand(): string | null {
   // Why check existence per spawn: the deploy uploads rg after the relay starts, so it can appear mid-session.
   if (
     bundledRipgrepPath &&
@@ -31,7 +75,11 @@ export function resolveRelayRipgrepCommand(): string {
   ) {
     return bundledRipgrepPath
   }
-  return PATH_RIPGREP_COMMAND
+  return pathRipgrepCommand()
+}
+
+export function resetRelayRipgrepPathCacheForTests(): void {
+  windowsPathRipgrep = undefined
 }
 
 /**

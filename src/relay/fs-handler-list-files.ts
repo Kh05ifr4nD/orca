@@ -23,16 +23,18 @@ import {
 } from '../shared/quick-open-filter'
 import {
   absorbPendingRipgrepSpawnError,
-  isRipgrepUnavailableAfterLaunchFailure,
+  classifyRipgrepLaunchFailure,
   isRipgrepUnavailableExit,
   isTransientRipgrepSpawnError,
   killSpawnedRipgrepProcess,
   RipgrepLaunchFailureError,
+  ripgrepMissingCwdError,
   RipgrepUnavailableError
 } from '../shared/ripgrep-process-availability'
 import { QuickOpenPathRanker } from '../shared/quick-open-path-search'
 import { buildRelayCommandEnv } from './relay-command-env'
 import {
+  pathRipgrepCommand,
   resolveRelayRipgrepCommand,
   retryRipgrepOnPathAfterLaunchFailure
 } from './relay-bundled-ripgrep'
@@ -108,6 +110,11 @@ export function listFilesWithRg(
         // search target. Without cwd, nested-worktree exclusions silently
         // stop working.
         const command = resolveRelayRipgrepCommand()
+        // Why not spawn a bare name when this is null: on Windows CreateProcessW searches the
+        // spawn cwd -- the user's repo -- before PATH. "No rg here" is what the chain handles.
+        if (command === null) {
+          throw new RipgrepUnavailableError()
+        }
         let child: ChildProcess
         try {
           child = spawn(command, ['--no-messages', ...args], {
@@ -169,8 +176,14 @@ export function listFilesWithRg(
                 rejectPass(new RipgrepLaunchFailureError('bundled rg failed to start'))
                 return
               }
-              const unavailable = await isRipgrepUnavailableAfterLaunchFailure(rootPath)
-              rejectPass(unavailable ? new RipgrepUnavailableError() : error)
+              // Why distinguish: RipgrepUnavailableError is what engages the git/readdir chain,
+              // and that chain cannot help when the root itself is gone.
+              rejectPass(
+                (await classifyRipgrepLaunchFailure(rootPath, pathRipgrepCommand())) ===
+                  'cwd-unreachable'
+                  ? ripgrepMissingCwdError(rootPath)
+                  : new RipgrepUnavailableError()
+              )
             }
           )
         }

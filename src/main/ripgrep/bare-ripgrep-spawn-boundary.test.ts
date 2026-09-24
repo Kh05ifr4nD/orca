@@ -11,11 +11,10 @@ import { describe, expect, it } from 'vitest'
  *
  * The allowlist only shrinks. Each entry is a deliberate PATH fallback that has to stay.
  */
-const ALLOWED_BARE_RIPGREP_SPAWNS: readonly string[] = [
-  // The relay-only probe answering "does this host have any rg at all" before it drops to the
-  // git/readdir chain. It asks about PATH by definition, so it cannot take an absolute path.
-  'src/shared/ripgrep-process-availability.ts'
-]
+// Empty on purpose: the relay's PATH probe was the last entry, and it is gone -- on Windows the
+// relay now resolves rg.exe from PATH itself, and everywhere else an unreachable root is
+// classified rather than probed. Nothing in production spawns a bare `rg`.
+const ALLOWED_BARE_RIPGREP_SPAWNS: readonly string[] = []
 
 // A spawn/exec whose command argument is the literal string 'rg' (or "rg").
 const BARE_SPAWN_PATTERN =

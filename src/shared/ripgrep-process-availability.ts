@@ -77,60 +77,52 @@ export async function isRipgrepSpawnCwdUsable(cwd: string): Promise<boolean> {
   }
 }
 
-// Why a bare 'rg' is allowed here, against the rule in AGENTS.md: this asks "does this host have any
-// ripgrep on PATH", which only the relay's git/readdir fallback chain needs. Main-process code has a
-// bundled binary and must resolve it by absolute path instead -- see spawnBundledRipgrep.
-function checkRipgrepAvailableWithoutCwd(): Promise<boolean> {
+function probeRipgrepVersion(command: string): Promise<boolean> {
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
-      child = spawn('rg', ['--version'], { stdio: 'ignore' })
+      child = spawn(command, ['--version'], { stdio: 'ignore' })
     } catch {
       resolve(false)
       return
     }
     let settled = false
-    let errorObserved = false
-    let unavailableExitObserved = false
-    let timeout: ReturnType<typeof setTimeout> | null = null
-    const settle = (available: boolean, kill = false): void => {
+    const settle = (available: boolean): void => {
       if (settled) {
         return
       }
       settled = true
-      if (timeout) {
-        clearTimeout(timeout)
-      }
-      child.off('error', onError)
-      child.off('close', onClose)
-      if (kill) {
-        child.once('error', ignoreRipgrepSpawnError)
-        killSpawnedRipgrepProcess(child)
-      } else {
-        absorbPendingRipgrepSpawnError(child, { errorObserved, unavailableExitObserved })
-      }
+      clearTimeout(timeout)
+      child.once('error', ignoreRipgrepSpawnError)
       resolve(available)
     }
-    const onError = (): void => {
-      errorObserved = true
-      settle(false)
-    }
-    const onClose = (code: number | null): void => {
-      unavailableExitObserved = code !== null && code < 0
-      settle(code === 0)
-    }
-    child.once('error', onError)
-    child.once('close', onClose)
-    timeout = setTimeout(() => settle(false, true), RIPGREP_FAILURE_PROBE_TIMEOUT_MS)
+    child.once('error', () => settle(false))
+    child.once('close', (code) => settle(code === 0))
+    const timeout = setTimeout(() => settle(false), RIPGREP_FAILURE_PROBE_TIMEOUT_MS)
     timeout.unref?.()
   })
 }
 
-export async function isRipgrepUnavailableAfterLaunchFailure(cwd: string): Promise<boolean> {
+/**
+ * Why a launch failure needs classifying: spawn reports an unreachable cwd as ENOENT, the same as
+ * a missing binary. Telling a user to install ripgrep because their workspace moved sends them
+ * down the wrong path, and resolving an empty result hides the move entirely.
+ *
+ * `pathRipgrepCommand` is the host's PATH ripgrep, already resolved to an absolute path where a
+ * bare name would be unsafe, or null when the host has none. A missing ripgrep keeps precedence
+ * over an unreachable root, because only that verdict engages the git/readdir fallback chain.
+ */
+export async function classifyRipgrepLaunchFailure(
+  cwd: string,
+  pathRipgrepCommand: string | null
+): Promise<'cwd-unreachable' | 'ripgrep-unavailable'> {
   if (await isRipgrepSpawnCwdUsable(cwd)) {
-    return true
+    return 'ripgrep-unavailable'
   }
-  return !(await checkRipgrepAvailableWithoutCwd())
+  if (pathRipgrepCommand === null) {
+    return 'ripgrep-unavailable'
+  }
+  return (await probeRipgrepVersion(pathRipgrepCommand)) ? 'cwd-unreachable' : 'ripgrep-unavailable'
 }
 
 /**

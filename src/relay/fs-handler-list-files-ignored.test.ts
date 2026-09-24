@@ -637,7 +637,10 @@ describe('relay quick open ignored file listing', () => {
     await expect(unavailable).rejects.toBeInstanceOf(RipgrepUnavailableError)
   })
 
-  it('keeps missing-root launch errors on their prior non-fallback paths', async () => {
+  // Why this changed: both paths still refuse the git/readdir fallback, which is what "non-fallback"
+  // pinned -- a chain that walks the root cannot help when the root is gone. What changed is that
+  // search no longer reports an empty, successful-looking scan for a workspace that moved.
+  it('names the unreachable root on both missing-root launch paths', async () => {
     const missingRoot = await makeTempRoot()
     await rm(missingRoot, { recursive: true, force: true })
     const listFirst = createMockProcess()
@@ -653,7 +656,7 @@ describe('relay quick open ignored file listing', () => {
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2))
     expect(spawnMock.mock.calls[1]).toEqual(['rg', ['--version'], { stdio: 'ignore' }])
     listProbe.emit('close', 0, null)
-    await expect(listing).rejects.toBe(listError)
+    await expect(listing).rejects.toThrow(`Search root is not reachable: ${missingRoot}`)
 
     spawnMock.mockReset()
     const searchChild = createMockProcess()
@@ -666,7 +669,7 @@ describe('relay quick open ignored file listing', () => {
 
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2))
     searchProbe.emit('close', 0, null)
-    await expect(search).resolves.toMatchObject({ files: [], totalMatches: 0 })
+    await expect(search).rejects.toThrow(`Search root is not reachable: ${missingRoot}`)
   })
 
   it('keeps missing-rg precedence when the root also disappeared', async () => {
