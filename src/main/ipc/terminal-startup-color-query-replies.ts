@@ -48,8 +48,21 @@ function shouldReplyToStartupTerminalColorQueries(args: {
 // Why: jcode paints its own theme and fires its OSC 10/11 burst before its TUI
 // input loop is ready, so the cooked reply (`10;rgb:…`) lands in the composer as
 // pre-typed text (same class as #12112, which fixed opencode).
-export function agentSkipsStartupOscColorQueryReplies(launchAgent: unknown): boolean {
-  return launchAgent === 'jcode'
+//
+// Why all three signals and not just launchAgent: a pane can name jcode through the
+// telemetry kind or the command alone (a `jcode` quick-launch carries no launchAgent),
+// and those panes leak exactly the same composer text.
+export function agentSkipsStartupOscColorQueryReplies(args: {
+  launchAgent?: unknown
+  telemetry?: { agent_kind?: unknown } | undefined
+  command?: string
+  launchConfig?: SleepingAgentLaunchConfig
+}): boolean {
+  if (args.launchAgent === 'jcode' || args.telemetry?.agent_kind === 'jcode') {
+    return true
+  }
+  const command = args.launchConfig?.agentCommand?.trim() || args.command?.trim() || ''
+  return command.length > 0 && recognizeAgentProcessFromCommandLine(command)?.agent === 'jcode'
 }
 
 export function getStartupTerminalIngressIntent(args: {
@@ -63,7 +76,7 @@ export function getStartupTerminalIngressIntent(args: {
   if (!shouldReplyToStartupTerminalColorQueries(args)) {
     return undefined
   }
-  const colors = agentSkipsStartupOscColorQueryReplies(args.launchAgent)
+  const colors = agentSkipsStartupOscColorQueryReplies(args)
     ? {}
     : (normalizeTerminalColorQueryReplyColors(args.terminalColorQueryReplies) ?? {})
   return parsePtyStartupIngressIntent({
