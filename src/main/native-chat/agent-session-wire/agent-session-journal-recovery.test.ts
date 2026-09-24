@@ -6,7 +6,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   AgentJournalItemIdentity,
   AgentSessionJournalIdentity
@@ -14,6 +14,7 @@ import type {
 import { openJournalDatabase } from '../agent-session-journal/journal-database'
 import { JOURNAL_DB_SCHEMA_VERSION } from '../agent-session-journal/journal-database-schema'
 import { loadJournal } from '../agent-session-journal/journal-open'
+import type * as JournalOpen from '../agent-session-journal/journal-open'
 import { journalDatabaseFile } from '../agent-session-journal/journal-paths'
 import { readJournalEpochRows } from '../agent-session-journal/journal-row-table'
 import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
@@ -23,6 +24,19 @@ import {
   providerHistoryId,
   recoveryJournalDir
 } from './agent-session-journal-recovery'
+
+// Counts the replays a journal open runs itself; the recovery probe's own replay is not counted.
+const storeReplays = vi.hoisted(() => ({ count: 0 }))
+vi.mock('../agent-session-journal/journal-open', async (importOriginal) => {
+  const actual = await importOriginal<typeof JournalOpen>()
+  return {
+    ...actual,
+    replayJournal: (...args: Parameters<typeof actual.replayJournal>) => {
+      storeReplays.count += 1
+      return actual.replayJournal(...args)
+    }
+  }
+})
 
 const CODEX_SESSION = '019fd532-7c11-7a90-b6de-4e1a2c3d5f60'
 
@@ -158,6 +172,23 @@ describe('openAgentSessionJournalWithRecovery', () => {
       }).then((result) => result.journal)
     )
     expect(opened.snapshot().items).toHaveLength(2)
+  })
+
+  it('opens a healthy journal on the rows its probe already replayed', async () => {
+    await seedJournal(2)
+    storeReplays.count = 0
+
+    const opened = journals.track(
+      await openAgentSessionJournalWithRecovery({
+        identity: IDENTITY,
+        journalDir,
+        fence: 1,
+        historyFilePath
+      }).then((result) => result.journal)
+    )
+
+    expect(opened.snapshot().items).toHaveLength(2)
+    expect(storeReplays.count).toBe(0)
   })
 
   it('rebuilds a holed journal in place on a fresh epoch', async () => {

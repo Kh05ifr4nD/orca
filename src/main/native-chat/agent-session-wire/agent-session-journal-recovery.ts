@@ -67,7 +67,10 @@ export async function openAgentSessionJournalWithRecovery(input: {
   }
   const journal = await openAgentSessionJournal({
     identity: input.identity,
-    journalDir: input.journalDir
+    journalDir: input.journalDir,
+    // The probe already replayed every row; replaying again doubles an attach's main-thread cost.
+    // Omitted when there was no database, so a fresh one still founds its own epoch.
+    ...(probe ? { loaded: probe } : {})
   })
   if (!probe?.corrupt) {
     return { journal, recovery: null }
