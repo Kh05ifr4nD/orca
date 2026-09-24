@@ -486,12 +486,13 @@ describe('connectPanePty', () => {
       restoredPtyIdByLeafId: { [LEAF_1]: 'tab-pty' }
     })
 
-    connectPanePty(pane as never, manager as never, deps as never)
+    const disposable = connectPanePty(pane as never, manager as never, deps as never)
     await flushAsyncTicks(40)
 
     expect(writtenText()).not.toContain('ALT-FRAME-BODY')
     expect(getMainBufferSnapshot).toHaveBeenCalledWith('tab-pty', expect.anything())
     await vi.waitFor(() => expect(writtenText()).toContain('MODEL-FRAME'))
+    disposable.dispose()
   })
 
   it('does not forward terminal resizes while the pane is hidden', async () => {
