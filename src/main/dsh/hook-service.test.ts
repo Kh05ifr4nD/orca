@@ -157,7 +157,9 @@ describe('DshHookService', () => {
     expect(status.detail).toContain('/somewhere/else.json')
   })
 
-  it('keeps an owner-only patch file owner-only', () => {
+  // Why POSIX-only: on Windows chmod toggles the read-only attribute, so `mode & 0o777`
+  // reads 0o666 for any writable file and the assertion cannot mean what it says.
+  it.skipIf(process.platform === 'win32')('keeps an owner-only patch file owner-only', () => {
     // CWE-732: the temp+rename replacement must not widen the file to the umask default.
     const userRows = '- id: llm-deepseek\n  config: {}\n'
     mkdirSync(join(home, '.dsh'), { recursive: true })
@@ -175,10 +177,17 @@ describe('DshHookService', () => {
     mkdirSync(join(home, '.dsh'), { recursive: true })
     writeFileSync(configPath(), flow, 'utf-8')
 
-    const status = new DshHookService().install()
-    expect(status.state).toBe('error')
-    expect(status.detail).toContain('flow-style sequence')
+    const service = new DshHookService()
+    const installed = service.install()
+    expect(installed.state).toBe('error')
+    expect(installed.detail).toContain('flow-style sequence')
     expect(readFileSync(configPath(), 'utf-8')).toBe(flow)
+
+    // Why re-read: a later status poll must keep saying why, not decay to a bare
+    // `not_installed` that gives the user nothing to act on.
+    const polled = service.getStatus()
+    expect(polled.state).toBe('error')
+    expect(polled.detail).toContain('flow-style sequence')
   })
 
   it('honours DSH_HOME', () => {

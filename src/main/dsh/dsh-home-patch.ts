@@ -120,13 +120,18 @@ function isEmptyFlowDocument(lines: readonly string[]): boolean {
 }
 
 /**
- * True when the body is a NON-EMPTY flow sequence (`[a, b]`, or one spread over lines).
+ * True when Orca cannot append its block to this file: the body is a NON-EMPTY flow
+ * sequence (`[a, b]`, or one spread over lines).
  *
  * Why it matters: YAML forbids a block entry after a flow sequence, so appending Orca's
  * `- insert:` would produce a file DSH cannot parse — losing the user's own patch layer as
  * well as Orca's hooks. There is no safe in-place edit, so install refuses instead.
+ *
+ * Exported because status has to report the same refusal on every read, not just on the
+ * install that first hit it.
  */
-function isNonEmptyFlowDocument(lines: readonly string[]): boolean {
+export function isDshPatchFileUnappendable(text: string): boolean {
+  const lines = splitLines(text)
   const body = documentBody(lines)
   return body.length > 0 && body[0].trimStart().startsWith('[') && !isEmptyFlowDocument(lines)
 }
@@ -159,7 +164,7 @@ export function applyManagedDshPatch(text: string, managedHooksPath: string): st
       ...lines.slice(region.endLine + 1)
     ])
   }
-  if (isNonEmptyFlowDocument(lines)) {
+  if (isDshPatchFileUnappendable(text)) {
     return null
   }
   // Why dropped: `- item` after `[]` is a parse error, and an empty sequence has nothing to

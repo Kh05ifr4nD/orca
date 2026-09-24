@@ -24,6 +24,7 @@ import {
 import { buildPosixAgentHookPostCommand } from '../agent-hooks/hook-post-command'
 import {
   applyManagedDshPatch,
+  isDshPatchFileUnappendable,
   readManagedDshHooksConfigPath,
   removeManagedDshPatch
 } from './dsh-home-patch'
@@ -112,6 +113,10 @@ function writePatchText(configPath: string, text: string): void {
   writeHooksJson(configPath, {}, { serialized: text, preserveMode: true })
 }
 
+/** Why one constant: status has to say exactly what install said, on every later read. */
+const FLOW_STYLE_DETAIL =
+  'The DSH home patch is a flow-style sequence ([…]); rewrite it as a block sequence (one `- ` entry per line) so Orca can add its hooks without breaking it'
+
 function status(
   configPath: string,
   state: AgentHookInstallState,
@@ -129,6 +134,11 @@ function buildStatus(
 ): AgentHookInstallStatus {
   if (managedText === null) {
     return status(configPath, 'error', 'Could not read Orca managed hooks file')
+  }
+  // Why before the pointer check: a refused file carries no managed region, so the pointer
+  // path would report a bare `not_installed` and drop the one detail that says why.
+  if (isDshPatchFileUnappendable(patchText)) {
+    return status(configPath, 'error', FLOW_STYLE_DETAIL)
   }
   const pointer = readManagedDshHooksConfigPath(patchText)
   if (pointer !== managedHooksPath) {
@@ -190,11 +200,7 @@ export class DshHookService {
     if (nextText === null) {
       // Why refuse rather than edit: YAML forbids a block entry after a flow sequence, so
       // appending here would leave DSH unable to parse the user's own patch layer either.
-      return status(
-        configPath,
-        'error',
-        'The DSH home patch is a flow-style sequence ([…]); rewrite it as a block sequence (one `- ` entry per line) so Orca can add its hooks without breaking it'
-      )
+      return status(configPath, 'error', FLOW_STYLE_DETAIL)
     }
     if (nextText !== patchText) {
       writePatchText(configPath, nextText)
@@ -217,11 +223,7 @@ export class DshHookService {
       )
       const nextText = applyManagedDshPatch(body, remoteManagedHooksPath)
       if (nextText === null) {
-        return status(
-          remoteConfigPath,
-          'error',
-          'The remote DSH home patch is a flow-style sequence ([…]); rewrite it as a block sequence so Orca can add its hooks without breaking it'
-        )
+        return status(remoteConfigPath, 'error', FLOW_STYLE_DETAIL)
       }
       await writeTextFileRemoteAtomic(sftp, remoteConfigPath, nextText)
       return status(remoteConfigPath, 'installed', null, true)
