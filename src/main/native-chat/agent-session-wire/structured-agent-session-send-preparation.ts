@@ -32,7 +32,10 @@ import type {
 import type { AgentSessionWireRefusalCode } from '../../../shared/agent-session-wire-refusals'
 import { boundJournalStatusText } from '../agent-session-journal/journal-prompt-body-bounds'
 import { TUI_AGENT_DISPLAY_NAMES } from '../../../shared/tui-agent-display-names'
-import { ownerRestartFailedOutcome } from './structured-agent-session-dead-generation-settlement'
+import {
+  ownerRestartFailedOutcome,
+  providerStartupFailureOutcome
+} from './structured-agent-session-dead-generation-settlement'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
 import type { AgentSessionMutationSessionPreparation } from './structured-agent-session-mutation-admission'
@@ -161,7 +164,15 @@ async function restartOwnerForSend(
     sessionId,
     error: new Error(`${resumed.refusal.code}: ${resumed.refusal.message}`)
   })
-  await recordFailedRestart(context, envelope, refusal.message)
+  // A restart whose child died starting leaves the row any start that died leaves, so the chat
+  // reads the same whether the send met that death before admission or after it.
+  await recordFailedRestart(
+    context,
+    envelope,
+    resumed.refusal.ownerVerdict === 'exited'
+      ? providerStartupFailureOutcome(resumed.refusal.message)
+      : refusal.message
+  )
   return refusal
 }
 

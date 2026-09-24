@@ -415,7 +415,9 @@ describe('a send with no live owner', () => {
     // Refused before admission: the ledger holds nothing a resend would replay.
     expect(store.getOperationRow(CALLER.callerKey, params.envelope.clientOperationId)).toBeNull()
     // The same status row a failed start leaves, so the reason outlives the error strip.
-    expect(journalStatuses()).toEqual(["Codex couldn't restart: Not signed in. Run codex login."])
+    expect(journalStatuses()).toEqual([
+      'The provider stopped before it finished starting: Not signed in. Run codex login.'
+    ])
   })
 
   it('restarts again for a Retry of the refused send, under its own id or a new one', async () => {
