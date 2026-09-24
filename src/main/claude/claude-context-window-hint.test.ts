@@ -117,6 +117,28 @@ describe('the context ring before the first window is measured', () => {
     }
   )
 
+  it.each([
+    ['sonnet[1m]', `${SONNET}[1m]`, 1_000_000, 5],
+    ['sonnet', SONNET, 200_000, 25]
+  ])(
+    'sizes the first response from the report a pick of %s made before any turn',
+    async (configured, reported, window, share) => {
+      const s = session(reported)
+      // What the host does for a model picked in a chat with no turn row for the report to land on.
+      s.translator.modelMayHaveChanged()
+      s.translator.modelWritten(configured)
+      await s.reply(answer(reported, 20_000, window))
+      s.handle(userFrame('turn-a', 1_000))
+      s.handle(assistantFrame('reply-a', 2_000, 50_000, undefined, SONNET))
+      expect(s.ring()).toMatchObject({
+        usedTokens: 50_000,
+        windowTokens: window,
+        percentage: share
+      })
+      s.translator.dispose()
+    }
+  )
+
   it('lets the result and then the report replace the implied window', async () => {
     const s = session(`${SONNET}[1m]`, 'sonnet[1m]')
     s.handle(userFrame('turn-a', 1_000))

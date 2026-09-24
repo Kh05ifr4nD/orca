@@ -2,8 +2,8 @@
 // `/context` breakdown is worth asking for. The facts live on turn rows and are
 // written to the open turn, else the newest turn the journal holds; this keeps
 // only what tells a late answer it is stale, whose window a result reports,
-// whether the newest window still serves the model responding, and the window a
-// written model's name implies until one is measured.
+// whether the newest window still serves the model responding, and the window the
+// CLI last reported or a written model's name implies, for a journal holding none.
 
 import {
   contextTokensFromUsage,
@@ -46,7 +46,7 @@ export class ClaudeContextFacts {
   private servedModel: string | null | typeof STALE = null
   /** A report measured the window since the turn's init and the last model write, so the result's inference cannot beat it. */
   private windowReported = false
-  /** The window the last written model's name implies, until another write can change the model. */
+  /** The window the CLI last reported, or the last written model's name implies, until another write can change the model. */
   private windowHint: number | null = null
   /** Nothing this writer wrote proves the journal holds a window, so the hint may be the only one. */
   private journalMayLackWindow = true
@@ -184,7 +184,8 @@ export class ClaudeContextFacts {
     const window = { tokens: report.windowTokens, capturedAt: report.capturedAt }
     this.servedModel = null
     this.windowReported = true
-    this.journalMayLackWindow = false
+    // A chat with no turn row yet drops this write, so the first response still needs the window.
+    this.windowHint = report.windowTokens
     const contextUsage: AgentSessionContextUsage =
       part === 'report' ? { used: { kind: 'report', ...report }, window } : { window }
     writeClaudeTurnRow(
