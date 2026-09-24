@@ -289,6 +289,9 @@ describe('Claude structured child-work producer', () => {
       totalTokens: 300
     })
     send(toolResult('toolu_2', 'Could not reproduce', null, true))
+    expect(byDescription('Find flaky tests')?.outcome).toBe('unknown')
+    // The child's own terminal status names how the run ended.
+    send(system('task_notification', { task_id: 'agent-fg', status: 'failed' }))
     expect(byDescription('Find flaky tests')).toMatchObject({
       membership: 'settled',
       outcome: 'failed',
