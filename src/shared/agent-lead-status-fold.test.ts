@@ -96,41 +96,39 @@ describe('isAgentStatusHeldOpenByChildWork', () => {
 })
 
 describe('isAgentTimeAccruing', () => {
-  it('accrues while the main agent itself works', () => {
-    expect(isAgentTimeAccruing({ state: 'working', mainAgent: { state: 'working' } })).toBe(true)
-  })
-
-  it("pauses while the row waits on the user, even when the prompt is a child's", () => {
-    // Codex and Claude: a child's approval or question turns the combined row `waiting`/`blocked`
-    // while the displaced main agent state still reads working; the row is blocked on the user.
-    expect(isAgentTimeAccruing({ state: 'waiting', mainAgent: { state: 'working' } })).toBe(false)
-    expect(isAgentTimeAccruing({ state: 'blocked', mainAgent: { state: 'working' } })).toBe(false)
-    expect(isAgentTimeAccruing({ state: 'waiting', mainAgent: { state: 'waiting' } })).toBe(false)
-  })
-
-  it('accrues while a settled main agent is held working by live agent child work', () => {
-    expect(isAgentTimeAccruing({ state: 'working', mainAgent: { state: 'done' } })).toBe(true)
-  })
-
-  it('does not accrue for a watch loop, a paused main agent, or a settled row', () => {
-    expect(
-      isAgentTimeAccruing({
-        state: 'working',
-        workingMode: 'monitoring',
-        mainAgent: { state: 'done' }
-      })
-    ).toBe(false)
-    expect(isAgentTimeAccruing({ state: 'blocked', mainAgent: { state: 'blocked' } })).toBe(false)
-    // A child's permission prompt while the main agent is settled parks the row; nothing executes.
-    expect(isAgentTimeAccruing({ state: 'blocked', mainAgent: { state: 'done' } })).toBe(false)
-    expect(isAgentTimeAccruing({ state: 'done', mainAgent: { state: 'done' } })).toBe(false)
-  })
-
-  it("falls back to today's read of the combined state when an old host sends no main agent fact", () => {
+  it('accrues while the row works for the main agent or its live agent child work', () => {
     expect(isAgentTimeAccruing({ state: 'working' })).toBe(true)
-    // An old host's monitoring row read as working before `mainAgent` existed; it still does.
-    expect(isAgentTimeAccruing({ state: 'working', workingMode: 'monitoring' })).toBe(true)
+  })
+
+  it('pauses while the row waits on the user, whoever raised the prompt', () => {
+    expect(isAgentTimeAccruing({ state: 'waiting' })).toBe(false)
+    expect(isAgentTimeAccruing({ state: 'blocked' })).toBe(false)
+  })
+
+  it('does not accrue for a watch loop or a settled row', () => {
+    expect(isAgentTimeAccruing({ state: 'working', workingMode: 'monitoring' })).toBe(false)
     expect(isAgentTimeAccruing({ state: 'done' })).toBe(false)
+  })
+
+  it('relies on the fold emitting monitoring only for a settled main agent', () => {
+    // Every lane folds through here (Codex never emits monitoring), so a monitoring row can never
+    // hide a running main agent turn from the stats.
+    const leadStates = ['working', 'waiting', 'blocked', 'done'] as const
+    const liveness = ['working', 'monitoring', null] as const
+    for (const leadState of leadStates) {
+      for (const interrupted of [false, true]) {
+        for (const childWorkLiveness of liveness) {
+          const folded = foldAgentLeadStatus({ leadState, interrupted, childWorkLiveness })
+          const accrues = isAgentTimeAccruing({
+            state: folded.stateName,
+            workingMode: folded.workingMode
+          })
+          expect(accrues).toBe(
+            leadState === 'working' || (leadState === 'done' && childWorkLiveness === 'working')
+          )
+        }
+      }
+    }
   })
 })
 

@@ -24,10 +24,9 @@ export type AgentSessionStatusEvent = {
   receivedAt: number
   /** When this evidence was first observed; survives a replay. Absent means `receivedAt`. */
   evidenceObservedAt?: number
-  /** The combined row state, its watch-loop mode, and the main agent's own state when the host is new
-   *  enough to publish one. The stats ask "was an agent executing", which the combined `state`
-   *  alone stopped answering once a settled main agent's background shell could hold it `working`. */
-  payload: Pick<AgentStatusPayload, 'state' | 'workingMode' | 'mainAgent'>
+  /** The combined row state and its watch-loop mode: a settled main agent's background shell holds
+   *  the row `working`, and the stats must not count it. */
+  payload: Pick<AgentStatusPayload, 'state' | 'workingMode'>
 }
 
 /** Ordinary pane teardown, or a stamped batch clear for one dropped connection. */
@@ -92,19 +91,15 @@ export function classifyAgentSessionTransition(
 }
 
 /**
- * When an execution edge happened, dated only by this host's clocks: the producer's
- * `mainAgent.stateStartedAt` is an SSH host's own clock and can predate an edge already sent.
- * A row that left `working` (settled, or paused on a prompt from the main agent or a child) dates
- * the edge by its own clock. A row that is `working` on both sides of the edge does not move that
- * clock (the hook lane pins it across a watch-loop change), so the evidence clock dates it; on a
- * live hook row that just turned `working` the two agree. A host that publishes no `mainAgent` has
- * only the row's clock, as before.
+ * When an execution edge happened, on this host's clocks. An edge that leaves `working` is a state
+ * change, which the row's own clock dates. An edge inside `working` (a watch loop starting or giving
+ * way to agent work, or the first live row after a restored one) leaves that clock on an older state
+ * start, so the evidence clock dates it; on a live row that just turned `working` the two agree.
  */
 export function agentExecutionEdgeAt(event: AgentSessionStatusEvent): number {
-  if (!event.payload.mainAgent || event.payload.state !== 'working') {
-    return event.stateStartedAt
-  }
-  return event.evidenceObservedAt ?? event.receivedAt
+  return event.payload.state === 'working'
+    ? (event.evidenceObservedAt ?? event.receivedAt)
+    : event.stateStartedAt
 }
 
 /**

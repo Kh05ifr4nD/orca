@@ -10,12 +10,16 @@ import {
 } from './agent-session-transition-recorder'
 import type { AgentSessionSink, AgentSessionStatusEvent } from './agent-session-transition-recorder'
 import { StatsCollector } from './collector'
+import { AgentHookServer, _internals } from '../agent-hooks/server'
+import { PANE as STORE_PANE } from '../agent-hooks/server.test-fixtures'
 
 let userDataDir: string
 
 vi.mock('electron', () => ({
   app: { getPath: () => userDataDir }
 }))
+vi.mock('../telemetry/client', () => ({ track: vi.fn() }))
+vi.mock('../telemetry/cohort-classifier', () => ({ getCohortAtEmit: () => ({}) }))
 
 const T = 1_700_000_000_000
 const PANE = 'tab-1:pane-1'
@@ -45,7 +49,8 @@ function hook(
   }
 }
 
-/** A row from a host that publishes the main agent fact beside the combined state. */
+/** A row from a host that publishes the main agent fact beside the combined state. The recorder
+ *  reads the combined row only; the fact rides along as it does on the real enriched payload. */
 function mainAgentHook(
   row: {
     state: AgentSessionStatusEvent['payload']['state']
@@ -55,10 +60,8 @@ function mainAgentHook(
   stateStartedAt: number,
   extra: Partial<AgentSessionStatusEvent> = {}
 ): AgentSessionStatusEvent {
-  return hook(row.state, stateStartedAt, {
-    payload: { state: row.state, workingMode: row.workingMode, mainAgent: row.mainAgent },
-    ...extra
-  })
+  const payload = { state: row.state, workingMode: row.workingMode, mainAgent: row.mainAgent }
+  return hook(row.state, stateStartedAt, { payload, ...extra })
 }
 
 function sink(): AgentSessionSink & {
@@ -228,7 +231,7 @@ describe('AgentSessionTransitionRecorder', () => {
   })
 })
 
-describe('AgentSessionTransitionRecorder reading the main agent fact', () => {
+describe('AgentSessionTransitionRecorder on rows that also carry the main agent fact', () => {
   // The stats ask "was an agent executing": the main agent's own turn, or a subagent still running
   // after the main agent settled. A background shell the settled main agent left behind is neither.
   const MAIN_AGENT_WORKING = { state: 'working' as const, stateStartedAt: T }
@@ -452,18 +455,72 @@ describe('AgentSessionTransitionRecorder reading the main agent fact', () => {
     expect(replayed.onAgentStart).not.toHaveBeenCalled()
   })
 
-  it("reads an old host's monitoring row exactly as before: working holds the session open", () => {
+  it("reads an old host's monitoring row like a new host's: the watch loop stops the clock", () => {
+    // Hosts that predate `mainAgent` already published `monitoring` only for a settled main agent.
     const stats = new StatsCollector()
     const recorder = new AgentSessionTransitionRecorder(stats)
 
     recorder.onStatus(hook('working', T))
     recorder.onStatus(
-      hook('working', T, { payload: { state: 'working', workingMode: 'monitoring' } })
+      hook('working', T, {
+        receivedAt: T + 20_000,
+        payload: { state: 'working', workingMode: 'monitoring' }
+      })
     )
-    recorder.onStatus(hook('done', T + 40_000))
+    // The main agent resumes: the row's clock is still pinned to T.
+    recorder.onStatus(hook('working', T, { receivedAt: T + 300_000 }))
+    recorder.onStatus(hook('done', T + 310_000))
 
-    expect(stats.getSummary().totalAgentsSpawned).toBe(1)
-    expect(stats.getSummary().totalAgentTimeMs).toBe(40_000)
+    expect(stats.getSummary().totalAgentsSpawned).toBe(2)
+    expect(stats.getSummary().totalAgentTimeMs).toBe(30_000)
+  })
+
+  it('dates the first live row after a restored one by the evidence, not the restored clock', () => {
+    // A live hook that repeats a hydrated `working` keeps the row clock from the earlier runtime.
+    const stats = new StatsCollector()
+    const recorder = new AgentSessionTransitionRecorder(stats)
+
+    recorder.onStatus(hook('working', T - 3_600_000, { receivedAt: T }))
+    recorder.onStatus(hook('done', T + 60_000))
+
+    expect(stats.getSummary().totalAgentTimeMs).toBe(60_000)
+  })
+})
+
+describe('AgentSessionTransitionRecorder fed by the status store', () => {
+  it('dates a live start on a hydrated row by this runtime, not the persisted state clock', async () => {
+    // An OSC row carries no main agent fact; its live repeat keeps the persisted `stateStartedAt`.
+    vi.useRealTimers()
+    _internals.resetCachesForTests()
+    const hookDataDir = mkdtempSync(join(tmpdir(), 'orca-stats-recorder-hooks-'))
+    const osc = {
+      paneKey: STORE_PANE,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      connectionId: null,
+      payload: { state: 'working' as const, prompt: 'build', agentType: 'claude' as const }
+    }
+    const now = vi.spyOn(Date, 'now').mockReturnValue(T)
+    const first = new AgentHookServer()
+    await first.start({ env: 'production', userDataPath: hookDataDir })
+    first.ingestTerminalStatus(osc)
+    first.flushStatusPersistSync()
+    first.stop()
+
+    now.mockReturnValue(T + 3_600_000)
+    const server = new AgentHookServer()
+    const starts = sink()
+    const recorder = new AgentSessionTransitionRecorder(starts)
+    try {
+      await server.start({ env: 'production', userDataPath: hookDataDir })
+      server.subscribeEnrichedStatus((enriched) => recorder.onStatus(enriched))
+      server.ingestTerminalStatus({ ...osc, payload: { ...osc.payload, toolName: 'Bash' } })
+      expect(starts.onAgentStart).toHaveBeenCalledWith(STORE_PANE, T + 3_600_000, undefined, 'wt-1')
+    } finally {
+      server.stop()
+      now.mockRestore()
+      rmSync(hookDataDir, { recursive: true, force: true })
+    }
   })
 })
 
