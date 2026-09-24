@@ -10,14 +10,12 @@
 // each chat is reopened. Restart is the one boundary that forgets, and restoring readable sessions
 // republishes them.
 
-import { agentProviderSessionsEqual } from '../../../shared/agent-session-resume'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import { normalizeOptionalField } from '../../../shared/agent-status-field-normalization'
 import { AGENT_MODEL_MAX_LENGTH } from '../../../shared/agent-status-types'
-import {
-  agentSessionBackgroundTasksEqual,
-  type AgentSessionStatusEvent,
-  type AgentSessionStatusSummary
+import type {
+  AgentSessionStatusEvent,
+  AgentSessionStatusSummary
 } from '../../../shared/agent-session-wire'
 import type { AgentChildWorkEvidence } from '../../../shared/agent-status-child-work-evidence'
 import type { AgentChildWorkView } from '../../../shared/agent-status-child-work-view'
@@ -26,9 +24,9 @@ import type { AgentSessionJournal } from '../agent-session-journal/journal-store
 import { structuredAgentSessionProviderSessionMetadata } from './structured-agent-session-history-result'
 import {
   newestRootTurnId,
-  structuredStatusChildrenEqual,
   structuredStatusChildWork
 } from './structured-agent-session-status-child-work'
+import { structuredStatusSummariesEqual } from './structured-agent-session-status-summary-equality'
 import {
   StructuredAgentSessionStatusOwnership,
   type StructuredAgentSessionStatusSink
@@ -60,27 +58,6 @@ export type StructuredAgentSessionStatusFeedDeps = {
   statusSink?: () => StructuredAgentSessionStatusSink | undefined
   /** The session's child records changed, so every other reader of them republishes. */
   onChildWorkChanged?: (sessionId: string) => void
-}
-
-function summariesEqual(a: AgentSessionStatusSummary, b: AgentSessionStatusSummary): boolean {
-  return (
-    a.workspaceId === b.workspaceId &&
-    a.agent === b.agent &&
-    a.status === b.status &&
-    a.hostExecutionOwned === b.hostExecutionOwned &&
-    a.rewindBlockedReason === b.rewindBlockedReason &&
-    // Settled activity changes ranking; streaming active turns must stay quiet.
-    (a.status !== 'idle' || a.updatedAt === b.updatedAt) &&
-    a.latestPrompt === b.latestPrompt &&
-    a.model === b.model &&
-    a.toolName === b.toolName &&
-    a.toolInput === b.toolInput &&
-    a.lastAssistantMessage === b.lastAssistantMessage &&
-    a.turnOutcome === b.turnOutcome &&
-    agentSessionBackgroundTasksEqual(a.backgroundTasks, b.backgroundTasks) &&
-    structuredStatusChildrenEqual(a.children, b.children) &&
-    agentProviderSessionsEqual(undefined, a.providerSession, b.providerSession)
-  )
 }
 
 /** Wire the host's own deps into a feed; keeps the host at one call site.
@@ -204,7 +181,7 @@ export class StructuredAgentSessionStatusFeed {
     this.retireSettledChildrenOnNewTurn(sessionId, session, projection.rootTurnId)
     const summary = this.summaryFor(sessionId, session, journal ?? session.journal, projection)
     const previous = this.published.get(sessionId)
-    if (previous && summariesEqual(previous, summary)) {
+    if (previous && structuredStatusSummariesEqual(previous, summary)) {
       if (!this.ownership.matchesLocation(sessionId, session.params.location)) {
         this.sink(summary, session.params.location)
       }
