@@ -29,7 +29,8 @@ export function isAgentChildWorkKind(kind: AgentChildWorkKind): boolean {
  *  retire — and a blocked subagent cannot count for less than the shell beside it.
  *  The escape hatch is the roster's own lifetime, not a state: it is per-session host memory that
  *  dies when the session closes (Claude also clears it on provider `ended`), so a producer that
- *  ever reported a failure IN PLACE rather than settling it would pin `working` until then. */
+ *  ever reported a failure IN PLACE (as `blocked`) rather than settling it would pin `waiting`
+ *  until then. */
 function isLiveChildWork(child: AgentChildWorkLivenessCandidate): boolean {
   return child.state !== 'done' && child.state !== 'idle'
 }

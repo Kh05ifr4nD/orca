@@ -66,7 +66,7 @@ describe('the Codex root record seeded from a durable row', () => {
   })
 
   it('folds a relayed waiting child through the shared rule, keeping the root fact', () => {
-    // An older relay that never folded a child wait sends `working`; main re-derives the row.
+    // The relay's aggregate says `working`; main re-derives the row from the roster instead.
     const reconciled = reconcileRemoteCodexState(
       state,
       PANE_KEY,
