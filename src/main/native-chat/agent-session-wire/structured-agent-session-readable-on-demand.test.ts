@@ -179,8 +179,8 @@ describe('an on-demand read of a persisted chat', () => {
     expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
   })
 
-  it('names a visible chat whose journal is missing or damaged, so its read is final', async () => {
-    vi.mocked(readRestore.restoreStructuredAgentSessionRead).mockResolvedValue(null)
+  it('names a visible chat whose journal is gone, so its read is final', async () => {
+    vi.mocked(readRestore.restoreStructuredAgentSessionRead).mockResolvedValue('journal-unreadable')
     const { restorer, live } = harness({ records: [record('session-1')] })
 
     await expect(restorer.ensureReadable('session-1')).resolves.toBe('journal-unreadable')

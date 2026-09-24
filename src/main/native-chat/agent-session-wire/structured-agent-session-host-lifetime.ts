@@ -22,6 +22,8 @@ import { releaseStoredStructuredAgentSessionOwner } from './structured-agent-ses
 import { resumeHeldStructuredAgentSession } from './structured-agent-session-hold-resume'
 import type { AgentSessionWireRefusal } from '../../../shared/agent-session-wire'
 import { settleStructuredAgentSessionDeadGeneration } from './structured-agent-session-dead-generation-settlement'
+import type { StructuredAgentSessionReadability } from './structured-agent-session-restart-restore'
+import { AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE } from '../../../shared/structured-agent-session-read-refusal'
 
 export type StructuredAgentSessionLifetimeContext = {
   deps: StructuredAgentSessionHostDeps
@@ -173,7 +175,7 @@ export async function evictOwnedStructuredAgentSessions(
 export async function resumeStructuredAgentSessionForHold(
   context: StructuredAgentSessionLifetimeContext & {
     reconcileLeases: (sessionId: string) => Promise<AgentSessionWireRefusal | null>
-    makeReadable: (sessionId: string) => Promise<unknown>
+    makeReadable: (sessionId: string) => Promise<StructuredAgentSessionReadability>
   },
   sessionId: string,
   attach: Parameters<typeof resumeHeldStructuredAgentSession>[0]['attach']
@@ -185,9 +187,14 @@ export async function resumeStructuredAgentSessionForHold(
   await context.runtimeState.resolveRecovery(sessionId)
   // Why first: attach keeps the session's task queue for the whole provider start, so a read
   // arriving meanwhile would wait on the child. Best effort; the attach decides the hold.
-  await context
-    .makeReadable(sessionId)
-    .catch((error: unknown) => context.deps.onEventSinkError?.({ sessionId, error }))
+  const readability = await context.makeReadable(sessionId).catch((error: unknown) => {
+    context.deps.onEventSinkError?.({ sessionId, error })
+    return null
+  })
+  if (readability === 'journal-unreadable') {
+    // Attach cannot open that file either; refusing here keeps it from starting a provider first.
+    throw new Error(AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE)
+  }
   await resumeHeldStructuredAgentSession({
     sessionId,
     deps: context.deps,
@@ -200,7 +207,7 @@ export function createStructuredAgentSessionHolds(
   context: StructuredAgentSessionLifetimeContext,
   input: {
     reconcileLeases: (sessionId: string) => Promise<AgentSessionWireRefusal | null>
-    makeReadable: (sessionId: string) => Promise<unknown>
+    makeReadable: (sessionId: string) => Promise<StructuredAgentSessionReadability>
     attach: Parameters<typeof resumeHeldStructuredAgentSession>[0]['attach']
     close: (sessionId: string) => Promise<void>
   }

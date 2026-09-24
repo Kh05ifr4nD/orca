@@ -17,14 +17,13 @@ import type { AgentSessionRecordStore } from '../../runtime/agent-session-record
 import { mapWithConcurrency } from '../../../shared/map-with-concurrency'
 import {
   restoreStructuredAgentSessionRead,
-  type RestoredStructuredAgentSessionRead
+  type RestoredStructuredAgentSessionRead,
+  type StructuredAgentSessionReadability
 } from './structured-agent-session-read-restore'
 
 const JOURNAL_RESTORE_CONCURRENCY = 4
 
-/** `journal-unreadable`: the record is there but its journal is missing or damaged, which re-asking
- *  cannot change. `unavailable` covers everything a later ask can: no record, or a closed tab. */
-export type StructuredAgentSessionReadability = 'readable' | 'journal-unreadable' | 'unavailable'
+export type { StructuredAgentSessionReadability }
 
 export type StructuredAgentSessionReadRestoreDeps = {
   store: AgentSessionRecordStore
@@ -77,8 +76,8 @@ export async function restoreStructuredAgentSessionReadPhase(
       input.journalRoot,
       sessionId
     )
-    if (!restored) {
-      return input.store.getRecord(sessionId) ? 'journal-unreadable' : 'unavailable'
+    if (typeof restored === 'string') {
+      return restored
     }
     input.onReadable(sessionId, restored)
     await input.retrySettlement(sessionId, restored.params)

@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
 import SyncDatabase from '../sqlite/sync-database'
+import { isUnusableSqliteDatabaseError } from '../sqlite/sqlite-read-failure'
 import { removeTreeSync } from '../../shared/windows-transient-lock-removal'
 
 // The index stores transcript content as written, with no redaction. A secret in
@@ -107,7 +108,7 @@ export function openSessionSearchDatabase(path: string): SyncDatabase {
   try {
     return openExisting(path)
   } catch (error) {
-    if (!isUnusableDatabaseError(error)) {
+    if (!isUnusableSqliteDatabaseError(error)) {
       throw error
     }
     // One retry only: a second failure on a file we just created is not corruption.
@@ -145,22 +146,6 @@ function openExisting(path: string): SyncDatabase {
     db?.close()
     throw error
   }
-}
-
-// SQLite reports a torn file at the first statement that has to read a page, so
-// this has to match on the message as well as the code.
-const UNUSABLE_DATABASE =
-  /SQLITE_CORRUPT|SQLITE_NOTADB|file is not a database|database disk image is malformed/i
-
-function isUnusableDatabaseError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-  const code = (error as { code?: unknown }).code
-  return (
-    (typeof code === 'string' && UNUSABLE_DATABASE.test(code)) ||
-    UNUSABLE_DATABASE.test(error.message)
-  )
 }
 
 function openWithPragmas(path: string): SyncDatabase {

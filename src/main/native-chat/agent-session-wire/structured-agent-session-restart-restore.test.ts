@@ -194,32 +194,31 @@ describe('restart journal restoration', () => {
     expect(restoreHandoff).not.toHaveBeenCalled()
   })
 
-  it('skips the handoff when the journal is missing or corrupt', async () => {
-    const onReadable = vi.fn()
-    const restoreHandoff = vi.fn(async () => undefined)
-    restoreRead.mockResolvedValue(null)
+  it.each(['unavailable', 'journal-unreadable'] as const)(
+    'skips the handoff when the journal restores nothing (%s)',
+    async (outcome) => {
+      const onReadable = vi.fn()
+      const restoreHandoff = vi.fn(async () => undefined)
+      restoreRead.mockResolvedValue(outcome)
 
-    await restoreOneStructuredAgentSessionRead(
-      phaseDeps({ onReadable, restoreHandoff }),
-      'session-1'
-    )
-
-    expect(onReadable).not.toHaveBeenCalled()
-    expect(restoreHandoff).not.toHaveBeenCalled()
-  })
-
-  it('tells an unreadable journal apart from a record that is gone', async () => {
-    restoreRead.mockResolvedValue(null)
-
-    await expect(restoreStructuredAgentSessionReadPhase(phaseDeps(), 'session-1')).resolves.toBe(
-      'journal-unreadable'
-    )
-    await expect(
-      restoreStructuredAgentSessionReadPhase(
-        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the phase reads only getRecord.
-        phaseDeps({ store: { getRecord: () => null } as never }),
+      await restoreOneStructuredAgentSessionRead(
+        phaseDeps({ onReadable, restoreHandoff }),
         'session-1'
       )
-    ).resolves.toBe('unavailable')
-  })
+
+      expect(onReadable).not.toHaveBeenCalled()
+      expect(restoreHandoff).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['unavailable', 'journal-unreadable'] as const)(
+    'hands the read restore verdict (%s) to the surface that asked',
+    async (outcome) => {
+      restoreRead.mockResolvedValue(outcome)
+
+      await expect(restoreStructuredAgentSessionReadPhase(phaseDeps(), 'session-1')).resolves.toBe(
+        outcome
+      )
+    }
+  )
 })

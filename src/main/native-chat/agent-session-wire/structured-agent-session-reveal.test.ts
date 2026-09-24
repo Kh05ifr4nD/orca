@@ -134,7 +134,7 @@ describe('a record whose journal cannot be read', () => {
     // A chat whose journal predates the SQLite store restores to nothing here. That is not a
     // refusal: attach still recovers it, so the caller publishes the tab and lets the pane's hold
     // finish the job. Throwing, or reporting success, would both be wrong.
-    vi.spyOn(readRestore, 'restoreStructuredAgentSessionRead').mockResolvedValue(null)
+    vi.spyOn(readRestore, 'restoreStructuredAgentSessionRead').mockResolvedValue('unavailable')
     const { restorer, live } = harness([
       recordFor('claude', 'session-no-journal-claude'),
       recordFor('codex', 'session-no-journal-codex')

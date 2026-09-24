@@ -24,6 +24,23 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+// SQLite reports a torn file at the first statement that has to read a page, so
+// this has to match on the message as well as the code.
+const UNUSABLE_DATABASE =
+  /SQLITE_CORRUPT|SQLITE_NOTADB|file is not a database|database disk image is malformed/i
+
+/** True when the file is not a usable database at all, which no retry can change. */
+export function isUnusableSqliteDatabaseError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const code = 'code' in error ? error.code : undefined
+  return (
+    (typeof code === 'string' && UNUSABLE_DATABASE.test(code)) ||
+    UNUSABLE_DATABASE.test(error.message)
+  )
+}
+
 /**
  * True when a SQLite failure means "someone else holds the database right now".
  * @param error - The thrown value from a `node:sqlite` call or a relayed message.

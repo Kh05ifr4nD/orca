@@ -4,7 +4,7 @@
 // process can answer: the chat pane subscribes as soon as its workspace paints, long before the
 // startup sweep opens every persisted journal.
 
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
@@ -24,7 +24,10 @@ import {
   AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE,
   AGENT_SESSION_UNATTACHED_REFUSAL_CODE
 } from '../../../../shared/structured-agent-session-read-refusal'
-import { journalDirectoryFor } from '../../../native-chat/agent-session-journal/journal-paths'
+import {
+  journalDatabaseFile,
+  journalDirectoryFor
+} from '../../../native-chat/agent-session-journal/journal-paths'
 import { AgentSessionRecordStore } from '../../agent-session-record-store'
 import { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcResponse } from '../core'
@@ -182,14 +185,17 @@ describe('reading a restored chat before the startup sweep', () => {
     expect(host?.hasSession(SESSION)).toBe(false)
   })
 
-  it('tells the pane a shown chat whose journal is gone that its history cannot load', async () => {
+  it('tells the pane and its hold that a journal which is not a database cannot load', async () => {
     await quitWithChat(true)
-    await rm(
-      journalDirectoryFor(join(root, 'journals'), {
-        workspaceId: hostTestAttachParams(null).location.workspaceId,
-        sessionId: SESSION
-      }),
-      { recursive: true, force: true }
+    await writeFile(
+      journalDatabaseFile(
+        journalDirectoryFor(join(root, 'journals'), {
+          workspaceId: hostTestAttachParams(null).location.workspaceId,
+          sessionId: SESSION
+        })
+      ),
+      'not a sqlite database'.repeat(64),
+      'utf8'
     )
     const dispatcher = await restart()
 
@@ -202,7 +208,33 @@ describe('reading a restored chat before the startup sweep', () => {
         error: { code: AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE }
       })
     }
+    // The hold gives the same answer instead of starting a provider behind that pane.
+    expect(
+      await call(dispatcher, 'agentSession.hold', { sessionId: SESSION, holderId: 'pane' })
+    ).toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining(AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE) }
+    })
     expect(acquire).not.toHaveBeenCalled()
+  })
+
+  it("leaves a shown chat whose journal is gone to the pane's hold, which founds it", async () => {
+    await quitWithChat(true)
+    await rm(
+      journalDirectoryFor(join(root, 'journals'), {
+        workspaceId: hostTestAttachParams(null).location.workspaceId,
+        sessionId: SESSION
+      }),
+      { recursive: true, force: true }
+    )
+    const dispatcher = await restart()
+
+    expect(
+      await call(dispatcher, 'agentSession.history', { sessionId: SESSION, direction: 'tail' })
+    ).toMatchObject({ ok: false, error: { code: AGENT_SESSION_UNATTACHED_REFUSAL_CODE } })
+    await call(dispatcher, 'agentSession.hold', { sessionId: SESSION, holderId: 'pane' })
+
+    expect(acquire).toHaveBeenCalled()
   })
 
   it('reads a chat whose host nothing has installed yet', async () => {

@@ -14,6 +14,12 @@ import {
   type AgentSessionAttachParams
 } from './structured-agent-session-attach'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
+import { isUnusableSqliteDatabaseError } from '../../sqlite/sqlite-read-failure'
+
+/** `journal-unreadable`: a journal file that is not a database, which neither a read nor an attach
+ *  can open. `unavailable` covers everything a later ask can change: no record, a closed tab, or a
+ *  journal the pane's own hold creates or rebuilds from provider history when it attaches. */
+export type StructuredAgentSessionReadability = 'readable' | 'journal-unreadable' | 'unavailable'
 
 export type RestoredStructuredAgentSessionRead = {
   journal: AgentSessionJournal
@@ -27,10 +33,12 @@ export async function restoreStructuredAgentSessionRead(
   store: AgentSessionRecordStore,
   journalRoot: string,
   sessionId: string
-): Promise<RestoredStructuredAgentSessionRead | null> {
+): Promise<
+  RestoredStructuredAgentSessionRead | Exclude<StructuredAgentSessionReadability, 'readable'>
+> {
   const record = store.getRecord(sessionId)
   if (!record) {
-    return null
+    return 'unavailable'
   }
   const params = attachParamsForRecord(record, {
     clientOperationId: `read-restore:${record.sessionId}`,
@@ -40,15 +48,19 @@ export async function restoreStructuredAgentSessionRead(
     workspaceId: record.location.workspaceId,
     sessionId
   })
-  const loaded = loadJournal(journalDir, sessionId)
-  if (loaded?.corrupt) {
-    return null
+  let loaded: ReturnType<typeof loadJournal>
+  try {
+    loaded = loadJournal(journalDir, sessionId)
+  } catch (error) {
+    if (isUnusableSqliteDatabaseError(error)) {
+      return 'journal-unreadable'
+    }
+    throw error
   }
-  // A session still in the pre-SQLite format has no `journal.db` to load. Dropping
-  // it here leaves it unpublished, which is also what prunes its tab out of the
-  // saved workspace — so the chat disappears with nowhere to explain itself.
-  if (!loaded && !findJournalFileFormatRemnant(journalDir)) {
-    return null
+  // Attach keeps a damaged journal's intact prefix and rebuilds the rest from provider history, and
+  // founds the journal a chat whose first attach never got that far; a read can do neither.
+  if (loaded?.corrupt || (!loaded && !findJournalFileFormatRemnant(journalDir))) {
+    return 'unavailable'
   }
   const journal = await openAgentSessionJournal({
     identity: journalIdentityFor(record, params),
