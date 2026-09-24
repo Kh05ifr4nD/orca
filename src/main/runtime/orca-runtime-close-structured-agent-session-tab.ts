@@ -1,5 +1,10 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { OrcaRuntimeWithCloseMobileSessionTab } from './orca-runtime-close-mobile-session-tab'
+import { adjudicateAbsentMobileSessionTabClose } from './mobile-session-lifecycle-close-adjudication'
+import {
+  committedMobileSessionTabClose,
+  type MobileSessionTabCloseOutcome
+} from './mobile-session-tab-close-outcome'
 import type {
   RuntimeMobileSessionAgentTab,
   RuntimeMobileSessionBrowserTab,
@@ -28,6 +33,34 @@ export class OrcaRuntimeWithCloseStructuredAgentSessionTab extends OrcaRuntimeWi
     if (typeof host?.close === 'function') {
       await host.close(tab.sessionId)
     }
+  }
+
+  /** A close whose tab the runtime snapshot lacks. A restored chat the renderer shows from its saved
+   *  session before startup has published it is still real: its durable record says so, and
+   *  refusing it would leave the startup publication to revive the tab the user closed. */
+  protected async adjudicateAbsentSessionTabClose(
+    args: Parameters<typeof adjudicateAbsentMobileSessionTabClose>[0] & { tabId: string }
+  ): Promise<MobileSessionTabCloseOutcome> {
+    const userClose = args.reason === undefined || args.reason === 'user'
+    if (
+      userClose &&
+      !args.addressedByPtyCloseAuthority &&
+      args.tabId.startsWith('agent-session:')
+    ) {
+      const sessionId = args.tabId.slice('agent-session:'.length)
+      const host = await this.structuredAgentSessionHostForTabClose()
+      if (host?.deps?.store?.getRecord?.(sessionId)) {
+        await this.closeStructuredAgentSessionTab({
+          type: 'agent-session',
+          id: args.tabId,
+          sessionId
+        })
+        return committedMobileSessionTabClose(this.clientSessionTabSelections, args.worktreeId, [
+          args.tabId
+        ])
+      }
+    }
+    return adjudicateAbsentMobileSessionTabClose(args)
   }
 
   /** A close before startup builds the host still owes the durable index its removal, or the tab

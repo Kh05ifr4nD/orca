@@ -259,6 +259,11 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
         this.structuredAgentSessionTabRestorePromise = null
         throw error
       })
+    // Asked on every restore, not once: the sweep behind the tabs can fail and must be re-derived.
+    void this.structuredAgentSessionTabRestorePromise.then(
+      () => this.startStructuredAgentSessionJournalRestore(),
+      () => undefined
+    )
     return this.structuredAgentSessionTabRestorePromise
   }
 

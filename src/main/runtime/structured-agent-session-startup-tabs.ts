@@ -18,6 +18,17 @@ export function structuredAgentSessionStartupTabIds(
     : collectSavedStructuredAgentSessionIds(workspaceSession)
 }
 
+/** False once a close has dropped the chat from a durable index; a profile without one lists all. */
+export function structuredAgentSessionTabStillListed(
+  host: {
+    getPersistedVisibleSessionTabIndex?: () => { present: boolean; sessionIds: readonly string[] }
+  } | null,
+  sessionId: string
+): boolean {
+  const index = host?.getPersistedVisibleSessionTabIndex?.()
+  return !index?.present || index.sessionIds.includes(sessionId)
+}
+
 export type StructuredAgentSessionWorkspaceCatalog = {
   /** Null when the store cannot report repos: an unknown list must not read as "every repo is gone". */
   repoIds: ReadonlySet<string> | null

@@ -187,27 +187,75 @@ describe('restored chat tabs come from durable state', () => {
     )
   })
 
-  it('clears the durable index for a chat closed before startup built the host', async () => {
+  it('closes a restored chat the renderer shows before startup has published it', async () => {
     const setSessionTabVisibility = vi.fn(async () => undefined)
     const close = vi.fn(async () => undefined)
     const runtime = restartedRuntime({
       ensureHost: async () => {
-        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a tab close reads only these two host members.
-        setStructuredAgentSessionHost({ setSessionTabVisibility, close } as never)
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a tab close reads only these host members.
+        setStructuredAgentSessionHost({
+          ...persistedHost([chat('closed-early', 'workspace-1')]),
+          setSessionTabVisibility,
+          close
+        } as never)
       }
     })
-    await runtime.publishStructuredAgentSessionTab({
-      workspaceId: 'workspace-1',
-      sessionId: 'closed-early',
-      agent: 'codex',
-      activate: false
-    })
 
+    // No host and no published tab: only the renderer's saved session is showing this chat.
     await runtime.closeMobileSessionTab('id:workspace-1', 'agent-session:closed-early', {
       reason: 'user'
     })
 
     expect(setSessionTabVisibility).toHaveBeenCalledWith('closed-early', false)
-    expect(await publishedChatIds(runtime, 'workspace-1')).toEqual([])
+    expect(close).toHaveBeenCalledWith('closed-early')
+  })
+
+  it('does not publish a chat whose close landed while earlier tabs were publishing', async () => {
+    const runtime = restartedRuntime()
+    const listed = new Set(['new', 'closed-mid'])
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
+    setStructuredAgentSessionHost({
+      ...persistedHost([chat('new', 'workspace-1'), chat('closed-mid', 'workspace-1')], {
+        visible: (sessionId) => sessionId !== 'new'
+      }),
+      getPersistedVisibleSessionTabIndex: () => ({ present: true, sessionIds: [...listed] }),
+      // Publishing the first tab writes the index; the user's close of the second lands meanwhile.
+      setSessionTabVisibility: vi.fn(async (sessionId: string) => {
+        if (sessionId === 'new') {
+          listed.delete('closed-mid')
+        }
+      }),
+      reconcileRestartLeases: async () => undefined,
+      restoreReadableSessions: async () => undefined
+    } as never)
+
+    await runtime.restoreStructuredAgentSessionTabs()
+
+    expect(await publishedChatIds(runtime, 'workspace-1')).toEqual(['agent-session:new'])
+  })
+
+  it('runs the journal sweep again on the next restore after its reconcile failed', async () => {
+    const runtime = restartedRuntime()
+    const reconcileRestartLeases = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error('execution_owner_reconciling'))
+      .mockResolvedValue(undefined)
+    const restoreReadableSessions = vi.fn(async () => undefined)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
+    setStructuredAgentSessionHost({
+      ...persistedHost([chat('restored', 'workspace-1')]),
+      reconcileRestartLeases,
+      restoreReadableSessions
+    } as never)
+
+    await runtime.restoreStructuredAgentSessionTabs()
+    await vi.waitFor(() => expect(logged).toHaveBeenCalled())
+    expect(restoreReadableSessions).not.toHaveBeenCalled()
+
+    await runtime.restoreStructuredAgentSessionTabs()
+
+    await vi.waitFor(() => expect(restoreReadableSessions).toHaveBeenCalledWith(['restored']))
+    logged.mockRestore()
   })
 })

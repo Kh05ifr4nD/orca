@@ -8,6 +8,7 @@ import type { ConversationReplacement } from '../native-chat/agent-session-wire/
 import {
   localStructuredAgentSessionWorkspaceSession,
   structuredAgentSessionStartupTabIds,
+  structuredAgentSessionTabStillListed,
   structuredAgentSessionWorkspaceCatalog,
   structuredAgentSessionWorkspaceExists
 } from './structured-agent-session-startup-tabs'
@@ -58,12 +59,7 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
       await this.ensureStructuredAgentSessionHost()
     }
     const host = getStructuredAgentSessionHost()
-    const sessionIds = structuredAgentSessionStartupTabIds(
-      typeof host?.getPersistedVisibleSessionTabIndex === 'function'
-        ? host.getPersistedVisibleSessionTabIndex()
-        : { present: false, sessionIds: [] },
-      localStructuredAgentSessionWorkspaceSession(this.store)
-    )
+    const sessionIds = this.persistedStructuredAgentSessionTabIds(host)
     for (const worktreeId of this.getKnownWorkspaceSessionWorktreeIds()) {
       this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId, {
         allowAttachedWindow: true,
@@ -80,7 +76,9 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
       : []) {
       if (
         (session.agent !== 'codex' && session.agent !== 'claude') ||
-        !structuredAgentSessionWorkspaceExists(session, workspaces)
+        !structuredAgentSessionWorkspaceExists(session, workspaces) ||
+        // Asked per tab: a close can land while the tabs before this one publish.
+        !structuredAgentSessionTabStillListed(host, session.sessionId)
       ) {
         continue
       }
@@ -96,11 +94,31 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
         notify: false
       })
     }
-    void this.prepareStructuredAgentSessionStartupRestoration()
-      .then(() => host?.restoreReadableSessions(sessionIds))
-      .catch((error) => {
-        console.error('[structured-agent-session] startup journal restore failed', error)
-      })
+  }
+
+  /** Journal opens and handoff restores behind the published tabs. Latched on success and cleared
+   *  on failure, so a failed pass is retried by the next tab restore instead of never. */
+  protected startStructuredAgentSessionJournalRestore(): void {
+    const host = getStructuredAgentSessionHost()
+    if (!host || this.structuredAgentSessionJournalRestorePromise) {
+      return
+    }
+    this.structuredAgentSessionJournalRestorePromise =
+      this.prepareStructuredAgentSessionStartupRestoration()
+        .then(() => host.restoreReadableSessions(this.persistedStructuredAgentSessionTabIds(host)))
+        .catch((error) => {
+          this.structuredAgentSessionJournalRestorePromise = null
+          console.error('[structured-agent-session] startup journal restore failed', error)
+        })
+  }
+
+  private persistedStructuredAgentSessionTabIds(host): readonly string[] {
+    return structuredAgentSessionStartupTabIds(
+      typeof host?.getPersistedVisibleSessionTabIndex === 'function'
+        ? host.getPersistedVisibleSessionTabIndex()
+        : { present: false, sessionIds: [] },
+      localStructuredAgentSessionWorkspaceSession(this.store)
+    )
   }
 
   async publishStructuredAgentSessionTab(input: {
