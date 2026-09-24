@@ -106,6 +106,11 @@ export abstract class AgentHookServerStatusInference extends AgentHookServerRowO
       worktreeId: existing.worktreeId,
       connectionId: existing.connectionId,
       providerSession: existing.providerSession,
+      // Why: a cancel leaves the shell fact as it was; dropping it would stop restart from seeding
+      // the cancelled main agent, so a child's later drain could never settle the row.
+      ...(existing.claudeRunningNonAgentTask !== undefined
+        ? { claudeRunningNonAgentTask: existing.claudeRunningNonAgentTask }
+        : {}),
       payload: {
         state,
         ...(folded?.workingMode ? { workingMode: folded.workingMode } : {}),
