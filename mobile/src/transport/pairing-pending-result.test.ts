@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hostStatusSchema } from './host-status-reply-schema'
 import type { MobileRelayCredentialBundle } from './mobile-relay-credential-bundle'
 import type { MobileRelayPairingJournal } from './mobile-relay-pairing-journal'
 import { createPendingPairing } from './pairing-pending-result'
@@ -32,7 +33,7 @@ function pendingPairing(overrides: { saveHost?: (host: HostProfile) => Promise<v
   }
   const pairing = createPendingPairing({
     host: HOST,
-    status: { machineName: ' Studio ', hostPlatform: 'darwin' },
+    status: hostStatusSchema.parse({ machineName: ' Studio ', hostPlatform: 'darwin' }),
     isExisting: false,
     dependencies,
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only journalId is read.
