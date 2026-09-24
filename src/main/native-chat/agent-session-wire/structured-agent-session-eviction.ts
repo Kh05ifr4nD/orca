@@ -10,7 +10,7 @@
 // clear the running-turn marker. Draining or closing the sink ahead of that drops them, which
 // leaves the durable journal claiming the agent is still working — a worse outcome than the leak
 // this teardown exists to fix. So: stop the child, drain what it emitted on its way out, then let
-// the sink go. The one step ahead of the stop only drains and reads, for quit's resume offer.
+// the sink go. The one step ahead of the stop only reads, for quit's resume offer.
 //
 // FAILURE. A step that fails ABORTS the rest. `closeSession` returning false means the child's
 // exit was not proven and the adapter has deliberately kept the session indexed so a retry can
@@ -23,7 +23,6 @@ import {
   type StructuredAgentSessionAdapter
 } from './structured-agent-session-adapter'
 import type { DeferredStructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
-import { withTimeout } from '../../../shared/promise-timeout-fallback'
 
 export type StructuredAgentSessionEvictionContext = {
   sessionId: string
@@ -56,23 +55,15 @@ export type StructuredAgentSessionEvictionStep = {
   run: (context: StructuredAgentSessionEvictionContext) => Promise<void> | void
 }
 
-/** Draining for the pre-stop snapshot is bookkeeping, so it must never hold the stop up. */
-const SNAPSHOT_DRAIN_TIMEOUT_MS = 1_000
-
 export const STRUCTURED_AGENT_SESSION_EVICTION_STEPS: readonly StructuredAgentSessionEvictionStep[] =
   [
     {
-      // Events Orca already accepted drain first, so the snapshot is as current as it can be.
+      // Quit's resume offer: what the sidebar shows, read while the child is still running.
       name: 'snapshot-before-stop',
-      run: async (context) => {
+      run: (context) => {
         if (context.hasProviderChild === false || !context.beforeProviderChildStop) {
           return
         }
-        await withTimeout(
-          context.eventSink.drained().catch(() => undefined),
-          SNAPSHOT_DRAIN_TIMEOUT_MS,
-          undefined
-        )
         try {
           context.beforeProviderChildStop()
         } catch {
