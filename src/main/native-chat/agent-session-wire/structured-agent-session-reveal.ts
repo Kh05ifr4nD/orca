@@ -20,6 +20,7 @@ import type {
   StructuredAgentSessionReveal
 } from './structured-agent-session-host-types'
 import { retryPendingStructuredAgentSessionSettlement } from './structured-agent-session-settlement-retry'
+import type { StructuredAgentSessionReadability } from './structured-agent-session-restart-restore'
 
 /** Throws its refusal as the code itself, matching `resumeHeldStructuredAgentSession`. */
 export async function revealStructuredAgentSession(
@@ -67,7 +68,7 @@ export function createStructuredAgentSessionHostRestore(
 ): {
   restoreReadableSessions: (sessionIds?: readonly string[]) => Promise<void>
   revealSession: (sessionId: string) => Promise<StructuredAgentSessionReveal>
-  ensureReadable: (sessionId: string) => Promise<boolean>
+  ensureReadable: (sessionId: string) => Promise<StructuredAgentSessionReadability>
 } {
   const restorer = new StructuredAgentSessionReadableRestorer({
     store: deps.store,

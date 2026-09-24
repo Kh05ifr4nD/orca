@@ -5,7 +5,8 @@ import type { RestoredStructuredAgentSessionRead } from './structured-agent-sess
 import {
   restoreOneStructuredAgentSessionRead,
   restoreStructuredAgentSessionReadPhase,
-  restoreStructuredAgentSessionsOnRestart
+  restoreStructuredAgentSessionsOnRestart,
+  type StructuredAgentSessionReadability
 } from './structured-agent-session-restart-restore'
 
 export class StructuredAgentSessionReadableRestorer {
@@ -66,23 +67,22 @@ export class StructuredAgentSessionReadableRestorer {
    * landing after a close must not reopen the chat it just closed. Asked again inside the task
    * queue, because a read already past this check can still queue behind that close.
    */
-  async ensureReadable(sessionId: string): Promise<boolean> {
+  async ensureReadable(sessionId: string): Promise<StructuredAgentSessionReadability> {
     if (this.input.hasSession(sessionId)) {
-      return true
+      return 'readable'
     }
     const record = this.input.store.getRecord(sessionId)
     if (!record || !this.input.supportsRecord(record)) {
-      return false
+      return 'unavailable'
     }
     const tabVisible = (): boolean => {
       const visible = this.input.store.getVisibleSessionTabIndex()
       return !visible.present || visible.sessionIds.includes(sessionId)
     }
     if (!tabVisible()) {
-      return false
+      return 'unavailable'
     }
-    await restoreStructuredAgentSessionReadPhase(this.input, sessionId, tabVisible)
-    return this.input.hasSession(sessionId)
+    return restoreStructuredAgentSessionReadPhase(this.input, sessionId, tabVisible)
   }
 
   private async restoreReadableSessions(sessionIds?: readonly string[]): Promise<void> {

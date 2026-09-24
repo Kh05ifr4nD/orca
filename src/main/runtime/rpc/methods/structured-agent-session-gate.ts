@@ -97,7 +97,10 @@ export async function requireReadableStructuredHost(
 ): Promise<StructuredAgentSessionHost> {
   await ensureStructuredHostInstalled(ctx)
   const host = requireStructuredHost(ctx)
-  await host.ensureReadable(sessionId)
+  if ((await host.ensureReadable(sessionId)) === 'journal-unreadable') {
+    // Final, unlike an unattached read: re-asking reads the same missing or damaged file.
+    throw new Error('agent_session_journal_unreadable')
+  }
   return host
 }
 

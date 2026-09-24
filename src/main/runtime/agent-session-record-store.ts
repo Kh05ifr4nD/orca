@@ -130,6 +130,9 @@ export class AgentSessionRecordStore {
     sessionIds: this.listVisibleSessionIds()
   })
 
+  isSessionTabVisible = (sessionId: string): boolean =>
+    this.state.visibleSessionIdsIndexPresent && this.state.visibleSessionIds.has(sessionId)
+
   /** Persist the user-visible tab reference separately from the rollback-sensitive profile tabs. */
   setSessionTabVisibility(sessionId: string, visible: boolean): Promise<void> {
     return this.transact(() => setVisibleSessionId(this.state, sessionId, visible))

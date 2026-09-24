@@ -17,7 +17,7 @@ import { retireStructuredAgentSessionTabFrom } from './structured-agent-session-
 
 export class OrcaRuntimeWithCloseStructuredAgentSessionTab extends OrcaRuntimeWithCloseMobileSessionTab {
   protected async closeStructuredAgentSessionTab(tab: RuntimeMobileSessionAgentTab): Promise<void> {
-    const host = getStructuredAgentSessionHost()
+    const host = await this.structuredAgentSessionHostForTabClose()
     if (host) {
       if (typeof host.setSessionTabVisibility === 'function') {
         await host.setSessionTabVisibility(tab.sessionId, false)
@@ -28,6 +28,18 @@ export class OrcaRuntimeWithCloseStructuredAgentSessionTab extends OrcaRuntimeWi
     if (typeof host?.close === 'function') {
       await host.close(tab.sessionId)
     }
+  }
+
+  /** A close before startup builds the host still owes the durable index its removal, or the tab
+   *  returns at every launch. Bookkeeping only: a failed install must not keep the tab open. */
+  private async structuredAgentSessionHostForTabClose() {
+    if (getStructuredAgentSessionHost() || !this.hasPersistedStructuredAgentSessionStore()) {
+      return getStructuredAgentSessionHost()
+    }
+    await this.ensureStructuredAgentSessionHost().catch((error) => {
+      console.warn('[structured-agent-session] host install failed before a tab close', error)
+    })
+    return getStructuredAgentSessionHost()
   }
 
   /**

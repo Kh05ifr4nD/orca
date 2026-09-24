@@ -243,7 +243,7 @@ const UNREACHABLE = new Set<Pair>([
   // StructuredAgentSessionHost.mutate maps an absent record to AGENT_SESSION_NOT_ATTACHED.
   'agentSession.setOption:agent_session_identity_required',
   'agentSession.send:agent_session_identity_required',
-  // No structured-agent-session host branch emits agent_session_journal_unreadable.
+  // Only the history and subscribe reads emit agent_session_journal_unreadable; mutations never do.
   'agentSession.setOption:agent_session_journal_unreadable',
   'agentSession.send:agent_session_journal_unreadable',
   // Send reconstructs doubt from its global tombstone instead of refusing it.

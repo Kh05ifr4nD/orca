@@ -22,6 +22,7 @@ export function agentSessionRefusalOperationState(
     case 'agent_session_operation_invalid':
     case 'agent_session_item_revision_stale':
     case 'agent_session_already_resolved':
+    case 'agent_session_journal_unreadable':
       return 'settled-rejected'
     case 'agent_session_operation_unknown':
       return 'unknown'
@@ -31,7 +32,6 @@ export function agentSessionRefusalOperationState(
     case 'agent_session_ownership_unknown':
     case 'agent_session_operation_capacity':
     case 'agent_session_identity_required':
-    case 'agent_session_journal_unreadable':
     case 'execution_owner_reconciling':
       // These refusals do not prove the operation reached durable settlement.
       return 'pending-admission'

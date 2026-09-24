@@ -17533,6 +17533,11 @@
         "empty": {
           "title": "Start a chat with {{value0}}",
           "subtitle": "Ask {{value0}} to inspect code, explain output, or make a change."
+        },
+        "historyUnavailable": {
+          "title": "This conversation's history couldn't be loaded",
+          "subtitle": "The saved history for this chat is missing or damaged.",
+          "closeTab": "Close tab"
         }
       },
       "stop": "Stop the agent",

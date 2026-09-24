@@ -74,7 +74,7 @@ export function structuredHostStub(
     readOptions: vi.fn(async () => ({ models: [], current: { model: 'gpt-live' } })),
     readCommands: vi.fn(() => ({ commands: [{ name: 'clear', kind: 'command' as const }] })),
     // History and subscribe open a persisted chat's journal on first read before answering.
-    ensureReadable: vi.fn(async () => true),
+    ensureReadable: vi.fn(async () => 'readable' as const),
     history: vi.fn(() => ({ ok: true, page: { items: [] } })),
     subscribe: vi.fn(() => () => undefined),
     subscribeStatus: vi.fn((subscriber: { emit: (event: unknown) => void }) => {

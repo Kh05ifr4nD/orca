@@ -4,6 +4,7 @@
 // tree to one switch.
 
 import type { NativeChatSession } from '../../../../shared/native-chat-types'
+import { AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE } from '../../../../shared/structured-agent-session-read-refusal'
 
 /** The mutually-exclusive surfaces the chat view can show. `ready` and
  *  `working` both render the message list; `working` additionally shows the
@@ -11,6 +12,8 @@ import type { NativeChatSession } from '../../../../shared/native-chat-types'
 export type NativeChatViewState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
+  /** The chat's saved history is missing or damaged; the tab stays and says so. */
+  | { kind: 'history-unavailable' }
   | { kind: 'empty' }
   | { kind: 'ready'; isWorking: false }
   | { kind: 'ready'; isWorking: true }
@@ -21,6 +24,12 @@ export type NativeChatViewState =
  * full-pane placeholder while transcript discovery catches up.
  */
 export function selectNativeChatViewState(session: NativeChatSession): NativeChatViewState {
+  if (
+    session.status === 'error' &&
+    session.error === AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE
+  ) {
+    return { kind: 'history-unavailable' }
+  }
   if (session.status === 'error') {
     return { kind: 'error', message: session.error ?? 'Conversation could not be loaded.' }
   }

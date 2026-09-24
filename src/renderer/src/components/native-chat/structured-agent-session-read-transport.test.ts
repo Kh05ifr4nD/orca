@@ -187,6 +187,7 @@ describe('structured agent-session read transport generations', () => {
 // mounted, so this landed on screen as `Could not load conversation` for the frames before the tab
 // retired.
 const UNATTACHED = 'agent_session_ownership_unknown'
+const JOURNAL_UNREADABLE = 'agent_session_journal_unreadable'
 
 describe('structured agent-session read transport unattached refusals', () => {
   const attempts: SubscribeAttempt[] = []
@@ -326,6 +327,43 @@ describe('structured agent-session read transport unattached refusals', () => {
 
       attempts.at(-1)?.onError({ code: UNATTACHED, message: UNATTACHED })
       expect(applyError).not.toHaveBeenCalled()
+      transport.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports a missing or damaged journal once and never re-asks', async () => {
+    vi.useFakeTimers()
+    try {
+      const applyError = vi.fn()
+      const transport = startWithHydration(async () => {
+        throw rpcRefusal(JOURNAL_UNREADABLE)
+      }, applyError)
+      await flushPromises()
+      expect(applyError).toHaveBeenCalledExactlyOnceWith(JOURNAL_UNREADABLE)
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(attempts).toHaveLength(0)
+      transport.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops the stream when it reports the journal unreadable', async () => {
+    vi.useFakeTimers()
+    try {
+      const applyError = vi.fn()
+      const transport = startWithHydration(async () => undefined, applyError)
+      await flushPromises()
+      expect(attempts).toHaveLength(1)
+
+      attempts[0].onError({ code: JOURNAL_UNREADABLE, message: JOURNAL_UNREADABLE })
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(applyError).toHaveBeenCalledExactlyOnceWith(JOURNAL_UNREADABLE)
+      expect(attempts).toHaveLength(1)
       transport.dispose()
     } finally {
       vi.useRealTimers()

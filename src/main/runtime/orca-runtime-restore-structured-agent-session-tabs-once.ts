@@ -2,10 +2,15 @@
 import { defaultAgentChatLabel } from '../../shared/agent-session-chat-label'
 import { OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript } from './orca-runtime-resolve-recovered-structured-tui-transcript'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
+import { listPersistedStructuredAgentSessionTabs } from '../native-chat/agent-session-wire/structured-agent-session-host-tabs'
 import { replaceConversationInSnapshot } from './structured-conversation-tab-replacement'
 import type { ConversationReplacement } from '../native-chat/agent-session-wire/structured-conversation-command'
-import { collectSavedStructuredAgentSessionIds } from './saved-structured-agent-session-restoration'
-import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
+import {
+  localStructuredAgentSessionWorkspaceSession,
+  structuredAgentSessionStartupTabIds,
+  structuredAgentSessionWorkspaceCatalog,
+  structuredAgentSessionWorkspaceExists
+} from './structured-agent-session-startup-tabs'
 import type {
   RuntimeMobileSessionAgentTab,
   RuntimeMobileSessionTabsSnapshot,
@@ -47,18 +52,17 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
     }
   }
 
+  // Tab existence needs only the opened store; reconcile and the journal sweep run behind it.
   protected async restoreStructuredAgentSessionTabsOnce(): Promise<void> {
-    await this.prepareStructuredAgentSessionStartupRestoration()
+    if (this.hasPersistedStructuredAgentSessionStore()) {
+      await this.ensureStructuredAgentSessionHost()
+    }
     const host = getStructuredAgentSessionHost()
-    const persistedVisibleIndex =
+    const sessionIds = structuredAgentSessionStartupTabIds(
       typeof host?.getPersistedVisibleSessionTabIndex === 'function'
         ? host.getPersistedVisibleSessionTabIndex()
-        : { present: false, sessionIds: [] }
-    const profileIds = collectSavedStructuredAgentSessionIds(
-      this.store?.getWorkspaceSession?.(LOCAL_EXECUTION_HOST_ID) ?? null
-    )
-    await host?.restoreReadableSessions(
-      persistedVisibleIndex.present ? persistedVisibleIndex.sessionIds : profileIds
+        : { present: false, sessionIds: [] },
+      localStructuredAgentSessionWorkspaceSession(this.store)
     )
     for (const worktreeId of this.getKnownWorkspaceSessionWorktreeIds()) {
       this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId, {
@@ -70,8 +74,14 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
     for (const replacement of host?.conversationReplacements?.() ?? []) {
       await this.replaceStructuredAgentSessionTab(replacement)
     }
-    for (const session of host?.listSessionTabs() ?? []) {
-      if (session.agent !== 'codex' && session.agent !== 'claude') {
+    const workspaces = structuredAgentSessionWorkspaceCatalog(this.store)
+    for (const session of host
+      ? listPersistedStructuredAgentSessionTabs(host.deps, sessionIds)
+      : []) {
+      if (
+        (session.agent !== 'codex' && session.agent !== 'claude') ||
+        !structuredAgentSessionWorkspaceExists(session, workspaces)
+      ) {
         continue
       }
       let sessionId = session.sessionId
@@ -79,13 +89,18 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
         sessionId = sessionId.slice('agent-session:'.length)
       }
       await this.publishStructuredAgentSessionTab({
-        ...session,
+        workspaceId: session.workspaceId,
         agent: session.agent,
         sessionId,
         activate: false,
         notify: false
       })
     }
+    void this.prepareStructuredAgentSessionStartupRestoration()
+      .then(() => host?.restoreReadableSessions(sessionIds))
+      .catch((error) => {
+        console.error('[structured-agent-session] startup journal restore failed', error)
+      })
   }
 
   async publishStructuredAgentSessionTab(input: {
@@ -97,7 +112,11 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
     replacesSessionId?: string
   }): Promise<void> {
     const host = getStructuredAgentSessionHost()
-    if (typeof host?.setSessionTabVisibility === 'function') {
+    // A no-op visibility write is still a whole-store transaction; startup republishes every tab.
+    if (
+      typeof host?.setSessionTabVisibility === 'function' &&
+      host.deps?.store?.isSessionTabVisible?.(input.sessionId) !== true
+    ) {
       await host.setSessionTabVisibility(input.sessionId, true)
     }
     const existing = this.mobileSessionTabsByWorktree.get(input.workspaceId)

@@ -34,6 +34,13 @@ describe('selectNativeChatViewState', () => {
     })
   })
 
+  it('maps an unreadable journal to its own pane rather than a load error', () => {
+    const state = selectNativeChatViewState(
+      session({ messages: [], status: 'error', error: 'agent_session_journal_unreadable' })
+    )
+    expect(state).toEqual({ kind: 'history-unavailable' })
+  })
+
   it('maps error with its message', () => {
     const state = selectNativeChatViewState(session({ status: 'error', error: 'boom' }))
     expect(state).toEqual({ kind: 'error', message: 'boom' })

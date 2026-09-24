@@ -4,6 +4,33 @@ import { OrcaRuntimeService } from './orca-runtime'
 
 afterEach(() => setStructuredAgentSessionHost(null))
 
+type PersistedChat = {
+  sessionId: string
+  workspaceId: string
+  workspaceKind: 'git-worktree' | 'folder'
+  agent: 'codex' | 'claude'
+}
+
+/** The host's durable state as restore reads it: records by id, every provider supported. */
+function persistedChats(chats: PersistedChat[] = []) {
+  return {
+    store: {
+      getRecord: (sessionId: string) => {
+        const chat = chats.find((candidate) => candidate.sessionId === sessionId)
+        return chat
+          ? {
+              sessionId,
+              provider: chat.agent,
+              location: { workspaceId: chat.workspaceId, workspaceKind: chat.workspaceKind }
+            }
+          : null
+      },
+      isSessionTabVisible: () => false
+    },
+    adapter: { supportsCreate: () => true }
+  }
+}
+
 describe('structured session cold restoration', () => {
   it('skips every heavy recovery step when no durable session store exists', async () => {
     const runtime = new OrcaRuntimeService()
@@ -99,16 +126,18 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = hydrate
     internal.refreshMobileSessionPtyRecords = refresh
     internal.ensureStructuredAgentSessionHost = ensureHost
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
       reconcileRestartLeases,
       restoreReadableSessions,
-      listSessionTabs: () => []
+      deps: persistedChats()
     } as never)
 
     const first = runtime.restoreStructuredAgentSessionTabs()
     const second = runtime.restoreStructuredAgentSessionTabs()
     expect(second).toBe(first)
     await Promise.all([first, second])
+    await vi.waitFor(() => expect(restoreReadableSessions).toHaveBeenCalledOnce())
 
     expect(hydrate).toHaveBeenCalledWith('workspace-1', {
       allowAttachedWindow: true,
@@ -118,15 +147,16 @@ describe('structured session cold restoration', () => {
     expect(refresh).not.toHaveBeenCalled()
     expect(reconcileRestartLeases).toHaveBeenCalledOnce()
     expect(restoreReadableSessions).toHaveBeenCalledOnce()
-    expect(ensureHost).toHaveBeenCalledOnce()
+    expect(ensureHost).toHaveBeenCalled()
     expect(ensureHost.mock.invocationCallOrder[0]).toBeLessThan(
+      reconcileRestartLeases.mock.invocationCallOrder[0] ?? Infinity
+    )
+    // Tabs publish from the opened store; reconcile and the journal sweep run behind them.
+    expect(hydrate.mock.invocationCallOrder[0]).toBeLessThan(
       reconcileRestartLeases.mock.invocationCallOrder[0] ?? Infinity
     )
     expect(reconcileRestartLeases.mock.invocationCallOrder[0]).toBeLessThan(
       restoreReadableSessions.mock.invocationCallOrder[0] ?? Infinity
-    )
-    expect(restoreReadableSessions.mock.invocationCallOrder[0]).toBeLessThan(
-      hydrate.mock.invocationCallOrder[0] ?? Infinity
     )
   })
 
@@ -156,6 +186,7 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = () => new Set()
     internal.refreshMobileSessionPtyRecords = async () => new Set()
     internal.ensureStructuredAgentSessionHost = async () => undefined
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
       reconcileRestartLeases: async () => undefined,
       getPersistedVisibleSessionTabIndex: () => ({
@@ -163,12 +194,14 @@ describe('structured session cold restoration', () => {
         sessionIds: ['session-survives-rollback']
       }),
       restoreReadableSessions,
-      listSessionTabs: () => []
+      deps: persistedChats()
     } as never)
 
     await runtime.restoreStructuredAgentSessionTabs()
 
-    expect(restoreReadableSessions).toHaveBeenCalledWith(['session-survives-rollback'])
+    await vi.waitFor(() =>
+      expect(restoreReadableSessions).toHaveBeenCalledWith(['session-survives-rollback'])
+    )
   })
 
   it('treats an empty durable visible-session index as authoritative', async () => {
@@ -213,16 +246,17 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = () => new Set()
     internal.refreshMobileSessionPtyRecords = async () => new Set()
     internal.ensureStructuredAgentSessionHost = async () => undefined
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
       reconcileRestartLeases: async () => undefined,
       getPersistedVisibleSessionTabIndex: () => ({ present: true, sessionIds: [] }),
       restoreReadableSessions,
-      listSessionTabs: () => []
+      deps: persistedChats()
     } as never)
 
     await runtime.restoreStructuredAgentSessionTabs()
 
-    expect(restoreReadableSessions).toHaveBeenCalledWith([])
+    await vi.waitFor(() => expect(restoreReadableSessions).toHaveBeenCalledWith([]))
   })
 
   it('normalizes a restored tab id and removes it when closed', async () => {
@@ -246,18 +280,24 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = () => new Set()
     internal.refreshMobileSessionPtyRecords = async () => new Set()
     internal.ensureStructuredAgentSessionHost = async () => undefined
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
       reconcileRestartLeases: async () => undefined,
       restoreReadableSessions: async () => undefined,
       close: closeStructuredSession,
       setSessionTabVisibility,
-      listSessionTabs: () => [
+      getPersistedVisibleSessionTabIndex: () => ({
+        present: true,
+        sessionIds: ['agent-session:agent-session:restored-session']
+      }),
+      deps: persistedChats([
         {
           sessionId: 'agent-session:agent-session:restored-session',
           workspaceId: 'workspace-1',
+          workspaceKind: 'git-worktree',
           agent: 'codex'
         }
-      ]
+      ])
     } as never)
     runtime.syncWindowGraph(1, {
       tabs: [],
@@ -363,16 +403,22 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = () => new Set()
     internal.refreshMobileSessionPtyRecords = async () => new Set()
     internal.ensureStructuredAgentSessionHost = async () => undefined
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
       reconcileRestartLeases: async () => undefined,
       restoreReadableSessions: async () => undefined,
-      listSessionTabs: () => [
+      getPersistedVisibleSessionTabIndex: () => ({
+        present: true,
+        sessionIds: ['agent-session:agent-session:restored-claude']
+      }),
+      deps: persistedChats([
         {
           sessionId: 'agent-session:agent-session:restored-claude',
           workspaceId: 'workspace-1',
+          workspaceKind: 'git-worktree',
           agent: 'claude'
         }
-      ]
+      ])
     } as never)
 
     await runtime.restoreStructuredAgentSessionTabs()

@@ -69,7 +69,7 @@ describe('an on-demand read of a persisted chat', () => {
   it('opens a visible chat without running the handoff recovery', async () => {
     const { restorer, live, restoreHandoff } = harness({ records: [record('session-1')] })
 
-    await expect(restorer.ensureReadable('session-1')).resolves.toBe(true)
+    await expect(restorer.ensureReadable('session-1')).resolves.toBe('readable')
 
     expect(live.has('session-1')).toBe(true)
     expect(restoreHandoff).not.toHaveBeenCalled()
@@ -98,7 +98,7 @@ describe('an on-demand read of a persisted chat', () => {
     const read = restorer.ensureReadable('session-1')
     opened.resolve()
 
-    await expect(read).resolves.toBe(true)
+    await expect(read).resolves.toBe('readable')
     await sweep
     expect(readRestore.restoreStructuredAgentSessionRead).toHaveBeenCalledOnce()
     expect(onReadable).toHaveBeenCalledOnce()
@@ -119,7 +119,7 @@ describe('an on-demand read of a persisted chat', () => {
     })
 
     try {
-      await expect(restorer.ensureReadable('session-1')).resolves.toBe(true)
+      await expect(restorer.ensureReadable('session-1')).resolves.toBe('readable')
       expect(live.has('session-1')).toBe(true)
       expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
     } finally {
@@ -135,7 +135,7 @@ describe('an on-demand read of a persisted chat', () => {
       visible: { present: true, sessionIds: [] }
     })
 
-    await expect(restorer.ensureReadable('session-closed')).resolves.toBe(false)
+    await expect(restorer.ensureReadable('session-closed')).resolves.toBe('unavailable')
 
     expect(live.size).toBe(0)
     expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
@@ -156,7 +156,7 @@ describe('an on-demand read of a persisted chat', () => {
     const close = tasks.serialize('session-1', async () => undefined)
     reconciled.resolve(null)
 
-    await expect(read).resolves.toBe(false)
+    await expect(read).resolves.toBe('unavailable')
     await close
     expect(live.size).toBe(0)
     expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
@@ -168,22 +168,30 @@ describe('an on-demand read of a persisted chat', () => {
       visible: { present: false, sessionIds: [] }
     })
 
-    await expect(restorer.ensureReadable('session-1')).resolves.toBe(true)
+    await expect(restorer.ensureReadable('session-1')).resolves.toBe('readable')
   })
 
   it('answers a live session without reopening it', async () => {
     const { restorer, live } = harness({ records: [], visible: { present: true, sessionIds: [] } })
     live.set('session-live', readable)
 
-    await expect(restorer.ensureReadable('session-live')).resolves.toBe(true)
+    await expect(restorer.ensureReadable('session-live')).resolves.toBe('readable')
     expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
+  })
+
+  it('names a visible chat whose journal is missing or damaged, so its read is final', async () => {
+    vi.mocked(readRestore.restoreStructuredAgentSessionRead).mockResolvedValue(null)
+    const { restorer, live } = harness({ records: [record('session-1')] })
+
+    await expect(restorer.ensureReadable('session-1')).resolves.toBe('journal-unreadable')
+    expect(live.size).toBe(0)
   })
 
   it('refuses a record no adapter supports, and one this host has no record for', async () => {
     const { restorer } = harness({ records: [record('session-1')], supports: () => false })
 
-    await expect(restorer.ensureReadable('session-1')).resolves.toBe(false)
-    await expect(restorer.ensureReadable('session-absent')).resolves.toBe(false)
+    await expect(restorer.ensureReadable('session-1')).resolves.toBe('unavailable')
+    await expect(restorer.ensureReadable('session-absent')).resolves.toBe('unavailable')
     expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
   })
 })

@@ -24,6 +24,7 @@ import { NativeChatLaunchRetry } from './NativeChatLaunchRetry'
 import { useNativeChatProvisionalLaunch } from './use-native-chat-provisional-launch'
 import { NativeChatDeliveryRetry } from './NativeChatDeliveryRetry'
 import { NativeChatThreadGoalBanner } from './NativeChatThreadGoalBanner'
+import { NativeChatHistoryUnavailable } from './NativeChatHistoryUnavailable'
 
 function encodeQuestionAnswer(questionId: string, answer: string): string {
   return `${encodeURIComponent(questionId)}:${encodeURIComponent(answer)}`
@@ -224,6 +225,8 @@ export function NativeChatStructuredSession(
           <NativeChatEmptyState kind="loading" />
         ) : viewState.kind === 'error' ? (
           <NativeChatEmptyState kind="error" message={viewState.message} />
+        ) : viewState.kind === 'history-unavailable' ? (
+          <NativeChatHistoryUnavailable tabId={props.tabId} />
         ) : viewState.kind === 'empty' ? (
           <NativeChatEmptyState kind="empty" agent={props.agent} />
         ) : (

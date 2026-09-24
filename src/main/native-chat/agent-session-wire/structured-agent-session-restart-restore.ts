@@ -22,6 +22,10 @@ import {
 
 const JOURNAL_RESTORE_CONCURRENCY = 4
 
+/** `journal-unreadable`: the record is there but its journal is missing or damaged, which re-asking
+ *  cannot change. `unavailable` covers everything a later ask can: no record, or a closed tab. */
+export type StructuredAgentSessionReadability = 'readable' | 'journal-unreadable' | 'unavailable'
+
 export type StructuredAgentSessionReadRestoreDeps = {
   store: AgentSessionRecordStore
   journalRoot: string
@@ -50,7 +54,7 @@ export async function restoreStructuredAgentSessionReadPhase(
   sessionId: string,
   /** Re-asked inside the queue: a close that queued first must not see its chat reopened. */
   stillWanted: () => boolean = () => true
-): Promise<void> {
+): Promise<StructuredAgentSessionReadability> {
   const unreconciled = await input.reconcile(sessionId)
   if (!unreconciled) {
     // A session latched in recovery exits here at startup, without waiting for a client.
@@ -58,15 +62,15 @@ export async function restoreStructuredAgentSessionReadPhase(
   }
   if (input.hasSession(sessionId)) {
     // Opened while this awaited; queueing anyway could wait out a hold's whole provider start.
-    return
+    return 'readable'
   }
-  await input.serialize(sessionId, async () => {
+  return input.serialize(sessionId, async (): Promise<StructuredAgentSessionReadability> => {
     if (input.hasSession(sessionId)) {
       // A surface that took a hold, or read it, mid-restore already opened this one.
-      return
+      return 'readable'
     }
     if (!stillWanted()) {
-      return
+      return 'unavailable'
     }
     const restored = await restoreStructuredAgentSessionRead(
       input.store,
@@ -74,10 +78,11 @@ export async function restoreStructuredAgentSessionReadPhase(
       sessionId
     )
     if (!restored) {
-      return
+      return input.store.getRecord(sessionId) ? 'journal-unreadable' : 'unavailable'
     }
     input.onReadable(sessionId, restored)
     await input.retrySettlement(sessionId, restored.params)
+    return 'readable'
   })
 }
 

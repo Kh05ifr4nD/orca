@@ -4,14 +4,18 @@ import { formatAgentTypeLabel } from '@/lib/agent-status'
 import { NATIVE_CHAT_EMPTY_STATE_COPY } from '../../../../shared/native-chat-empty-state'
 import type { NativeChatSession } from '../../../../shared/native-chat-types'
 
+type NativeChatEmptyStateKind = 'loading' | 'empty' | 'error' | 'not-agent' | 'history-unavailable'
+
 export function NativeChatEmptyState({
   kind,
   message,
-  agent
+  agent,
+  action
 }: {
-  kind: 'loading' | 'empty' | 'error' | 'not-agent'
+  kind: NativeChatEmptyStateKind
   message?: string
   agent?: NativeChatSession['agent']
+  action?: React.ReactNode
 }): React.JSX.Element {
   const copy = emptyStateCopy(kind, message, agent)
   return (
@@ -33,12 +37,13 @@ export function NativeChatEmptyState({
       {copy.subtitle ? (
         <p className="max-w-sm text-balance text-xs text-muted-foreground">{copy.subtitle}</p>
       ) : null}
+      {action}
     </div>
   )
 }
 
 function emptyStateCopy(
-  kind: 'loading' | 'empty' | 'error' | 'not-agent',
+  kind: NativeChatEmptyStateKind,
   message?: string,
   agent?: NativeChatSession['agent']
 ): { title: string; subtitle: string | null } {
@@ -66,6 +71,17 @@ function emptyStateCopy(
             'components.native-chat.state.error.subtitle',
             NATIVE_CHAT_EMPTY_STATE_COPY.error.subtitle
           )
+      }
+    case 'history-unavailable':
+      return {
+        title: translate(
+          'components.native-chat.state.historyUnavailable.title',
+          NATIVE_CHAT_EMPTY_STATE_COPY.historyUnavailable.title
+        ),
+        subtitle: translate(
+          'components.native-chat.state.historyUnavailable.subtitle',
+          NATIVE_CHAT_EMPTY_STATE_COPY.historyUnavailable.subtitle
+        )
       }
     case 'not-agent':
       return {

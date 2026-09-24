@@ -16118,6 +16118,11 @@
         "empty": {
           "title": "Démarrer un chat avec {{value0}}",
           "subtitle": "Demandez à {{value0}} d'inspecter du code, d'expliquer une sortie ou de faire une modification."
+        },
+        "historyUnavailable": {
+          "title": "Impossible de charger l'historique de cette conversation",
+          "subtitle": "L'historique enregistré de ce chat est manquant ou endommagé.",
+          "closeTab": "Fermer l'onglet"
         }
       },
       "stop": "Arrêter l'agent",

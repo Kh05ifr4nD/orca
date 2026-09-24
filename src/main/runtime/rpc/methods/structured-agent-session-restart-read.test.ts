@@ -20,7 +20,11 @@ import {
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import { getDefaultSettings } from '../../../../shared/constants'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
-import { AGENT_SESSION_UNATTACHED_REFUSAL_CODE } from '../../../../shared/structured-agent-session-read-refusal'
+import {
+  AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE,
+  AGENT_SESSION_UNATTACHED_REFUSAL_CODE
+} from '../../../../shared/structured-agent-session-read-refusal'
+import { journalDirectoryFor } from '../../../native-chat/agent-session-journal/journal-paths'
 import { AgentSessionRecordStore } from '../../agent-session-record-store'
 import { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcResponse } from '../core'
@@ -176,6 +180,29 @@ describe('reading a restored chat before the startup sweep', () => {
       })
     }
     expect(host?.hasSession(SESSION)).toBe(false)
+  })
+
+  it('tells the pane a shown chat whose journal is gone that its history cannot load', async () => {
+    await quitWithChat(true)
+    await rm(
+      journalDirectoryFor(join(root, 'journals'), {
+        workspaceId: hostTestAttachParams(null).location.workspaceId,
+        sessionId: SESSION
+      }),
+      { recursive: true, force: true }
+    )
+    const dispatcher = await restart()
+
+    for (const reply of [
+      await call(dispatcher, 'agentSession.subscribe', { sessionId: SESSION }),
+      await call(dispatcher, 'agentSession.history', { sessionId: SESSION, direction: 'tail' })
+    ]) {
+      expect(reply).toMatchObject({
+        ok: false,
+        error: { code: AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE }
+      })
+    }
+    expect(acquire).not.toHaveBeenCalled()
   })
 
   it('reads a chat whose host nothing has installed yet', async () => {

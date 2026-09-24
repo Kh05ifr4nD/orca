@@ -22,6 +22,10 @@ export const NATIVE_CHAT_EMPTY_STATE_COPY = {
   notAgent: {
     title: 'No conversation here',
     subtitle: 'This terminal is not running a recognized coding agent.'
+  },
+  historyUnavailable: {
+    title: "This conversation's history couldn't be loaded",
+    subtitle: 'The saved history for this chat is missing or damaged.'
   }
 } as const satisfies Record<string, NativeChatEmptyStateCopy>
 

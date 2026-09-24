@@ -14852,6 +14852,11 @@
         "empty": {
           "title": "开始与 {{value0}} 聊天",
           "subtitle": "让 {{value0}} 检查代码、解释输出或进行修改。"
+        },
+        "historyUnavailable": {
+          "title": "无法加载此对话的历史记录",
+          "subtitle": "此聊天保存的历史记录丢失或已损坏。",
+          "closeTab": "关闭选项卡"
         }
       },
       "stop": "停止智能体",

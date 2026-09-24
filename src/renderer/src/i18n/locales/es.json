@@ -14772,6 +14772,11 @@
         "empty": {
           "title": "Iniciar un chat con {{value0}}",
           "subtitle": "Pídale a {{value0}} que inspeccione el código, explique el resultado o realice un cambio."
+        },
+        "historyUnavailable": {
+          "title": "No se pudo cargar el historial de esta conversación",
+          "subtitle": "El historial guardado de este chat falta o está dañado.",
+          "closeTab": "Cerrar pestaña"
         }
       },
       "stop": "Detener el agente",

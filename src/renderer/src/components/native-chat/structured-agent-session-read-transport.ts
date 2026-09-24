@@ -2,7 +2,9 @@ import type { AgentJournalCursor } from '../../../../shared/agent-session-journa
 import type { AgentSessionSubscribeEvent } from '../../../../shared/agent-session-wire'
 import { createStructuredAgentSessionEventCoalescer } from '../../../../shared/structured-agent-session-coalescer'
 import {
+  AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE,
   AGENT_SESSION_UNATTACHED_READ_GRACE_MS,
+  isJournalUnreadableAgentSessionReadRefusal,
   isUnattachedAgentSessionReadRefusal
 } from '../../../../shared/structured-agent-session-read-refusal'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
@@ -44,6 +46,8 @@ export function startStructuredAgentSessionReadTransport(args: {
   dispose: () => void
 } {
   let stopped = false
+  // A missing or damaged journal answers the same on every ask, so nothing re-asks it.
+  let journalUnreadable = false
   let connected = false
   let unattachedSince: number | null = null
   let opening = false
@@ -57,7 +61,7 @@ export function startStructuredAgentSessionReadTransport(args: {
     }
   })
   const reconnectScheduler = createReconnectScheduler({
-    shouldStop: () => stopped || connected,
+    shouldStop: () => stopped || connected || journalUnreadable,
     reconnect: () => void open()
   })
   const isCurrentOpenGeneration = (candidate: number): boolean =>
@@ -77,6 +81,12 @@ export function startStructuredAgentSessionReadTransport(args: {
    * transitional, so the pane is owed the failure rather than a spinner that never resolves.
    */
   const reportReadFailure = (error: unknown): void => {
+    if (isJournalUnreadableAgentSessionReadRefusal(error)) {
+      journalUnreadable = true
+      clearUnattachedReadGrace()
+      args.applyError(AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE)
+      return
+    }
     if (!isUnattachedAgentSessionReadRefusal(error)) {
       clearUnattachedReadGrace()
       args.applyError(String(error))

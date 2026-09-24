@@ -21,7 +21,8 @@ function phaseDeps(
   overrides: Partial<StructuredAgentSessionReadRestoreDeps> = {}
 ): StructuredAgentSessionReadRestoreDeps {
   return {
-    store: {} as never,
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the phase reads only getRecord; the journal read itself is mocked.
+    store: { getRecord: () => ({ sessionId: 'session-1' }) } as never,
     journalRoot: '/tmp/journals',
     reconcile: async () => null,
     resolveRecovery: async () => undefined,
@@ -205,5 +206,20 @@ describe('restart journal restoration', () => {
 
     expect(onReadable).not.toHaveBeenCalled()
     expect(restoreHandoff).not.toHaveBeenCalled()
+  })
+
+  it('tells an unreadable journal apart from a record that is gone', async () => {
+    restoreRead.mockResolvedValue(null)
+
+    await expect(restoreStructuredAgentSessionReadPhase(phaseDeps(), 'session-1')).resolves.toBe(
+      'journal-unreadable'
+    )
+    await expect(
+      restoreStructuredAgentSessionReadPhase(
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the phase reads only getRecord.
+        phaseDeps({ store: { getRecord: () => null } as never }),
+        'session-1'
+      )
+    ).resolves.toBe('unavailable')
   })
 })
