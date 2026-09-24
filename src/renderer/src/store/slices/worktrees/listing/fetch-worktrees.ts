@@ -108,7 +108,7 @@ export function createFetchWorktrees(
       if (options?.requireAuthoritative && !refresh.result.authoritative) {
         return directCallerAuthority ? (refresh.providerResult ?? false) : false
       }
-      const admitted = mergeFetchedWorktrees(set, {
+      const outcome = mergeFetchedWorktrees(set, {
         repoId,
         hostId,
         ownerWasMissingAtStart,
@@ -120,20 +120,22 @@ export function createFetchWorktrees(
         setup,
         refresh
       })
-      if (!admitted) {
-        // Why: a caller that joined a listing already in flight (a change event's refresh) may get
-        // only that older answer, and nothing else would follow it. One new listing scans at or past
-        // the applied version, so it is admitted.
-        if (
-          relistIfStale &&
-          !directCallerAuthority &&
-          isStaleWorktreeCatalogPublication(get(), repoId, hostId, refresh.result.catalogVersion)
-        ) {
-          return fetchWorktreesAttempt(repoId, options, false)
-        }
-        return directCallerAuthority
-          ? (staleDetectedWorktreeProviderResult(refresh) ?? false)
-          : false
+      switch (outcome) {
+        case 'applied':
+          break
+        case 'superseded':
+          // Why current for direct callers: a newer catalog is already applied; 'stale' means a moved
+          // connection. Others relist once: a caller that joined a listing already in flight (a
+          // change event's refresh) may get only that older answer, and nothing else would follow
+          // it. One new listing scans at or past the applied version, so it is admitted.
+          if (directCallerAuthority) {
+            return refresh.providerResult ?? false
+          }
+          return relistIfStale ? fetchWorktreesAttempt(repoId, options, false) : false
+        case 'not-current':
+          return directCallerAuthority
+            ? (staleDetectedWorktreeProviderResult(refresh) ?? false)
+            : false
       }
       // Direct SSH lineage requires its own qualified authority result.
       // Bulk runtime callers apply one final host-wide snapshot after all repo merges.

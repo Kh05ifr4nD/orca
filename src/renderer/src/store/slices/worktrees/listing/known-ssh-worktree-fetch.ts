@@ -27,11 +27,7 @@ import {
   qualifiedProviderResultIsAdmitted
 } from './detected-worktree-refresh'
 import { isDetectedWorktreeListResult } from './detected-worktree-provider-request'
-import {
-  isCurrentDetectedWorktreeRefresh,
-  staleDetectedWorktreeProviderResult
-} from './detected-worktree-refresh-admission'
-import { isStaleWorktreeCatalogPublication } from './worktree-catalog-version-state'
+import { staleDetectedWorktreeProviderResult } from './detected-worktree-refresh-admission'
 import { mergeFetchedWorktrees } from './fetched-worktree-merge'
 import { getAuthoritativelyRemovedWorktreeIds } from './authoritative-worktree-removal-memory'
 import type {
@@ -262,7 +258,7 @@ export function acquireDirectSshDetectedWorktreeRefresh(
         executionHostId: request.executionHostId,
         directSshAuthority: request.authority
       }
-      const admitted = mergeFetchedWorktrees(
+      const outcome = mergeFetchedWorktrees(
         store.setState as Parameters<StateCreator<AppState, [], [], WorktreeSlice>>[0],
         {
           repoId: request.repoId,
@@ -273,23 +269,17 @@ export function acquireDirectSshDetectedWorktreeRefresh(
           refresh
         }
       )
-      const liveState = store.getState()
-      // Why: refused only because a newer catalog is already applied for this host, so the repo is
-      // current. 'stale' would end a reconnect preparation, and nothing retries it while the
-      // connection holds; 'stale' stays reserved for a moved authority or owner.
-      const refusedAsOlderCatalog =
-        !admitted &&
-        isCurrentDetectedWorktreeRefresh(liveState, refresh) &&
-        isStaleWorktreeCatalogPublication(
-          liveState,
-          request.repoId,
-          request.executionHostId,
-          providerResult.result.catalogVersion
-        )
-      mergedResult =
-        admitted || refusedAsOlderCatalog
-          ? providerResult
-          : (staleDetectedWorktreeProviderResult(refresh) ?? providerResult)
+      // Why 'superseded' is current: a newer catalog is already applied for this host. 'stale' would
+      // end a reconnect preparation, and nothing retries it while the connection holds.
+      switch (outcome) {
+        case 'applied':
+        case 'superseded':
+          mergedResult = providerResult
+          break
+        case 'not-current':
+          mergedResult = staleDetectedWorktreeProviderResult(refresh) ?? providerResult
+          break
+      }
       return mergedResult
     }
   }

@@ -5,6 +5,7 @@ import type { CreateWorktreeResult } from '../../../../../../shared/worktree/cre
 import { applyCreatedWorktree } from '../create/created-worktree-state-merge'
 import { worktreeCatalogVersionKey } from './worktree-catalog-version-state'
 import { mergeFetchedWorktrees } from './fetched-worktree-merge'
+import type { WorktreeListingMergeOutcome } from './detected-worktree-refresh-admission'
 import {
   TEST_REPO,
   createTestStore,
@@ -121,7 +122,7 @@ function applyListing(
   store: ReturnType<typeof createTestStore>,
   rows: Worktree[],
   catalogVersion?: WorktreeCatalogVersion
-): boolean {
+): WorktreeListingMergeOutcome {
   return mergeFetchedWorktrees(store.setState, {
     repoId: REPO_ID,
     hostId: 'local',
@@ -155,7 +156,7 @@ describe('an authoritative listing that omits a just-created worktree', () => {
     seedCreatedWorkspaceWithPendingLaunch(store, true)
     const existingRow = store.getState().worktreesByRepo[REPO_ID]![0]!
 
-    expect(applyListing(store, [existingRow])).toBe(true)
+    expect(applyListing(store, [existingRow])).toBe('applied')
 
     const state = store.getState()
     expect(hasStructuredAgentSessionLaunchCancellationTombstone(CREATED_ID, SESSION_ID)).toBe(true)
@@ -170,7 +171,7 @@ describe('an authoritative listing that omits a just-created worktree', () => {
     expect(store.getState().hasHydratedWorktreePurge).toBe(false)
     const existingRow = store.getState().worktreesByRepo[REPO_ID]![0]!
 
-    expect(applyListing(store, [existingRow])).toBe(true)
+    expect(applyListing(store, [existingRow])).toBe('applied')
 
     const state = store.getState()
     expect(hasStructuredAgentSessionLaunchCancellationTombstone(CREATED_ID, SESSION_ID)).toBe(true)
@@ -183,7 +184,7 @@ describe('an authoritative listing that omits a just-created worktree', () => {
     seedCreatedWorkspaceWithPendingLaunch(store, true)
     const rows = store.getState().worktreesByRepo[REPO_ID]!
 
-    expect(applyListing(store, [...rows])).toBe(true)
+    expect(applyListing(store, [...rows])).toBe('applied')
 
     const state = store.getState()
     expect(hasStructuredAgentSessionLaunchCancellationTombstone(CREATED_ID, SESSION_ID)).toBe(false)
@@ -225,7 +226,7 @@ describe('a listing versioned before an applied create', () => {
     seedWithAppliedCreate(store)
     const existingRow = store.getState().worktreesByRepo[REPO_ID]![0]!
 
-    expect(applyListing(store, [existingRow], before)).toBe(false)
+    expect(applyListing(store, [existingRow], before)).toBe('superseded')
 
     const state = store.getState()
     expect(hasStructuredAgentSessionLaunchCancellationTombstone(CREATED_ID, SESSION_ID)).toBe(false)
@@ -235,12 +236,23 @@ describe('a listing versioned before an applied create', () => {
     expect(state.detectedWorktreesByRepo[REPO_ID]!.worktrees.map((w) => w.id)).toContain(CREATED_ID)
   })
 
+  it('reports a listing whose repo owner went away as not-current, even when also older', () => {
+    const store = createTestStore()
+    seedWithAppliedCreate(store)
+    store.setState({ repos: [] })
+    const existingRow = store.getState().worktreesByRepo[REPO_ID]![0]!
+
+    expect(applyListing(store, [existingRow], before)).toBe('not-current')
+
+    expect(store.getState().unifiedTabsByWorktree[CREATED_ID]).toHaveLength(2)
+  })
+
   it('a later listing that includes the worktree applies and advances the version', () => {
     const store = createTestStore()
     seedWithAppliedCreate(store)
     const rows = store.getState().worktreesByRepo[REPO_ID]!
 
-    expect(applyListing(store, [...rows], after)).toBe(true)
+    expect(applyListing(store, [...rows], after)).toBe('applied')
 
     const state = store.getState()
     expect(state.activeWorktreeId).toBe(CREATED_ID)
@@ -255,7 +267,7 @@ describe('a listing versioned before an applied create', () => {
     const rows = store.getState().worktreesByRepo[REPO_ID]!
     const restarted = { epoch: 'host-epoch-2', sequence: 1 }
 
-    expect(applyListing(store, [...rows], restarted)).toBe(true)
+    expect(applyListing(store, [...rows], restarted)).toBe('applied')
 
     expect(
       store.getState().worktreeCatalogVersionByRepoHost[worktreeCatalogVersionKey(REPO_ID, 'local')]
@@ -267,7 +279,7 @@ describe('a listing versioned before an applied create', () => {
     seedWithAppliedCreate(store)
     const existingRow = store.getState().worktreesByRepo[REPO_ID]![0]!
 
-    expect(applyListing(store, [existingRow])).toBe(true)
+    expect(applyListing(store, [existingRow])).toBe('applied')
 
     expect(hasStructuredAgentSessionLaunchCancellationTombstone(CREATED_ID, SESSION_ID)).toBe(true)
     expect(store.getState().activeWorktreeId).toBeNull()

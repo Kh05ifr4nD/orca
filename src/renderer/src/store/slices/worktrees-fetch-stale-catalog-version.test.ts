@@ -10,6 +10,7 @@ import {
 import { makeWorktree } from './worktrees-slice-test-fixtures'
 import { worktreeCatalogVersionKey } from './worktrees/listing/worktree-catalog-version-state'
 import { completeSameIdHostScopedRemoval } from './worktrees/teardown/host-qualified-worktree-removal'
+import { applyCreatedWorktree } from './worktrees/create/created-worktree-state-merge'
 import {
   createTestStore,
   mockApi,
@@ -349,6 +350,87 @@ describe('a removal on one of two hosts that share a worktree id', () => {
   })
 })
 
+// Why this suite exists: the one-shot startup purge keeps only ids from the scanned rows, read
+// after every repo's listing settled. A create landing in between writes only the visible rows,
+// so without deferral the purge closes the new workspace's tabs, its chat tab included.
+describe('the startup hydration purge after a create lands behind a repo listing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetRemoteRuntimeMocks()
+    resetWorktreeSliceModuleMemory()
+  })
+
+  it("defers instead of closing the created workspace's tabs, then purges once listings catch up", async () => {
+    const store = createTestStore()
+    const surviving = makeWorktree({ id: 'repo1::/path/surviving', repoId: 'repo1' })
+    const created = makeWorktree({ id: 'repo1::/path/created', repoId: 'repo1' })
+    const other = makeWorktree({ id: 'repo2::/path/other', repoId: 'repo2' })
+    const zombieId = 'repo1::/path/deleted-last-session'
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the fixture tabs carry only the fields the purge reads.
+    store.setState({
+      repos: [
+        { id: 'repo1', path: '/path/repo1', displayName: 'Repo 1', badgeColor: '#000', addedAt: 0 },
+        { id: 'repo2', path: '/path/repo2', displayName: 'Repo 2', badgeColor: '#000', addedAt: 0 }
+      ],
+      tabsByWorktree: { [zombieId]: [{ id: 'tab-zombie', worktreeId: zombieId }] }
+    } as unknown as Partial<AppState>)
+    let releaseRepo2: () => void = () => {}
+    const repo2Held = new Promise<void>((resolve) => {
+      releaseRepo2 = resolve
+    })
+    mockApi.worktrees.listDetected.mockImplementation(async (args) => {
+      if (args.repoId === 'repo2') {
+        await repo2Held
+        return qualifyDetectedResult(args, makeDetectedResult('repo2', [other]))
+      }
+      return qualifyDetectedResult(
+        args,
+        makeDetectedResult('repo1', [surviving], { catalogVersion: { epoch: HOST, sequence: 6 } })
+      )
+    })
+
+    const startup = store.getState().fetchAllWorktrees()
+    await vi.waitFor(() =>
+      expect(
+        store.getState().worktreeCatalogVersionByRepoHost[
+          worktreeCatalogVersionKey('repo1', 'local')
+        ]
+      ).toEqual({ epoch: HOST, sequence: 6 })
+    )
+    // The create reply lands, then the requested chat tab opens, while repo2 is still listing.
+    applyCreatedWorktree(store.setState, 'repo1', {
+      worktree: created,
+      catalogVersion: APPLIED_BY_CREATE
+    })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the fixture tabs carry only the fields the purge reads.
+    store.setState({
+      tabsByWorktree: {
+        ...store.getState().tabsByWorktree,
+        [created.id]: [{ id: 'tab-created', worktreeId: created.id }]
+      }
+    } as unknown as Partial<AppState>)
+    releaseRepo2()
+    await startup
+
+    expect(store.getState().tabsByWorktree[created.id]).toBeDefined()
+    expect(store.getState().hasHydratedWorktreePurge).toBe(false)
+
+    mockApi.worktrees.listDetected.mockImplementation(async (args) =>
+      qualifyDetectedResult(
+        args,
+        args.repoId === 'repo2'
+          ? makeDetectedResult('repo2', [other])
+          : makeDetectedResult('repo1', [surviving, created], { catalogVersion: APPLIED_BY_CREATE })
+      )
+    )
+    await store.getState().fetchAllWorktrees()
+
+    expect(store.getState().tabsByWorktree[created.id]).toBeDefined()
+    expect(store.getState().tabsByWorktree[zombieId]).toBeUndefined()
+    expect(store.getState().hasHydratedWorktreePurge).toBe(true)
+  })
+})
+
 // Why this suite exists: the SSH reconnect preparation ends on any repo reporting 'stale' and
 // skips its post-connect workspace sync, which nothing retries while the connection holds.
 describe('a direct SSH listing older than an applied create', () => {
@@ -404,6 +486,20 @@ describe('a direct SSH listing older than an applied create', () => {
 
     expect(lease.merge(providerResult)).toBe(providerResult)
     expect(store.getState().worktreesByRepo['repo-ssh']?.map((w) => w.id)).toEqual([created.id])
+  })
+
+  it('still reports stale when the repo owner went away during the listing, though it is also older', async () => {
+    const store = createTestStore()
+    seedSsh(store)
+    const lease = acquireDirectSshDetectedWorktreeRefresh(store, {
+      repoId: 'repo-ssh',
+      executionHostId: sshHost,
+      authority: TEST_SSH_AUTHORITY
+    })
+    const providerResult = await lease.result
+    store.setState({ repos: [] })
+
+    expect(lease.merge(providerResult)).toMatchObject({ status: 'stale' })
   })
 
   it('control: still reports stale when the connection moved during the listing', async () => {

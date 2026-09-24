@@ -8,13 +8,12 @@ import { parseExecutionHostId } from '../../../../../../shared/execution-host'
 import { findRepoForHost } from '../../repo-host-identity'
 import { getCurrentDirectSshAuthority } from './direct-ssh-authority'
 import { listDetectedWorktreesForRepoCoalesced } from './detected-worktree-refresh'
-import { isCurrentDetectedWorktreeRefresh } from './detected-worktree-refresh-admission'
+import { worktreeListingRefusal } from './detected-worktree-refresh-admission'
 import { mergeDetectedWorktreesForHost } from './detected-worktree-host-merge'
 import { areDetectedWorktreeResultsEqual } from './worktree-catalog-visibility'
 import {
   getKnownWorktreeIdsForPurge,
   getProjectHostSetupForRepoHost,
-  repoHasExactlyOneExecutionHostOwner,
   repoHostId,
   worktreeHostMatchOptions
 } from './worktree-host-ownership'
@@ -64,13 +63,10 @@ export function createFetchDetectedWorktrees(
       }
       let admitted = false
       set((s) => {
-        if (isStaleWorktreeCatalogPublication(s, repoId, hostId, refresh.result.catalogVersion)) {
-          return s
-        }
         if (
-          !isCurrentDetectedWorktreeRefresh(s, refresh) ||
-          !repoHasExactlyOneExecutionHostOwner(
+          worktreeListingRefusal(
             s,
+            refresh,
             repoId,
             hostId,
             ownerWasMissingAtStart && !refresh.directSshAuthority

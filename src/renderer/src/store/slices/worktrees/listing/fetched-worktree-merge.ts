@@ -1,8 +1,5 @@
 import type { StateCreator } from 'zustand'
-import {
-  appliedWorktreeCatalogVersionPatch,
-  isStaleWorktreeCatalogPublication
-} from './worktree-catalog-version-state'
+import { appliedWorktreeCatalogVersionPatch } from './worktree-catalog-version-state'
 import type { AppState } from '../../../types'
 import type { WorktreeSlice } from '../../worktree-helpers'
 import type { Worktree } from '../../../../../../shared/worktree/types'
@@ -12,7 +9,6 @@ import { mergeDetectedWorktreesForHost } from './detected-worktree-host-merge'
 import {
   getRemovedWorktreeIdsAfterAuthoritativeScan,
   mergeWorktreesForHost,
-  repoHasExactlyOneExecutionHostOwner,
   toVisibleWorktrees,
   worktreeHostMatchOptions,
   worktreeMatchesHost
@@ -21,7 +17,10 @@ import {
   hasBranchScopedHostedReviewContext,
   sanitizeHostedReviewLinksForBranchClears
 } from '../metadata/hosted-review-link-mutation'
-import { isCurrentDetectedWorktreeRefresh } from './detected-worktree-refresh-admission'
+import {
+  worktreeListingRefusal,
+  type WorktreeListingMergeOutcome
+} from './detected-worktree-refresh-admission'
 import { buildWorktreePurgeState } from '../teardown/worktree-purge-state'
 import { isDisplayNamePersistencePending } from '../metadata/worktree-meta-persist'
 import { branchName } from '@/lib/git-utils'
@@ -134,37 +133,28 @@ export function preserveConcurrentDisplayName<T extends Worktree>(
 export function mergeFetchedWorktrees(
   set: Parameters<StateCreator<AppState, [], [], WorktreeSlice>>[0],
   args: FencedWorktreeMergeArgs
-): boolean {
-  let admitted = false
+): WorktreeListingMergeOutcome {
+  // Why a holder: the updater decides the outcome, and a narrowed `let` would hide that assignment.
+  const decision: { outcome: WorktreeListingMergeOutcome } = { outcome: 'not-current' }
   let authoritativelyRemovedIds: readonly string[] = []
   let authoritativelySeenIds: readonly string[] = []
   set((s) => {
     // Why against live state: a create or remove reply can have landed while this listing was in
     // flight. A listing that describes the catalog before that reply must not undo it, so it is
     // not applied at all -- rows, detected rows and purge alike.
-    if (
-      isStaleWorktreeCatalogPublication(
-        s,
-        args.repoId,
-        args.hostId,
-        args.refresh.result.catalogVersion
-      )
-    ) {
+    const refusal = worktreeListingRefusal(
+      s,
+      args.refresh,
+      args.repoId,
+      args.hostId,
+      args.ownerWasMissingAtStart &&
+        (!args.refresh.directSshAuthority || s.repos === args.missingDirectSshOwnerReposSnapshot)
+    )
+    if (refusal) {
+      decision.outcome = refusal
       return s
     }
-    if (
-      !isCurrentDetectedWorktreeRefresh(s, args.refresh) ||
-      !repoHasExactlyOneExecutionHostOwner(
-        s,
-        args.repoId,
-        args.hostId,
-        args.ownerWasMissingAtStart &&
-          (!args.refresh.directSshAuthority || s.repos === args.missingDirectSshOwnerReposSnapshot)
-      )
-    ) {
-      return s
-    }
-    admitted = true
+    decision.outcome = 'applied'
     const matchOptions = worktreeHostMatchOptions(s, args.repoId, args.hostId)
     const currentWorktrees = s.worktreesByRepo[args.repoId]
     const refreshResult = {
@@ -279,7 +269,7 @@ export function mergeFetchedWorktrees(
         : {})
     }
   })
-  if (admitted) {
+  if (decision.outcome === 'applied') {
     // Why: applied outside the updater so a repeated updater call cannot double-apply the removal memory.
     forgetAuthoritativelyRemovedWorktrees(args.hostId, authoritativelySeenIds)
     rememberAuthoritativelyRemovedWorktrees(args.hostId, authoritativelyRemovedIds)
@@ -292,5 +282,5 @@ export function mergeFetchedWorktrees(
       args.refresh.result.source === 'git' ? authoritativelyRemovedIds : []
     )
   }
-  return admitted
+  return decision.outcome
 }
