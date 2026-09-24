@@ -516,6 +516,21 @@ describe('a direct SSH listing older than an applied create', () => {
     expect(store.getState().worktreesByRepo['repo-ssh']?.map((w) => w.id)).toEqual([created.id])
   })
 
+  it('a direct-authority fetchWorktrees caller gets the same report, without a relist', async () => {
+    const store = createTestStore()
+    const created = seedSsh(store)
+
+    await expect(
+      store.getState().fetchWorktrees('repo-ssh', {
+        executionHostId: sshHost,
+        directSshAuthority: TEST_SSH_AUTHORITY
+      })
+    ).resolves.toMatchObject({ status: 'complete' })
+
+    expect(mockApi.worktrees.listDetected).toHaveBeenCalledOnce()
+    expect(store.getState().worktreesByRepo['repo-ssh']?.map((w) => w.id)).toEqual([created.id])
+  })
+
   it('still reports stale when the repo owner went away during the listing, though it is also older', async () => {
     const store = createTestStore()
     seedSsh(store)
