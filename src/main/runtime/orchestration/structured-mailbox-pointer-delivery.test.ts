@@ -129,6 +129,7 @@ function harness(options: {
     host: {
       readGateFacts: () => (journal === null ? null : structuredSessionGateFacts(journal)),
       currentFence: () => 4,
+      cliInvocation: () => '"$ORCA_CLI_COMMAND"',
       send,
       ...('wakeTo' in options ? { wake } : {})
     }
@@ -425,6 +426,7 @@ describe('forgetting one settled worker', () => {
       host: {
         readGateFacts: () => structuredSessionGateFacts(journal),
         currentFence: () => 4,
+        cliInvocation: () => '"$ORCA_CLI_COMMAND"',
         send
       }
     })
