@@ -79,27 +79,14 @@ describe('ensureRemoteBundledRipgrep', () => {
     )
   })
 
-  // Why this needs a test: nothing else collects this tree -- the relay's version GC only matches
-  // `relay-*` -- so without it every rg bump left another ~5 MB on every host, forever.
-  it('collects superseded builds while sparing the current one and live stages', async () => {
-    execCommandMock.mockResolvedValueOnce('ORCA-RG-PRESENT\n')
-
-    await ensureRemoteBundledRipgrep(connection(), LINUX, '/home/me')
-
-    const script = execScripts()[0]
-    expect(script).toContain("! -name 'c0ffee0123456789-linux-x64'")
-    expect(script).toContain("! -name '.upload-*'")
-    expect(script).toContain('-mtime +14')
-  })
-
-  it('collects superseded builds on Windows hosts too', async () => {
+  it('limits Windows cache cleanup to abandoned upload stages', async () => {
     execCommandMock.mockResolvedValueOnce('ORCA-RG-PRESENT\n')
 
     await ensureRemoteBundledRipgrep(connection(), WINDOWS, 'C:/Users/me user')
 
     const script = execScripts()[0]
-    expect(script).toContain("-ne 'c0ffee0123456789-win32-x64'")
-    expect(script).toContain('AddDays(-14)')
+    expect(script.match(/Get-ChildItem/g)).toHaveLength(1)
+    expect(script).toContain("-Filter '.upload-*'")
   })
 
   it('skips the upload in one round trip when the binary is already installed', async () => {
@@ -273,6 +260,19 @@ describe.runIf(process.platform !== 'win32').each(SHELLS)(
 
       await expect(ensureRemoteBundledRipgrep(connection(), LINUX, home)).resolves.toBe('installed')
       expect(execFileSync(installed(), { encoding: 'utf-8' })).toContain('ripgrep 15.0.0')
+    })
+
+    it('keeps an old binary usable by a relay pinned to an earlier client build', async () => {
+      const previous = join(home, '.orca-remote', 'ripgrep', 'previous-linux-x64', 'rg')
+      mkdirSync(dirname(previous), { recursive: true })
+      writeFileSync(previous, '#!/bin/sh\necho ripgrep previous\n', { mode: 0o755 })
+      execFileSync('touch', ['-t', '200001010000', dirname(previous)])
+      expect(execFileSync(previous, { encoding: 'utf-8' })).toContain('ripgrep previous')
+
+      await expect(ensureRemoteBundledRipgrep(connection(), LINUX, home)).resolves.toBe('installed')
+      await expect(ensureRemoteBundledRipgrep(connection(), LINUX, home)).resolves.toBe('present')
+
+      expect(execFileSync(previous, { encoding: 'utf-8' })).toContain('ripgrep previous')
     })
 
     it('sweeps an abandoned stage older than an hour but keeps a live one', async () => {

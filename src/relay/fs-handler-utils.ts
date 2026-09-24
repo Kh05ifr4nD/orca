@@ -126,11 +126,12 @@ export function searchWithRg(
     }
     // Why a second binding: the closures below capture it, and narrowing does not reach them.
     const command: string = resolvedRgCommand
+    const env = buildRelayCommandEnv()
     let child: ReturnType<typeof spawn>
     try {
       child = spawn(command, rgArgs, {
         cwd: rootPath,
-        env: buildRelayCommandEnv(),
+        env,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       })
@@ -185,8 +186,11 @@ export function searchWithRg(
           // ripgrep. The workspace moving would otherwise look like a successful empty scan.
           if (settle()) {
             reject(
-              (await classifyRipgrepLaunchFailure(rootPath, [command, pathRipgrepCommand()])) ===
-                'cwd-unreachable'
+              (await classifyRipgrepLaunchFailure(
+                rootPath,
+                [command, pathRipgrepCommand()],
+                env
+              )) === 'cwd-unreachable'
                 ? ripgrepMissingCwdError(rootPath)
                 : new RipgrepUnavailableError()
             )

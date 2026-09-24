@@ -47,10 +47,6 @@ export const REMOTE_RIPGREP_CACHE_DIR_NAME = 'ripgrep'
 const UPLOAD_STAGE_PREFIX = '.upload-'
 // Why an hour: long enough that no live upload of ~5 MB is still writing, short enough to drain crashes.
 const STALE_UPLOAD_STAGE_MINUTES = 60
-// Why two weeks and not immediately: a client pinned to an older Orca may still be running against
-// the build it uploaded. The only cost of collecting one too early is that client re-uploading
-// ~5 MB on its next connect; the cost of never collecting is a permanent leak on every host.
-const SUPERSEDED_RIPGREP_DAYS = 14
 const PRESENT = 'ORCA-RG-PRESENT'
 const STAGED = 'ORCA-RG-STAGED'
 const INSTALLED = 'ORCA-RG-INSTALLED'
@@ -196,19 +192,16 @@ export function probeOrStageCommand(
     const bin = shellEscape(layout.binaryPath)
     const cache = shellEscape(layout.cacheDir)
     const sweep = `find ${cache} -mindepth 1 -maxdepth 1 -type d -name '${UPLOAD_STAGE_PREFIX}*' -mmin +${STALE_UPLOAD_STAGE_MINUTES} -exec rm -rf {} + 2>/dev/null`
-    // Why here and not in the relay's version GC: that GC only matches `relay-*`, so nothing has
-    // ever collected this tree. Every rg bump would otherwise leave another ~5 MB per host forever.
-    const collect = `find ${cache} -mindepth 1 -maxdepth 1 -type d ! -name ${shellEscape(layout.entryName)} ! -name '${UPLOAD_STAGE_PREFIX}*' -mtime +${SUPERSEDED_RIPGREP_DAYS} -exec rm -rf {} + 2>/dev/null`
+    // Installed builds may still serve an older client's live relay; age is not disuse.
     const stage = makeRelayUploadStageDirectoryCommand(stageNamespace, host, stageDir)
     // Why the sweep runs before the branch, not inside the else: once rg is installed every later
     // deploy takes the PRESENT path, so a stage orphaned by a dropped connection would never be
     // collected. It stays one exec round trip either way.
-    return `${sweep}; ${collect}; if ${posixInstalledTest(bin, bytes)}; then echo ${PRESENT}; else ${stage} && echo ${STAGED}; fi`
+    return `${sweep}; if ${posixInstalledTest(bin, bytes)}; then echo ${PRESENT}; else ${stage} && echo ${STAGED}; fi`
   }
   return powerShellCommand(
     [
       `Get-ChildItem -LiteralPath ${powerShellLiteral(layout.cacheDir)} -Directory -Filter '${UPLOAD_STAGE_PREFIX}*' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddMinutes(-${STALE_UPLOAD_STAGE_MINUTES}) } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue`,
-      `Get-ChildItem -LiteralPath ${powerShellLiteral(layout.cacheDir)} -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne ${powerShellLiteral(layout.entryName)} -and -not $_.Name.StartsWith('${UPLOAD_STAGE_PREFIX}') -and $_.LastWriteTime -lt (Get-Date).AddDays(-${SUPERSEDED_RIPGREP_DAYS}) } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue`,
       `if (${windowsInstalledTest(powerShellLiteral(layout.binaryPath), bytes)}) { '${PRESENT}' } else {`,
       `$null = New-Item -ItemType Directory -Force -Path ${powerShellLiteral(joinRemotePath(host, stageDir, 'payload'))} -ErrorAction Stop`,
       `'${STAGED}' }`

@@ -77,12 +77,12 @@ export async function isRipgrepSpawnCwdUsable(cwd: string): Promise<boolean> {
   }
 }
 
-function probeRipgrepVersion(command: string): Promise<boolean> {
+function probeRipgrepVersion(command: string, env: NodeJS.ProcessEnv): Promise<boolean> {
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
       // windowsHide: a probe must never flash a console window on Windows.
-      child = spawn(command, ['--version'], { stdio: 'ignore', windowsHide: true })
+      child = spawn(command, ['--version'], { env, stdio: 'ignore', windowsHide: true })
     } catch {
       resolve(false)
       return
@@ -128,13 +128,14 @@ function probeRipgrepVersion(command: string): Promise<boolean> {
  */
 export async function classifyRipgrepLaunchFailure(
   cwd: string,
-  candidates: readonly (string | null)[]
+  candidates: readonly (string | null)[],
+  env: NodeJS.ProcessEnv
 ): Promise<'cwd-unreachable' | 'ripgrep-unavailable'> {
   if (await isRipgrepSpawnCwdUsable(cwd)) {
     return 'ripgrep-unavailable'
   }
   for (const command of new Set(candidates.filter((entry) => entry !== null))) {
-    if (await probeRipgrepVersion(command)) {
+    if (await probeRipgrepVersion(command, env)) {
       return 'cwd-unreachable'
     }
   }
