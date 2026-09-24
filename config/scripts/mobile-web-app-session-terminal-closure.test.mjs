@@ -433,13 +433,23 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *   modules        4216 -> 4218   (+2)
  *   local modules  1030 -> 1032   (+2)
  *
- * DeepSeek Harness then joined the mobile agent catalog with its bundled icon
- * (`src/shared/agent-icons/dsh.png`), the same one-input shape Muse added above.
+ * The pin then drifted: measured on main at 37820f9 the closure is 4220 / 1034, two above
+ * the 4218 / 1032 recorded above. Those two inputs are not this change's — they arrived
+ * with the mobile work after #22570 and were never repinned. Recorded here rather than
+ * folded silently into the line below, because the next reader deserves to know which
+ * delta belongs to whom.
  *
- *   modules        4218 -> 4219   (+1)
- *   local modules  1032 -> 1033   (+1)
+ *   modules        4218 -> 4220   (+2, not this change)
+ *   local modules  1032 -> 1034   (+2, not this change)
+ *
+ * DeepSeek Harness then joined the mobile agent catalog with its bundled icon
+ * (`src/shared/agent-icons/dsh.png`), the same one-input shape Muse added above. Measured
+ * by removing that one entry and re-running the closure: 4221 with it, 4220 without.
+ *
+ *   modules        4220 -> 4221   (+1)
+ *   local modules  1034 -> 1035   (+1)
  */
-const SESSION_ROUTE_MODULES = 4219
+const SESSION_ROUTE_MODULES = 4221
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [
