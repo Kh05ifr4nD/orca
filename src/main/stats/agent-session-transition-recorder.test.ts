@@ -401,30 +401,40 @@ describe('AgentSessionTransitionRecorder reading the main agent fact', () => {
     expect(osc.getSummary().totalAgentTimeMs).toBe(18_000)
   })
 
-  it("keeps one span across a child's approval wait while the main agent's own turn runs", () => {
-    // Codex: a child's PermissionRequest turns the combined row `waiting` while the root keeps
-    // executing. The old state read closed the span there and minted a second spawn on resume;
-    // the main agent fact says the same turn never stopped.
-    const stats = new StatsCollector()
-    const recorder = new AgentSessionTransitionRecorder(stats)
+  it.each([
+    ['its own prompt', { state: 'waiting' as const, stateStartedAt: T + 30_000 }],
+    // Codex/Claude: a child's approval prompt parks the row while the displaced main agent reads working.
+    ["a child's approval prompt", MAIN_AGENT_WORKING]
+  ])(
+    'pauses the clock while the row waits on %s, dated by the row clock',
+    (_, waitingMainAgent) => {
+      const stats = new StatsCollector()
+      const recorder = new AgentSessionTransitionRecorder(stats)
 
-    recorder.onStatus(mainAgentHook({ state: 'working', mainAgent: MAIN_AGENT_WORKING }, T))
-    recorder.onStatus(
-      mainAgentHook({ state: 'waiting', mainAgent: MAIN_AGENT_WORKING }, T + 30_000)
-    )
-    recorder.onStatus(
-      mainAgentHook({ state: 'working', mainAgent: MAIN_AGENT_WORKING }, T + 45_000)
-    )
-    recorder.onStatus(
-      mainAgentHook(
-        { state: 'done', mainAgent: { state: 'done', stateStartedAt: T + 60_000 } },
-        T + 60_000
+      recorder.onStatus(mainAgentHook({ state: 'working', mainAgent: MAIN_AGENT_WORKING }, T))
+      // A reconnect replays the missed wait: the row clock is restamped at the edge, while the
+      // evidence clock keeps the last observation before the gap.
+      recorder.onStatus(
+        mainAgentHook({ state: 'waiting', mainAgent: waitingMainAgent }, T + 30_000, {
+          isReplay: true,
+          receivedAt: T + 30_000,
+          evidenceObservedAt: T + 20_000
+        })
       )
-    )
+      recorder.onStatus(
+        mainAgentHook({ state: 'working', mainAgent: MAIN_AGENT_WORKING }, T + 45_000)
+      )
+      recorder.onStatus(
+        mainAgentHook(
+          { state: 'done', mainAgent: { state: 'done', stateStartedAt: T + 60_000 } },
+          T + 60_000
+        )
+      )
 
-    expect(stats.getSummary().totalAgentsSpawned).toBe(1)
-    expect(stats.getSummary().totalAgentTimeMs).toBe(60_000)
-  })
+      expect(stats.getSummary().totalAgentsSpawned).toBe(2)
+      expect(stats.getSummary().totalAgentTimeMs).toBe(45_000)
+    }
+  )
 
   it('never opens a session from a restored row whose main agent reads working', () => {
     const restored = sink()

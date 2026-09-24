@@ -61,10 +61,10 @@ export function isAgentStatusHeldOpenByChildWork(row: {
 }
 
 /**
- * The stats question, "does this row accrue agent time": the main agent's own turn runs (a child's
- * approval wait included), or a settled main agent's live agent child work still holds the row
- * `working`. A watch loop (`monitoring`) accrues nothing, and a main agent paused on a prompt
- * accrues nothing even if a child runs. Without `mainAgent` (an old host) `working` is read as before.
+ * The stats question, "does this row accrue agent time": only a `working` row does, and only while the
+ * main agent's own turn runs or a settled main agent's live agent child work holds it. A row waiting on
+ * the user accrues nothing, whoever raised the prompt; a watch loop (`monitoring`) accrues nothing.
+ * Without `mainAgent` (an old host) `working` is read as before.
  * Not a liveness gate: a watch loop is still live work that lifecycle gates must keep honoring.
  */
 export function isAgentTimeAccruing(row: {
@@ -72,15 +72,13 @@ export function isAgentTimeAccruing(row: {
   workingMode?: AgentWorkingMode
   mainAgent?: Pick<AgentMainAgentStatus, 'state'>
 }): boolean {
-  if (!row.mainAgent) {
-    return row.state === 'working'
+  if (row.state !== 'working') {
+    return false
   }
-  if (row.mainAgent.state === 'working') {
+  if (!row.mainAgent || row.mainAgent.state === 'working') {
     return true
   }
-  return (
-    row.mainAgent.state === 'done' && row.state === 'working' && row.workingMode !== 'monitoring'
-  )
+  return row.mainAgent.state === 'done' && row.workingMode !== 'monitoring'
 }
 
 /** The main agent's clock follows the same continuity rule as the row's: an unchanged main agent state

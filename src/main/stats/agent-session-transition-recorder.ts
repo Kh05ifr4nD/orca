@@ -94,13 +94,14 @@ export function classifyAgentSessionTransition(
 /**
  * When an execution edge happened, dated only by this host's clocks: the producer's
  * `mainAgent.stateStartedAt` is an SSH host's own clock and can predate an edge already sent.
- * A row that settled or paused dates the edge by its own clock. A row that stays `working` across
- * it does not move that clock (the hook lane pins it across a watch-loop change), so the evidence
- * clock dates it. A host that publishes no `mainAgent` has only the row's clock, as before.
+ * A row that left `working` (settled, or paused on a prompt from the main agent or a child) dates
+ * the edge by its own clock. A row that is `working` on both sides of the edge does not move that
+ * clock (the hook lane pins it across a watch-loop change), so the evidence clock dates it; on a
+ * live hook row that just turned `working` the two agree. A host that publishes no `mainAgent` has
+ * only the row's clock, as before.
  */
 export function agentExecutionEdgeAt(event: AgentSessionStatusEvent): number {
-  const { mainAgent, state } = event.payload
-  if (!mainAgent || (mainAgent.state !== 'working' && state !== 'working')) {
+  if (!event.payload.mainAgent || event.payload.state !== 'working') {
     return event.stateStartedAt
   }
   return event.evidenceObservedAt ?? event.receivedAt

@@ -96,11 +96,16 @@ describe('isAgentStatusHeldOpenByChildWork', () => {
 })
 
 describe('isAgentTimeAccruing', () => {
-  it('accrues while the main agent itself works, whatever the row shows', () => {
+  it('accrues while the main agent itself works', () => {
     expect(isAgentTimeAccruing({ state: 'working', mainAgent: { state: 'working' } })).toBe(true)
-    // Codex: a child's approval prompt turns the combined row `waiting` while the root's own
-    // turn keeps running; the main agent fact wins over the row it is folded into.
-    expect(isAgentTimeAccruing({ state: 'waiting', mainAgent: { state: 'working' } })).toBe(true)
+  })
+
+  it("pauses while the row waits on the user, even when the prompt is a child's", () => {
+    // Codex and Claude: a child's approval or question turns the combined row `waiting`/`blocked`
+    // while the displaced main agent state still reads working; the row is blocked on the user.
+    expect(isAgentTimeAccruing({ state: 'waiting', mainAgent: { state: 'working' } })).toBe(false)
+    expect(isAgentTimeAccruing({ state: 'blocked', mainAgent: { state: 'working' } })).toBe(false)
+    expect(isAgentTimeAccruing({ state: 'waiting', mainAgent: { state: 'waiting' } })).toBe(false)
   })
 
   it('accrues while a settled main agent is held working by live agent child work', () => {
