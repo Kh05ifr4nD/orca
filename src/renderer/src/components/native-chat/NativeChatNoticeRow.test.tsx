@@ -28,6 +28,18 @@ describe('notice rows', () => {
       screen.getByText('Context compacted').parentElement?.querySelectorAll('.bg-border')
     ).toHaveLength(2)
   })
+  it('renders the restart note as a quiet divider, never as an error', () => {
+    renderStatus({
+      kind: 'status',
+      text: 'Orca restarted while this was running. Send a message to continue.',
+      presentation: 'restart-interruption'
+    })
+    const note = screen.getByText(
+      'Orca restarted while this was running. Send a message to continue.'
+    )
+    expect(note).toHaveClass('text-muted-foreground', 'border-t')
+    expect(note).not.toHaveClass('text-destructive')
+  })
   it.each([
     ['warning', 'text-[color:var(--warning,#f59e0b)]'],
     ['error', 'text-destructive'],

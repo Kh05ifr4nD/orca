@@ -53,6 +53,14 @@ export class StructuredAgentSessionClientDelivery {
   publishRestored = (sessionId: string): void =>
     this.statusFeed.publish(sessionId, undefined, { replay: true })
 
+  /** Rows a restore wrote after the session became readable, for a reader that subscribed first. */
+  publishJournalRows = (sessionId: string): void => {
+    const journal = this.sessions.get(sessionId)?.journal
+    if (journal) {
+      this.subscribers.publish(sessionId, journal)
+    }
+  }
+
   subscribeStatus = (subscriber: StructuredAgentSessionStatusSubscriber): (() => void) =>
     this.statusFeed.subscribe(subscriber)
   forgetStatus = (sessionId: string): void => this.statusFeed.forget(sessionId)

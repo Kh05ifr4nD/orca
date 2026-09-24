@@ -22,7 +22,8 @@ export type NativeChatTurnFoldRow = {
   rendersProse: boolean
   /** Whether the row carries work that outlives the turn that started it: a
    *  spawn roster or a background task. That row is the durable report of how
-   *  the work ended — often the only one — so it never folds. */
+   *  the work ended — often the only one — so it never folds. The note saying
+   *  Orca's restart cut the turn off is that report too. */
   outlivesTurn: boolean
 }
 

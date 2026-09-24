@@ -14914,7 +14914,10 @@
         "allow": "허용",
         "deny": "거부"
       },
-      "launchPromptNotDelivered": "전달되지 않음 — 터미널을 확인하세요"
+      "launchPromptNotDelivered": "전달되지 않음 — 터미널을 확인하세요",
+      "notices": {
+        "restartInterruption": "실행 중에 Orca가 다시 시작되었습니다. 계속하려면 메시지를 보내세요."
+      }
     },
     "tab": {
       "bar": {

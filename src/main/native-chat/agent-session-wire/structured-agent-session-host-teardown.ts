@@ -163,7 +163,11 @@ export async function flushStructuredAgentSessionHost(
       ...context,
       evictOwnedSessions: () =>
         evictOwnedStructuredAgentSessions(
-          { ...context, onStoppedWork: context.restartResume.confirmStoppedMarker },
+          {
+            ...context,
+            onStoppedWork: context.restartResume.confirmStoppedMarker,
+            appGoingAway: true
+          },
           retainSessionIds
         ),
       captureResumeMarkers: () => context.restartResume.captureMarkers(context.trigger),

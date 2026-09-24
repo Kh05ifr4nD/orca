@@ -2665,6 +2665,9 @@
         "effort": "Effort",
         "imageUnsupported": "Image paste is not supported for this agent."
       },
+      "notices": {
+        "restartInterruption": "Orca restarted while this was running. Send a message to continue."
+      },
       "question": {
         "other": "Other…"
       },

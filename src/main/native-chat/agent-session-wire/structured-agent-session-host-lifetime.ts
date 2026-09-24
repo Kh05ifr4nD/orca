@@ -32,6 +32,8 @@ export type StructuredAgentSessionLifetimeContext = {
   forgetStatus: (sessionId: string) => void
   /** Quit-only witness validation after provider exit and event drain, before prompt cancellation. */
   onStoppedWork?: (sessionId: string) => void
+  /** Teardown only: the app itself is going away, so a turn this eviction cuts off is noted. */
+  appGoingAway?: boolean
 }
 
 /** Dropping a session and dropping its status row are ONE operation: the store keeps the row until
@@ -101,6 +103,7 @@ export async function evictHeldStructuredAgentSession(
         pendingSubmissionReason: 'provider_closed_before_acknowledgement',
         verdict: { state: 'interrupted', completedAt: context.now() },
         showUnexpectedExitOutcome: false,
+        noteRestartInterruption: context.appGoingAway === true,
         onError: (id, error) => {
           settlementError = error
           context.deps.onEventSinkError?.({ sessionId: id, error })

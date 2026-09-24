@@ -151,6 +151,29 @@ describe('transcript slots', () => {
     }
   })
 
+  it('keeps the restart note visible when its cut-off turn folds', () => {
+    const note: NativeChatMessage = {
+      id: 'note',
+      role: 'system',
+      blocks: [
+        {
+          type: 'text',
+          text: 'Orca restarted while this was running. Send a message to continue.',
+          presentation: 'restart-interruption'
+        }
+      ],
+      timestamp: 1,
+      source: 'transcript'
+    }
+    const worked: NativeChatTurnStatus = { startedAt: 1, thinking: false, workedSeconds: 36 }
+    const slots = build([text('user', 'run it', 'user'), toolRun('work'), note], {
+      turnStatuses: { active: null, completedByTurn: { user: worked } }
+    })
+
+    // A folded row takes no slot at all; the note keeps its own.
+    expect(slots.map((slot) => slot.message.id)).toEqual(['user', 'note'])
+  })
+
   it('finds the slot a reveal names, and reports -1 for one that has no slot', () => {
     const slots = build([text('a', 'visible'), text('blank', ''), text('b', 'also visible')])
     expect(nativeChatSlotIndexOf(slots, 'b')).toBe(1)

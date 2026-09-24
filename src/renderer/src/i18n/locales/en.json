@@ -17322,7 +17322,8 @@
       "notices": {
         "compaction": "Context compacted",
         "details": "Details",
-        "plan": "Plan"
+        "plan": "Plan",
+        "restartInterruption": "Orca restarted while this was running. Send a message to continue."
       },
       "composer": {
         "imageUnsupported": "Image paste is not supported for this agent.",

@@ -14837,7 +14837,10 @@
         "allow": "許可する",
         "deny": "拒否"
       },
-      "launchPromptNotDelivered": "配信されませんでした — ターミナルを確認してください"
+      "launchPromptNotDelivered": "配信されませんでした — ターミナルを確認してください",
+      "notices": {
+        "restartInterruption": "実行中に Orca が再起動しました。続行するにはメッセージを送信してください。"
+      }
     },
     "tab": {
       "bar": {

@@ -97,6 +97,7 @@ export async function retryLoadedStructuredAgentSessionSettlement(input: {
     ...(record.lease.deathEvidence?.detail
       ? { unexpectedExitReason: record.lease.deathEvidence.detail }
       : {}),
+    noteRestartInterruption: record.lease.deathEvidence?.kind === 'previous-app-run',
     onError
   })
   if (!ok) {

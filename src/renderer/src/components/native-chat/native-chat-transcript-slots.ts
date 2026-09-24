@@ -14,6 +14,7 @@ import {
   type NativeChatMessage
 } from '../../../../shared/native-chat-types'
 import type { NativeChatTurnStatus } from '../../../../shared/native-chat-turn-status'
+import { AGENT_SESSION_RESTART_INTERRUPTION_PRESENTATION } from '../../../../shared/agent-session-restart-interruption'
 import {
   nativeChatTurnFold,
   type NativeChatTurnFoldRow
@@ -95,7 +96,11 @@ export function buildNativeChatTranscriptSlots(
       // The raw blocks, not the renderable ones: a childless roster draws no row
       // and its plain-text twin is then the only record the spawn happened.
       outlivesTurn: message.blocks.some(
-        (block) => isSubagentGroupBlock(block) || isBackgroundTaskBlock(block)
+        (block) =>
+          isSubagentGroupBlock(block) ||
+          isBackgroundTaskBlock(block) ||
+          (block.type === 'text' &&
+            block.presentation === AGENT_SESSION_RESTART_INTERRUPTION_PRESENTATION)
       )
     }
   })

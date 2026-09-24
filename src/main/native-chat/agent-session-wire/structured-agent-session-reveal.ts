@@ -64,7 +64,7 @@ export function createStructuredAgentSessionHostRestore(
   wiring: Omit<
     ConstructorParameters<typeof StructuredAgentSessionReadableRestorer>[0],
     'store' | 'journalRoot' | 'supportsRecord' | 'retrySettlement'
-  >
+  > & { publishJournalRows: (sessionId: string) => void }
 ): {
   restoreReadableSessions: (sessionIds?: readonly string[]) => Promise<void>
   revealSession: (sessionId: string) => Promise<StructuredAgentSessionReveal>
@@ -74,8 +74,18 @@ export function createStructuredAgentSessionHostRestore(
     store: deps.store,
     journalRoot: deps.journalRoot,
     supportsRecord: (record) => adapterSupportsRecord(deps.adapter, record),
-    retrySettlement: (sessionId, params) =>
-      retryPendingStructuredAgentSessionSettlement({ deps, sessions, sessionId, params, now }),
+    retrySettlement: async (sessionId, params) => {
+      const settled = await retryPendingStructuredAgentSessionSettlement({
+        deps,
+        sessions,
+        sessionId,
+        params,
+        now
+      })
+      // The session is already readable here, so a reader may have subscribed before these rows.
+      wiring.publishJournalRows(sessionId)
+      return settled
+    },
     ...wiring
   })
   const gate = new StructuredAgentSessionRestartRestoreGate()

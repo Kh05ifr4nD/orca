@@ -14802,7 +14802,10 @@
         "allow": "Permitir",
         "deny": "Denegar"
       },
-      "launchPromptNotDelivered": "No entregado — revisa la terminal"
+      "launchPromptNotDelivered": "No entregado — revisa la terminal",
+      "notices": {
+        "restartInterruption": "Orca se reinició mientras esto se ejecutaba. Envíe un mensaje para continuar."
+      }
     },
     "tab": {
       "bar": {

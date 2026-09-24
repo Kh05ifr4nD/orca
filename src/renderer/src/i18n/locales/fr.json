@@ -16148,7 +16148,10 @@
         "allow": "Autoriser",
         "deny": "Refuser"
       },
-      "launchPromptNotDelivered": "Non livré — vérifiez le terminal"
+      "launchPromptNotDelivered": "Non livré — vérifiez le terminal",
+      "notices": {
+        "restartInterruption": "Orca a redémarré pendant l'exécution. Envoyez un message pour continuer."
+      }
     },
     "tab": {
       "bar": {

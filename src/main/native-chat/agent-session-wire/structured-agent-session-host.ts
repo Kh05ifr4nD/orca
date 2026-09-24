@@ -134,6 +134,7 @@ export class StructuredAgentSessionHost {
         this.sessions.set(sessionId, restored)
         this.clientDelivery.publishRestored(sessionId)
       },
+      publishJournalRows: this.clientDelivery.publishJournalRows,
       restoreHandoff: (sessionId) => this.handoffs.restore(sessionId)
     })
     this.eventRecovery = new StructuredAgentSessionEventRecovery({

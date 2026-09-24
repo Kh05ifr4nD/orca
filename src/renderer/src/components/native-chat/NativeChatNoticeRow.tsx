@@ -6,6 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
 import type { NativeChatTextBlock } from '../../../../shared/native-chat-types'
+import {
+  AGENT_SESSION_RESTART_INTERRUPTION_NOTE,
+  AGENT_SESSION_RESTART_INTERRUPTION_PRESENTATION
+} from '../../../../shared/agent-session-restart-interruption'
 import { ProviderFrameRow } from './NativeChatTranscriptChrome'
 
 export function NativeChatNoticeRow({
@@ -29,6 +33,16 @@ export function NativeChatNoticeRow({
         <span>{label}</span>
         <span className="h-px flex-1 bg-border" />
       </div>
+    )
+  }
+  if (block.presentation === AGENT_SESSION_RESTART_INTERRUPTION_PRESENTATION) {
+    return (
+      <p className="mx-auto w-11/12 border-t border-border pt-2 text-center text-xs text-muted-foreground">
+        {translate(
+          'components.native-chat.notices.restartInterruption',
+          AGENT_SESSION_RESTART_INTERRUPTION_NOTE
+        )}
+      </p>
     )
   }
   if (block.presentation === 'plan-document') {

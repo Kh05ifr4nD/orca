@@ -14882,7 +14882,10 @@
         "allow": "允许",
         "deny": "拒绝"
       },
-      "launchPromptNotDelivered": "未送达 — 请检查终端"
+      "launchPromptNotDelivered": "未送达 — 请检查终端",
+      "notices": {
+        "restartInterruption": "运行期间 Orca 已重新启动。发送消息以继续。"
+      }
     },
     "tab": {
       "bar": {

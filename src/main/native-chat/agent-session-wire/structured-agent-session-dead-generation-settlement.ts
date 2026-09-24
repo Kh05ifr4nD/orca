@@ -4,6 +4,11 @@ import type {
   AgentJournalRenderItem
 } from '../../../shared/agent-session-journal-types'
 import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
+import {
+  AGENT_SESSION_RESTART_INTERRUPTION_NOTE,
+  AGENT_SESSION_RESTART_INTERRUPTION_PRESENTATION,
+  agentSessionRestartInterruptionNoteId
+} from '../../../shared/agent-session-restart-interruption'
 import { partitionJournalLifecycleMutations } from '../agent-session-journal/journal-lifecycle-batch-partition'
 import type { JournalLifecycleMutationInput } from '../agent-session-journal/journal-row-builders'
 import {
@@ -106,6 +111,8 @@ export async function settleStructuredAgentSessionDeadGeneration(input: {
   showUnexpectedExitOutcome?: boolean
   /** Why the provider stopped, when the host has it. Rendered with the outcome copy. */
   unexpectedExitReason?: string
+  /** The child went because Orca itself went away; a turn it cut off gets the restart note. */
+  noteRestartInterruption?: boolean
   onError?: (sessionId: string, error: unknown) => void
 }): Promise<boolean> {
   try {
@@ -116,7 +123,9 @@ export async function settleStructuredAgentSessionDeadGeneration(input: {
     }
     await input.journal.markPendingSubmissionsUnknown(input.fence, input.pendingSubmissionReason)
     const items = input.journal.snapshot().items
-    const mutations: JournalLifecycleMutationInput[] = []
+    const mutations: JournalLifecycleMutationInput[] = input.noteRestartInterruption
+      ? restartInterruptionNote(items)
+      : []
     if (showUnexpectedExitOutcome) {
       mutations.push({
         kind: 'item',
@@ -149,6 +158,32 @@ export async function settleStructuredAgentSessionDeadGeneration(input: {
     input.onError?.(input.sessionId, error)
     return false
   }
+}
+
+/** First in the batch: a settlement cut short after writing it rewrites the same row on retry,
+ *  and one cut short before it still finds the turn running. */
+function restartInterruptionNote(
+  items: readonly AgentJournalRenderItem[]
+): JournalLifecycleMutationInput[] {
+  const cutOff = items
+    .map((item) => readAgentJournalTurn(item.body))
+    .find((turn) => turn?.state === 'running')
+  return cutOff
+    ? [
+        {
+          kind: 'item',
+          identity: {
+            provider: 'orca',
+            clientMessageId: agentSessionRestartInterruptionNoteId(cutOff.turnId)
+          },
+          body: {
+            kind: 'status',
+            text: AGENT_SESSION_RESTART_INTERRUPTION_NOTE,
+            presentation: AGENT_SESSION_RESTART_INTERRUPTION_PRESENTATION
+          }
+        }
+      ]
+    : []
 }
 
 function terminalDeadGenerationBody(item: AgentJournalRenderItem): AgentJournalItemBody | null {
