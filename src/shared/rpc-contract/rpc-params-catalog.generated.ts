@@ -979,6 +979,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'notifications.unregisterPush': null,
   'notifications.unsubscribe': NotificationUnsubscribeParams,
   'orchestration.ask': AskParams,
+  'orchestration.callerShow': null,
   'orchestration.check': CheckParams,
   'orchestration.dispatch': DispatchParams,
   'orchestration.dispatchShow': DispatchShowParams,
