@@ -52,6 +52,15 @@ describe('mobileNativeChatEmptyState', () => {
     )
   })
 
+  it("shows desktop's damaged-history copy instead of the host's refusal code", () => {
+    expect(
+      mobileNativeChatEmptyState('error', 'claude', 'agent_session_journal_unreadable')
+    ).toEqual({
+      title: "This conversation's history couldn't be loaded",
+      subtitle: 'The saved history for this chat is damaged.'
+    })
+  })
+
   it('returns null for states that show no empty copy', () => {
     expect(mobileNativeChatEmptyState('loading', 'claude')).toBeNull()
     expect(mobileNativeChatEmptyState('idle', 'claude')).toBeNull()

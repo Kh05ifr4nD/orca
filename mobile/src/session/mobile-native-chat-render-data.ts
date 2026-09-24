@@ -4,6 +4,7 @@ import {
   type NativeChatEmptyStateCopy
 } from '../../../src/shared/native-chat-empty-state'
 import { stripNoiseMessages } from '../../../src/shared/native-chat-noise'
+import { AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE } from '../../../src/shared/structured-agent-session-read-refusal'
 import { foldToolMessages } from '../../../src/shared/native-chat-tool-fold'
 import { isImageRefBlock, type NativeChatMessage } from '../../../src/shared/native-chat-types'
 import {
@@ -31,6 +32,10 @@ export function mobileNativeChatEmptyState(
     case 'ready':
       return formatNativeChatEmptyStateCopy('empty', agentLabel)
     case 'error': {
+      // The host's code for a damaged journal file gets the same copy desktop shows, not the code.
+      if (error === AGENT_SESSION_JOURNAL_UNREADABLE_REFUSAL_CODE) {
+        return formatNativeChatEmptyStateCopy('historyUnavailable', agentLabel)
+      }
       const copy = formatNativeChatEmptyStateCopy('error', agentLabel)
       return error ? { ...copy, subtitle: error } : copy
     }
