@@ -161,6 +161,8 @@ export async function setClaudeStructuredOption(
       }
       session.options.set('model', input.value)
       session.options.set('fastMode', 'false')
+      session.restoreUnansweredOptions.delete('model')
+      session.restoreUnansweredOptions.delete('fastMode')
       session.confirmedOptions.delete('effort')
       session.confirmedOptions.delete('fastMode')
       // The requested model is already accepted; a cleanup failure cannot reject that write.
@@ -207,6 +209,7 @@ export async function setClaudeStructuredOption(
     input.key,
     input.key === 'fastMode' && typeof adopted === 'boolean' ? String(adopted) : input.value
   )
+  session.restoreUnansweredOptions.delete(input.key)
   // Only a readback that agreed is adoption evidence; one that disagreed or could
   // not be taken records the value but must not also claim the provider vouched for it.
   if (adopted !== null && adopted === decodedInput) {

@@ -457,6 +457,22 @@ describe('Claude structured option restore under the request deadline', () => {
     expect(session.options.has('model')).toBe(false)
   })
 
+  it('stops keeping the saved choice once the user sets that option on the child', async () => {
+    const setModel = vi
+      .fn<ClaudeSession['connection']['setModel']>()
+      .mockRejectedValueOnce(new ClaudeControlRequestTimeoutError('set_model'))
+      .mockResolvedValue(undefined)
+    const session = sessionFor(setModel)
+    session.options = new Map([['model', 'sonnet']])
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await restoreClaudeStructuredSessionOptions(session, 10)
+
+    await expect(
+      setClaudeStructuredOption(session, { key: 'model', value: 'opus' }, 10)
+    ).resolves.toEqual({ model: 'opus' })
+    expect([...session.restoreUnansweredOptions]).toEqual([])
+  })
+
   it("keeps a timed-out client write as the deadline's own error, not a rejection", async () => {
     const session = sessionFor(async () => {
       throw new ClaudeControlRequestTimeoutError('set_model')

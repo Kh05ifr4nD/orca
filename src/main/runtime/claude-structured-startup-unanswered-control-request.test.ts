@@ -83,6 +83,42 @@ describe('a Claude start whose CLI answers initialize but not a control request'
     await vi.waitFor(() => expect(claude.child(SESSION).calls).toContain('send'))
   })
 
+  it('keeps the unanswered saved choice when the user later changes a different option', async () => {
+    const behavior = { optionWritesHang: true, controlTimeoutMs: DEADLINE_MS }
+    claude.behave(SESSION, behavior)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const host = await claude.install()
+    await expect(
+      host.attach(CALLER, claude.attachParams(SESSION, null, { options: { model: 'sonnet' } }))
+    ).resolves.toMatchObject({ ok: true })
+    await vi.waitFor(
+      () => expect(record(host)?.options).toEqual({ model: 'sonnet', effort: 'high' }),
+      {
+        timeout: DEADLINE_MS * 40
+      }
+    )
+
+    // The CLI answers again; the user sets another option on the running child.
+    behavior.optionWritesHang = false
+    const value = 'plan'
+    const changed = await host.setOption(CALLER, {
+      envelope: {
+        sessionId: SESSION,
+        clientOperationId: `${Date.now()}-${(++operations).toString(16).padStart(32, '0')}`,
+        expectedRuntimeFence: record(host)?.lease.runtimeFence ?? 0,
+        payloadFingerprint: computeAgentSessionPayloadFingerprint({
+          method: 'agentSession.setOption',
+          sessionId: SESSION,
+          fields: { key: 'permissionMode', value }
+        })
+      },
+      key: 'permissionMode',
+      value
+    })
+    expect(changed, JSON.stringify(changed)).toMatchObject({ ok: true })
+    expect(record(host)?.options).toMatchObject({ model: 'sonnet', permissionMode: 'plan' })
+  })
+
   it("lands with effort unknown when startup's own settings read goes unanswered", async () => {
     claude.behave(SESSION, { startupSettingsReadHangs: true, controlTimeoutMs: DEADLINE_MS })
     const host = await claude.install()

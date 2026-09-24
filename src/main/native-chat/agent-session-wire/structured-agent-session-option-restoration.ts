@@ -41,16 +41,27 @@ export function nativeSessionOptionsFromReport(input: {
     reported.fastMode === undefined
       ? undefined
       : encodeStructuredAgentSessionOptionValue('fastMode', reported.fastMode)
-  const kept = Object.fromEntries(
-    (input.restoreUnanswered ?? []).flatMap((key) =>
-      priorOptions?.[key] === undefined ? [] : [[key, priorOptions[key]]]
-    )
+  return withUnansweredSavedOptions(
+    {
+      ...restored,
+      model: reported.model,
+      ...(reported.effort ? { effort: reported.effort } : {}),
+      ...(fastMode !== undefined && fastMode !== null ? { fastMode } : {})
+    },
+    priorOptions,
+    input.restoreUnanswered ?? []
   )
-  return {
-    ...restored,
-    model: reported.model,
-    ...(reported.effort ? { effort: reported.effort } : {}),
-    ...(fastMode !== undefined && fastMode !== null ? { fastMode } : {}),
-    ...kept
-  }
+}
+
+/** Options to persist with every saved choice the child never answered a restore write for kept
+ *  as saved, so a write the child does apply cannot silently drop one. */
+export function withUnansweredSavedOptions(
+  options: Readonly<Record<string, string>>,
+  saved: Readonly<Record<string, string>> | undefined,
+  unanswered: readonly string[]
+): Readonly<Record<string, string>> {
+  const kept = unanswered.flatMap((key) =>
+    saved?.[key] === undefined ? [] : [[key, saved[key]] as const]
+  )
+  return kept.length === 0 ? options : { ...options, ...Object.fromEntries(kept) }
 }

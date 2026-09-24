@@ -25,6 +25,7 @@ import type { AgentSessionRecordStore } from '../../runtime/agent-session-record
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import type { MutationPlan } from './structured-agent-session-mutation-plans'
+import { withUnansweredSavedOptions } from './structured-agent-session-option-restoration'
 import { runSettledAgentSessionMutation } from './structured-agent-session-operation-settlement'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import type { AgentSessionTurnContext } from './structured-agent-session-turns'
@@ -183,7 +184,11 @@ function turnContext<TValue>(
         .replaceSessionOptions({
           sessionId: request.envelope.sessionId,
           fence,
-          options,
+          options: withUnansweredSavedOptions(
+            options,
+            request.store.getRecord(request.envelope.sessionId)?.options,
+            request.adapter.readOptionRestoreUnanswered?.(request.envelope.sessionId) ?? []
+          ),
           now: request.now()
         })
         .then(() => undefined),
