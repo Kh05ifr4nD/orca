@@ -46,12 +46,38 @@ describe('structured session cold restoration', () => {
     await runtime.prepareStructuredAgentSessionStartupRestoration()
 
     expect(ensureHost).toHaveBeenCalledOnce()
-    expect(refresh).toHaveBeenCalledOnce()
+    // Reconcile reads no census; the TUI owner recovery that does takes its own.
+    expect(refresh).not.toHaveBeenCalled()
     expect(reconcileRestartLeases).toHaveBeenCalledOnce()
     expect(restoreReadableSessions).not.toHaveBeenCalled()
   })
 
-  it('loads records, inventories PTYs, restores ownership, then projects tabs exactly once', async () => {
+  it('takes the TUI owner census only once the PTY provider can list daemon terminals', async () => {
+    let providerReady!: () => void
+    const runtime = new OrcaRuntimeService(null, undefined, {
+      awaitLocalPtyProviderStartup: () => new Promise<void>((resolve) => (providerReady = resolve))
+    })
+    const refresh = vi.fn(async () => new Set<string>())
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: both members exist on the runtime; they are protected, not absent.
+    const internal = runtime as unknown as {
+      refreshMobileSessionPtyRecords(): Promise<Set<string> | null>
+      createStructuredAgentSessionRecoverTuiOwnerCallback(): (record: unknown) => Promise<unknown>
+    }
+    internal.refreshMobileSessionPtyRecords = refresh
+    const recovery = internal.createStructuredAgentSessionRecoverTuiOwnerCallback()({
+      lease: { ownerProcess: null },
+      providerHandleChain: []
+    })
+    await Promise.resolve()
+    expect(refresh).not.toHaveBeenCalled()
+
+    providerReady()
+
+    await expect(recovery).rejects.toThrow('agent_session_identity_required')
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('loads records, restores ownership, then projects tabs exactly once', async () => {
     const runtime = new OrcaRuntimeService()
     const hydrate = vi.fn()
     const refresh = vi.fn(async () => new Set<string>())
@@ -89,14 +115,11 @@ describe('structured session cold restoration', () => {
       onlyRuntimeOwnedTerminals: true
     })
     expect(hydrate).toHaveBeenCalledWith()
-    expect(refresh).toHaveBeenCalledOnce()
+    expect(refresh).not.toHaveBeenCalled()
     expect(reconcileRestartLeases).toHaveBeenCalledOnce()
     expect(restoreReadableSessions).toHaveBeenCalledOnce()
     expect(ensureHost).toHaveBeenCalledOnce()
     expect(ensureHost.mock.invocationCallOrder[0]).toBeLessThan(
-      refresh.mock.invocationCallOrder[0] ?? Infinity
-    )
-    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(
       reconcileRestartLeases.mock.invocationCallOrder[0] ?? Infinity
     )
     expect(reconcileRestartLeases.mock.invocationCallOrder[0]).toBeLessThan(

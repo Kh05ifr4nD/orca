@@ -281,10 +281,12 @@ export function useAppStartupHydration(onOnboardingLoaded: (state: OnboardingSta
           await timeRendererStartupStep('recover-legacy-worker-terminals-post-reconnect', () =>
             window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
           )
+          // Why not awaited: chat tabs come from the host's durable index and land whenever it
+          // answers. The tab sync awaits this same latched restore and reports its failure.
           if (useAppStore.getState().settings?.experimentalStructuredNativeChat === true) {
-            await timeRendererStartupStep('project-structured-session-tabs', () =>
+            void timeRendererStartupStep('project-structured-session-tabs', () =>
               restoreLocalStructuredSessionTabsOnce()
-            )
+            ).catch(() => {})
           }
           if (cancelled) {
             return

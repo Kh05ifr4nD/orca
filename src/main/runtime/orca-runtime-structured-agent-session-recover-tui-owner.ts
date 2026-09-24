@@ -19,8 +19,16 @@ import {
 import { agentSessionPtyWriteGate } from './agent-session-pty-write-gate'
 
 export class OrcaRuntimeWithStructuredAgentSessionRecoverTuiOwner extends OrcaRuntimeWithStructuredAgentSessionReproveTuiOwner {
+  /** Taken where it is read, once the provider can list daemon terminals: a census before that
+   *  reads empty and latches a live TUI owner into recovery. */
+  protected async refreshStructuredTuiOwnerCensus(): Promise<void> {
+    await this.awaitLocalPtyProviderStartupFn()
+    await this.refreshMobileSessionPtyRecords()
+  }
+
   protected createStructuredAgentSessionRecoverTuiOwnerCallback() {
     return async (record) => {
+      await this.refreshStructuredTuiOwnerCensus()
       const identity = record.lease.ownerProcess
       const head = record.providerHandleChain.at(-1)
       if (

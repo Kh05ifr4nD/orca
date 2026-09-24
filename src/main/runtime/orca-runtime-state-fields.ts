@@ -84,6 +84,8 @@ export class OrcaRuntimeWithStateFields extends OrcaRuntimeWithLinearCommands {
       retireAgentHookCompatibilityAuthority?: (paneKey: string) => void
       reconcileAgentStatusForEndedProcess?: (paneKeys: Iterable<string>) => void
       canRecoverPersistentLocalPtys?: () => boolean
+      /** Settles once the local PTY provider can list daemon terminals; resolved per call. */
+      awaitLocalPtyProviderStartup?: () => Promise<void>
       // Why: the device registry lives on the RPC server, which is constructed with this runtime;
       // a closure defers the lookup past that ordering instead of inverting ownership.
       getPairedDeviceName?: (pairedDeviceId: string) => string | null
@@ -227,6 +229,8 @@ export class OrcaRuntimeWithStateFields extends OrcaRuntimeWithLinearCommands {
       deps?.retireAgentHookCompatibilityAuthority ?? null
     this.reconcileAgentStatusForEndedProcessFn = deps?.reconcileAgentStatusForEndedProcess ?? null
     this.canRecoverPersistentLocalPtysFn = deps?.canRecoverPersistentLocalPtys ?? (() => true)
+    this.awaitLocalPtyProviderStartupFn =
+      deps?.awaitLocalPtyProviderStartup ?? (() => Promise.resolve())
     this.getPairedDeviceNameFn = deps?.getPairedDeviceName ?? (() => null)
     // Why: configure the shared AiVault scan cache from a serve-mode-reachable
     // seam so the aiVault.listSessions RPC includes managed-Codex + WSL sessions

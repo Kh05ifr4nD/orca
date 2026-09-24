@@ -96,6 +96,8 @@ export class OrcaRuntimeWithPreservedBranchCleanup extends OrcaRuntimeWithTermin
 
   protected readonly canRecoverPersistentLocalPtysFn: () => boolean
 
+  protected readonly awaitLocalPtyProviderStartupFn: () => Promise<void>
+
   protected readonly getPairedDeviceNameFn: (pairedDeviceId: string) => string | null
 
   protected readonly buildAgentHookPtyEnv: (() => Record<string, string>) | null

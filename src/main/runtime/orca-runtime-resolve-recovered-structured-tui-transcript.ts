@@ -275,9 +275,9 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     if (!this.hasPersistedStructuredAgentSessionStore()) {
       return
     }
-    // Durable agent records must exist before daemon inventory can be reconciled against them.
+    // Reconcile reads only the records; the daemon census it once waited on is taken where a TUI
+    // owner is recovered, after the PTY provider is ready.
     await this.ensureStructuredAgentSessionHost()
-    await this.refreshMobileSessionPtyRecords()
     await getStructuredAgentSessionHost()?.reconcileRestartLeases()
   }
 

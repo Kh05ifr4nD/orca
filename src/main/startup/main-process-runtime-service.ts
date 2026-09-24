@@ -92,6 +92,7 @@ export function initializeMainProcessRuntime(): OrcaRuntimeService {
       }
     },
     getDesktopWindowStatus,
+    awaitLocalPtyProviderStartup: () => state.localPtyProviderStartupReady,
     // Why: worktree.ps pulls hook-reported agent status (same source as the desktop sidebar) at query time so mobile shows the same agents.
     getAgentStatusSnapshot: () =>
       agentHookServer.getStatusSnapshot().filter((entry) => entry.providerSessionOnly !== true),
