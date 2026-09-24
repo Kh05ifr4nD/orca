@@ -79,14 +79,14 @@ describe('acquireSingleInstanceLock', () => {
 })
 
 describe('claimUserDataOwnership', () => {
+  const lockTaken = { skip: false, bypass: false, peersSkipLock: false }
+
   it('owns the profile exclusively only when this process acquired the lock', () => {
     const fake = makeFakeApp(true)
 
     const onSecondInstance = vi.fn()
 
-    expect(claimUserDataOwnership(fake.app, onSecondInstance, { skip: false, bypass: false })).toBe(
-      'exclusive'
-    )
+    expect(claimUserDataOwnership(fake.app, onSecondInstance, lockTaken)).toBe('exclusive')
     expect(fake.requestSingleInstanceLock).toHaveBeenCalledTimes(1)
     fake.listeners['second-instance']?.[0]?.({}, ['orca'])
     expect(onSecondInstance).toHaveBeenCalledWith(['orca'])
@@ -96,15 +96,31 @@ describe('claimUserDataOwnership', () => {
     // Why: a parallel dev run or a bypassed launch may be live on the same userData.
     const fake = makeFakeApp(true)
 
-    expect(claimUserDataOwnership(fake.app, vi.fn(), { skip: true, bypass: false })).toBe('shared')
-    expect(claimUserDataOwnership(fake.app, vi.fn(), { skip: false, bypass: true })).toBe('shared')
+    expect(claimUserDataOwnership(fake.app, vi.fn(), { ...lockTaken, skip: true })).toBe('shared')
+    expect(claimUserDataOwnership(fake.app, vi.fn(), { ...lockTaken, bypass: true })).toBe('shared')
     expect(fake.requestSingleInstanceLock).not.toHaveBeenCalled()
+  })
+
+  it('shares the profile it locked when desktop launches of this build skip the lock', () => {
+    // Why: a dev serve run takes the lock, but a dev desktop run on the same userData never asks.
+    const fake = makeFakeApp(true)
+    const onSecondInstance = vi.fn()
+
+    expect(
+      claimUserDataOwnership(fake.app, onSecondInstance, { ...lockTaken, peersSkipLock: true })
+    ).toBe('shared')
+    expect(fake.requestSingleInstanceLock).toHaveBeenCalledTimes(1)
+    fake.listeners['second-instance']?.[0]?.({}, ['orca'])
+    expect(onSecondInstance).toHaveBeenCalledWith(['orca'])
   })
 
   it('owns nothing when another instance holds the lock', () => {
     const fake = makeFakeApp(false)
 
-    expect(claimUserDataOwnership(fake.app, vi.fn(), { skip: false, bypass: false })).toBeNull()
+    expect(claimUserDataOwnership(fake.app, vi.fn(), lockTaken)).toBeNull()
+    expect(
+      claimUserDataOwnership(fake.app, vi.fn(), { ...lockTaken, peersSkipLock: true })
+    ).toBeNull()
   })
 })
 

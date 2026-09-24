@@ -56,6 +56,10 @@ describe('structured store ownership wiring', () => {
     const source = readFileSync(join(MAIN_ROOT, 'startup/main-process-runtime-service.ts'), 'utf8')
 
     expect(preflight).toContain('state.userDataOwnership = ownership')
+    // A dev serve run holds the lock that dev desktop runs on the same userData skip.
+    expect(preflight).toContain(
+      'peersSkipLock: shouldSkipSingleInstanceLock({ isDev, isServeMode: false })'
+    )
     expect(source).toContain('userDataOwnership: state.userDataOwnership')
   })
 

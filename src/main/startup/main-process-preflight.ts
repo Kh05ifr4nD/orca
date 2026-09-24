@@ -214,7 +214,11 @@ export function runMainProcessPreflight(options: MainProcessPreflightOptions): b
     // Why: diagnostic escape hatch for macOS builds where Electron reports a false lock loss before any app logs exist.
     logSingleInstanceLockBypass()
   }
-  const ownership = claimUserDataOwnership(app, options.requestDesktopActivation, { skip, bypass })
+  const ownership = claimUserDataOwnership(app, options.requestDesktopActivation, {
+    skip,
+    bypass,
+    peersSkipLock: shouldSkipSingleInstanceLock({ isDev, isServeMode: false })
+  })
   const hasLock = ownership !== null
   if (state.startupDiagnosticsEnabled) {
     logStartupDiagnostic('single-instance-lock-result', {
