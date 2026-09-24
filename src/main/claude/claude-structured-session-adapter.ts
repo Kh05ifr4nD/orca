@@ -56,6 +56,9 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   private readonly sessions = new Map<string, ClaudeSession>()
   private readonly acquisitions = new ClaudeAcquisitionRegistry()
   private readonly exits = new Map<string, ClaudeSessionExit>()
+  /** The diagnostic of a settled exit, until the id is acquired or closed again: the host learns
+   *  of the exit only after its settlement, and a send already past admission must name it. */
+  private readonly settledExitErrors = new Map<string, Error>()
 
   constructor(private readonly deps: ClaudeStructuredSessionAdapterDeps) {}
 
@@ -64,8 +67,9 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = () =>
     this.deps.readTranscriptLeaf ? { supported: true } : { supported: false, reason: 'unsupported' }
 
-  acquire = (input: StructuredAgentSessionAcquireInput): Promise<AgentSessionAcquisition> =>
-    acquireClaudeSession({
+  acquire = (input: StructuredAgentSessionAcquireInput): Promise<AgentSessionAcquisition> => {
+    this.settledExitErrors.delete(input.identity.sessionId)
+    return acquireClaudeSession({
       input,
       deps: this.deps,
       sessions: this.sessions,
@@ -78,6 +82,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         settleExit: (sessionId, exit) => this.settleUnexpectedExit(sessionId, exit)
       }
     })
+  }
 
   private deliver(attempt: ClaudeAcquisitionAttempt, sessionId: string, event: () => void): void {
     if (!attempt.published) {
@@ -149,6 +154,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         return
       }
       this.exits.delete(sessionId)
+      this.settledExitErrors.set(sessionId, exit.error)
       const ended: ClaudeStructuredSessionEvent = {
         type: 'ended',
         sessionId,
@@ -291,6 +297,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     })
 
   closeSession = (sessionId: string): Promise<boolean> => {
+    this.settledExitErrors.delete(sessionId)
     if (this.exits.has(sessionId)) {
       return this.releaseAcquisition({ sessionId })
     }
@@ -307,14 +314,16 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     })
   }
 
-  closeAll = (): Promise<void> =>
-    closeAllClaudeSessions({
+  closeAll = (): Promise<void> => {
+    this.settledExitErrors.clear()
+    return closeAllClaudeSessions({
       sessions: this.sessions,
       acquisitions: this.acquisitions,
       exits: this.exits,
       closeSession: this.closeSession,
       closeExit: (sessionId) => this.releaseAcquisition({ sessionId })
     })
+  }
 
   private session(sessionId: string): ClaudeSession {
     const session = this.sessions.get(sessionId)
@@ -322,6 +331,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       // A child that just exited is named by its own diagnostic, not by its absence.
       throw (
         this.exits.get(sessionId)?.error ??
+        this.settledExitErrors.get(sessionId) ??
         new Error(`no live claude stream-json session for ${sessionId}`)
       )
     }

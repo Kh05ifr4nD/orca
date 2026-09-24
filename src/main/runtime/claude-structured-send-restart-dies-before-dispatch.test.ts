@@ -174,6 +174,58 @@ describe('a send whose restarted Claude child dies before the dispatch reaches t
     expect(statusRows(host)).toHaveLength(2)
   })
 
+  it('names the diagnostic even when the exit was fully processed before the dispatch arrived', async () => {
+    claude.behave(SESSION, { initHangs: true })
+    const host = await claude.install()
+    await expect(host.attach(CALLER, claude.attachParams(SESSION, null))).resolves.toMatchObject({
+      ok: true
+    })
+    await failLatestStart(host, 1)
+    const adapter = host.deps.adapter
+    const dispatch = adapter.dispatch.bind(adapter)
+    vi.spyOn(adapter, 'dispatch').mockImplementationOnce(async (input) => {
+      claude.child(SESSION).exit(new Error(DIAGNOSTIC))
+      // The adapter settles and publishes the exit; the host's own settlement waits behind this send.
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return dispatch(input)
+    })
+
+    const sent = await send(host, 'hello?')
+    expect(answered.get(sent)).toBe('rejected')
+    await waitForStructuredAgentSessionRecovery()
+    expect(submission(host, sent)).toMatchObject({
+      dispatchState: 'rejected',
+      reason: `The provider stopped before it finished starting: ${DIAGNOSTIC}.`
+    })
+    expect(statusRows(host)).toHaveLength(2)
+  })
+
+  // A restart refused because its child died before it was handed over leaves one row, from the
+  // send, in the words any failed start uses.
+  it.each(['spawn', 'start-time-read'] as const)(
+    'leaves one row for a restart whose child exits at %s',
+    async (at) => {
+      claude.behave(SESSION, { initHangs: true })
+      const host = await claude.install()
+      await expect(host.attach(CALLER, claude.attachParams(SESSION, null))).resolves.toMatchObject({
+        ok: true
+      })
+      await failLatestStart(host, 1)
+
+      claude.behave(SESSION, { exitsDuringSpawn: { diagnostic: DIAGNOSTIC, at } })
+      await expect(attempt(host, 'hello?')).resolves.toMatchObject({
+        ok: false,
+        refusal: { code: 'agent_session_owner_restart_failed' }
+      })
+      await waitForStructuredAgentSessionRecovery()
+
+      expect(statusRows(host)).toEqual([
+        `The provider stopped before it finished starting: ${DIAGNOSTIC}.`,
+        `The provider stopped before it finished starting: ${DIAGNOSTIC}.`
+      ])
+    }
+  )
+
   it('reaches a subscriber that was open across the restart and the exit', async () => {
     claude.behave(SESSION, { initHangs: true })
     const host = await claude.install()
