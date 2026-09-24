@@ -27,7 +27,11 @@ import {
   qualifiedProviderResultIsAdmitted
 } from './detected-worktree-refresh'
 import { isDetectedWorktreeListResult } from './detected-worktree-provider-request'
-import { staleDetectedWorktreeProviderResult } from './detected-worktree-refresh-admission'
+import {
+  isCurrentDetectedWorktreeRefresh,
+  staleDetectedWorktreeProviderResult
+} from './detected-worktree-refresh-admission'
+import { isStaleWorktreeCatalogPublication } from './worktree-catalog-version-state'
 import { mergeFetchedWorktrees } from './fetched-worktree-merge'
 import { getAuthoritativelyRemovedWorktreeIds } from './authoritative-worktree-removal-memory'
 import type {
@@ -269,9 +273,23 @@ export function acquireDirectSshDetectedWorktreeRefresh(
           refresh
         }
       )
-      mergedResult = admitted
-        ? providerResult
-        : (staleDetectedWorktreeProviderResult(refresh) ?? providerResult)
+      const liveState = store.getState()
+      // Why: refused only because a newer catalog is already applied for this host, so the repo is
+      // current. 'stale' would end a reconnect preparation, and nothing retries it while the
+      // connection holds; 'stale' stays reserved for a moved authority or owner.
+      const refusedAsOlderCatalog =
+        !admitted &&
+        isCurrentDetectedWorktreeRefresh(liveState, refresh) &&
+        isStaleWorktreeCatalogPublication(
+          liveState,
+          request.repoId,
+          request.executionHostId,
+          providerResult.result.catalogVersion
+        )
+      mergedResult =
+        admitted || refusedAsOlderCatalog
+          ? providerResult
+          : (staleDetectedWorktreeProviderResult(refresh) ?? providerResult)
       return mergedResult
     }
   }

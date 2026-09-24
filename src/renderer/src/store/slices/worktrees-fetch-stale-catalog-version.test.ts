@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '../types'
 import type { WorktreeCatalogVersion } from '../../../../shared/worktree/catalog-version'
-import { makeDetectedResult, qualifyDetectedResult } from './worktrees-detected-listing-fixtures'
+import { acquireDirectSshDetectedWorktreeRefresh } from './worktrees'
+import {
+  TEST_SSH_AUTHORITY,
+  makeDetectedResult,
+  qualifyDetectedResult
+} from './worktrees-detected-listing-fixtures'
 import { makeWorktree } from './worktrees-slice-test-fixtures'
 import { worktreeCatalogVersionKey } from './worktrees/listing/worktree-catalog-version-state'
 import { completeSameIdHostScopedRemoval } from './worktrees/teardown/host-qualified-worktree-removal'
@@ -337,5 +342,91 @@ describe('a removal on one of two hosts that share a worktree id', () => {
     const versions = store.getState().worktreeCatalogVersionByRepoHost
     expect(versions[worktreeCatalogVersionKey('repo1', 'ssh:ssh-1')]).toEqual(removedVersion)
     expect(versions[worktreeCatalogVersionKey('repo1', 'local')]).toBe(APPLIED_BY_CREATE)
+  })
+})
+
+// Why this suite exists: the SSH reconnect preparation ends on any repo reporting 'stale' and
+// skips its post-connect workspace sync, which nothing retries while the connection holds.
+describe('a direct SSH listing older than an applied create', () => {
+  const sshHost = 'ssh:ssh-1'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetRemoteRuntimeMocks()
+    resetWorktreeSliceModuleMemory()
+  })
+
+  function seedSsh(store: ReturnType<typeof createTestStore>) {
+    const created = makeWorktree({
+      id: 'repo-ssh::/home/orca/created',
+      repoId: 'repo-ssh',
+      path: '/home/orca/created',
+      hostId: sshHost
+    })
+    store.setState({
+      repos: [
+        {
+          id: 'repo-ssh',
+          path: '/home/orca/repo',
+          displayName: 'SSH Repo',
+          badgeColor: '#000',
+          addedAt: 0,
+          connectionId: 'ssh-1'
+        }
+      ],
+      worktreesByRepo: { 'repo-ssh': [created] },
+      worktreeCatalogVersionByRepoHost: {
+        [worktreeCatalogVersionKey('repo-ssh', sshHost)]: APPLIED_BY_CREATE
+      }
+    })
+    mockApi.worktrees.listDetected.mockImplementationOnce(async (args) =>
+      qualifyDetectedResult(
+        args,
+        makeDetectedResult('repo-ssh', [], { catalogVersion: { epoch: HOST, sequence: 6 } })
+      )
+    )
+    return created
+  }
+
+  it('is not applied, and reports the repo current rather than stale', async () => {
+    const store = createTestStore()
+    const created = seedSsh(store)
+    const lease = acquireDirectSshDetectedWorktreeRefresh(store, {
+      repoId: 'repo-ssh',
+      executionHostId: sshHost,
+      authority: TEST_SSH_AUTHORITY
+    })
+    const providerResult = await lease.result
+
+    expect(lease.merge(providerResult)).toBe(providerResult)
+    expect(store.getState().worktreesByRepo['repo-ssh']?.map((w) => w.id)).toEqual([created.id])
+  })
+
+  it('control: still reports stale when the connection moved during the listing', async () => {
+    const store = createTestStore()
+    seedSsh(store)
+    const lease = acquireDirectSshDetectedWorktreeRefresh(store, {
+      repoId: 'repo-ssh',
+      executionHostId: sshHost,
+      authority: TEST_SSH_AUTHORITY
+    })
+    const providerResult = await lease.result
+    store.setState({
+      sshConnectionStates: new Map([
+        [
+          TEST_SSH_AUTHORITY.targetId,
+          {
+            targetId: TEST_SSH_AUTHORITY.targetId,
+            status: 'connected',
+            error: null,
+            reconnectAttempt: 0,
+            providerEpoch: TEST_SSH_AUTHORITY.providerEpoch,
+            connectionGeneration: TEST_SSH_AUTHORITY.connectionGeneration + 1
+          }
+        ]
+      ])
+    })
+
+    expect(lease.merge(providerResult)).toMatchObject({ status: 'stale' })
   })
 })
