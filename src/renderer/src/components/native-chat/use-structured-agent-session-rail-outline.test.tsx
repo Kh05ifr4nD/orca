@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-import { renderHook, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionConversationOutline } from '../../../../shared/agent-session-conversation-outline'
 import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
 
@@ -10,7 +10,11 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
   readStructuredAgentSessionConversationOutline: mocks.read
 }))
 
-import { useStructuredAgentSessionRailOutline } from './use-structured-agent-session-rail-outline'
+import {
+  RAIL_OUTLINE_READ_RETRIES,
+  RAIL_OUTLINE_READ_RETRY_BASE_MS,
+  useStructuredAgentSessionRailOutline
+} from './use-structured-agent-session-rail-outline'
 
 const TARGET = { kind: 'local' } as const
 
@@ -122,5 +126,56 @@ describe('structured rail outline fetch', () => {
       expect(result.current).toEqual([{ id: 'user-2', text: 'first prompt', hasImages: false }])
     )
     expect(mocks.read).toHaveBeenCalledTimes(2)
+  })
+
+  describe('after a failed read', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('retries with backoff until a read lands', async () => {
+      mocks.read
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValue(outline(120))
+      const { result } = renderOutline(VISIBLE)
+      await act(async () => {})
+      expect(mocks.read).toHaveBeenCalledTimes(1)
+      expect(result.current).toBeNull()
+
+      await act(async () => vi.advanceTimersByTimeAsync(RAIL_OUTLINE_READ_RETRY_BASE_MS))
+      expect(mocks.read).toHaveBeenCalledTimes(2)
+      // Backing off: the second retry waits twice as long.
+      await act(async () => vi.advanceTimersByTimeAsync(RAIL_OUTLINE_READ_RETRY_BASE_MS))
+      expect(mocks.read).toHaveBeenCalledTimes(2)
+      await act(async () => vi.advanceTimersByTimeAsync(RAIL_OUTLINE_READ_RETRY_BASE_MS))
+      expect(mocks.read).toHaveBeenCalledTimes(3)
+      expect(result.current).toEqual([
+        { id: 'user-2', text: 'first prompt', hasImages: false },
+        { id: 'user-7', text: '', hasImages: true }
+      ])
+    })
+
+    it('gives up after a few retries', async () => {
+      mocks.read.mockRejectedValue(new Error('offline'))
+      const { result } = renderOutline(VISIBLE)
+      for (let minute = 0; minute < 10; minute += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(60_000))
+      }
+      expect(mocks.read).toHaveBeenCalledTimes(1 + RAIL_OUTLINE_READ_RETRIES)
+      expect(result.current).toBeNull()
+    })
+
+    it('never retries a host without the outline', async () => {
+      mocks.read.mockResolvedValue(null)
+      renderOutline(VISIBLE)
+      for (let minute = 0; minute < 10; minute += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(60_000))
+      }
+      expect(mocks.read).toHaveBeenCalledTimes(1)
+    })
   })
 })

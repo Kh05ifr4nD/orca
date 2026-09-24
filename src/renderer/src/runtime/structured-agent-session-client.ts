@@ -46,8 +46,8 @@ export function supportsStructuredAgentSessionPromptCancel(
   return structuredAgentSessionHostSupports(target, AGENT_SESSION_PROMPT_CANCEL_RUNTIME_CAPABILITY)
 }
 
-/** Null when the host predates the outline or the read failed: the outline is a
- *  map for the message rail, and the rail degrades to loaded messages without it. */
+/** Null when the host predates the outline, without calling it. A failed read
+ *  rejects, so the caller can retry it; the rail maps loaded messages meanwhile. */
 export async function readStructuredAgentSessionConversationOutline(
   target: RuntimeClientTarget,
   sessionId: string
@@ -60,15 +60,11 @@ export async function readStructuredAgentSessionConversationOutline(
   ) {
     return null
   }
-  try {
-    return await callRuntimeRpc<AgentSessionConversationOutline>(
-      target,
-      'agentSession.conversationOutline',
-      { sessionId }
-    )
-  } catch {
-    return null
-  }
+  return callRuntimeRpc<AgentSessionConversationOutline>(
+    target,
+    'agentSession.conversationOutline',
+    { sessionId }
+  )
 }
 
 export async function callStructuredAgentSession<TResult>(

@@ -177,7 +177,7 @@ describe('conversation outline read', () => {
     expect(mocks.call).not.toHaveBeenCalled()
   })
 
-  it('reads it from a capable host and reports a failed read as no outline', async () => {
+  it('reads it from a capable host and lets a failed read reject for a retry', async () => {
     mocks.readLocalCapabilities.mockReturnValue([
       AGENT_SESSION_CONVERSATION_OUTLINE_RUNTIME_CAPABILITY
     ])
@@ -190,8 +190,8 @@ describe('conversation outline read', () => {
       sessionId: 'session-1'
     })
     mocks.call.mockRejectedValueOnce(new Error('structured_agent_session_not_attached'))
-    await expect(readStructuredAgentSessionConversationOutline(target, 'session-1')).resolves.toBe(
-      null
-    )
+    await expect(
+      readStructuredAgentSessionConversationOutline(target, 'session-1')
+    ).rejects.toThrow('structured_agent_session_not_attached')
   })
 })
