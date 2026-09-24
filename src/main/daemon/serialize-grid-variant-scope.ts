@@ -37,12 +37,17 @@ export function variantOverlong(
   ]
 }
 
+// The patch keeps such rows only when the serializer trims (no scrollback in the range)
+// and the cursor is not wrap-pending; anywhere else its bytes must match the old build.
 function hasTrailingBackgroundRow(
   buffer: Buffer,
   start: number,
   end: number,
-  cols: number
+  { cols, rows }: { cols: number; rows: number }
 ): boolean {
+  if (buffer.length - start > rows || buffer.cursorX >= cols) {
+    return false
+  }
   // Text as the serializer counts it: width-0 cells (e.g. an orphan combining mark) never are.
   let lastTextRow = start - 1
   for (let y = start; y < end; y++) {
@@ -71,20 +76,24 @@ export function variantTrailingBackgroundRows(
   scrollback: number | undefined,
   rangeRow: number
 ): boolean[] {
-  const { cols } = source
   const normal = source.buffer.normal
   const altTrailing =
     source.buffer.active.type === 'alternate' &&
-    hasTrailingBackgroundRow(source.buffer.alternate, 0, source.buffer.alternate.length, cols)
+    hasTrailingBackgroundRow(source.buffer.alternate, 0, source.buffer.alternate.length, source)
   return [
     altTrailing ||
       hasTrailingBackgroundRow(
         normal,
         serializedNormalStart(source, scrollback),
         normal.length,
-        cols
+        source
       ),
-    altTrailing || hasTrailingBackgroundRow(normal, 0, normal.length, cols),
-    hasTrailingBackgroundRow(normal, rangeRow, Math.min(rangeRow + 2, normal.length - 1) + 1, cols)
+    altTrailing || hasTrailingBackgroundRow(normal, 0, normal.length, source),
+    hasTrailingBackgroundRow(
+      normal,
+      rangeRow,
+      Math.min(rangeRow + 2, normal.length - 1) + 1,
+      source
+    )
   ]
 }
