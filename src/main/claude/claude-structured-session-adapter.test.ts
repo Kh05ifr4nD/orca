@@ -669,6 +669,40 @@ describe('ClaudeStructuredSessionAdapter acquisition cleanup', () => {
     )
   })
 
+  it('names a settled exit to a late caller until the chat is acquired again', async () => {
+    const claude = fakeClaude()
+    const adapter = await acquired(claude)
+    claude.connections[0].handlers.onExit?.(new Error('claude stream-json exited: not logged in'))
+    await adapter.drainObservedExits()
+    expect(() => adapter.readOptions({ sessionId: 'session-1', fence: 7 })).toThrow('not logged in')
+
+    await adapter.acquire({ identity: identityFor(), fence: 8, spawnToken: 'spawn-10' })
+    await expect(adapter.releaseAcquisition({ sessionId: 'session-1' })).resolves.toBe(true)
+    expect(() => adapter.readOptions({ sessionId: 'session-1', fence: 8 })).toThrow(
+      'no live claude stream-json session'
+    )
+  })
+
+  it('forgets an exit the chat was closed over, even one that settles during the close', async () => {
+    const claude = fakeClaude()
+    const adapter = await acquired(claude)
+    const connection = claude.connections[0]
+    const proof = Promise.withResolvers<boolean>()
+    connection.close = vi
+      .fn<FakeConnection['close']>()
+      .mockImplementationOnce(() => proof.promise)
+      .mockResolvedValue(true)
+    connection.handlers.onExit?.(new Error('claude stream-json exited: not logged in'))
+    await tick()
+
+    const closing = adapter.closeSession('session-1')
+    proof.resolve(true)
+    await expect(closing).resolves.toBe(true)
+    expect(() => adapter.readOptions({ sessionId: 'session-1', fence: 7 })).toThrow(
+      'no live claude stream-json session'
+    )
+  })
+
   it('does not report a second release as successful while retained exit evidence is unproven', async () => {
     const claude = fakeClaude({ unprovenCloseVerdict: { root: 'exited', tree: 'unverifiable' } })
     const adapter = await acquired(claude)

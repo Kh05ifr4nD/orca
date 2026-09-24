@@ -297,8 +297,11 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       ...(this.deps.onEvent ? { onEvent: this.deps.onEvent } : {})
     })
 
-  closeSession = (sessionId: string): Promise<boolean> => {
-    this.settledExitErrors.delete(sessionId)
+  closeSession = (sessionId: string): Promise<boolean> =>
+    // After the close, not before: releasing an exit still settling settles it on the way.
+    this.closeSessionProcess(sessionId).finally(() => this.settledExitErrors.delete(sessionId))
+
+  private closeSessionProcess(sessionId: string): Promise<boolean> {
     if (this.exits.has(sessionId)) {
       return this.releaseAcquisition({ sessionId })
     }
