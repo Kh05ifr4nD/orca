@@ -250,7 +250,7 @@ function oversizedStreamItemType(method: string): CodexThreadItem['type'] | null
   return null
 }
 
-/** A settled item or prompt, restating the producer its thread and turn name. */
+/** A settled item or prompt, naming its producer: the settlement can be the row's first write. */
 function settledRow(
   linkageFor: CodexRowLinkage,
   row: { threadId: string; turnId: string | null; identity: AgentJournalItemIdentity },
