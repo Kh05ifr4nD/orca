@@ -432,8 +432,18 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *
  *   modules        4216 -> 4218   (+2)
  *   local modules  1030 -> 1032   (+2)
+ *
+ * The main agent's own state then added `src/shared/agent-turn-outcome.ts` and
+ * `src/shared/main-agent-status.ts` (#22452), which the status projection this route already
+ * reaches import. Two modules, measured; src/shared-only again, so its own CI never ran this
+ * suite -- the same way the structured tool line slipped past above. Repinned here because this
+ * PR's file set is what next made the job run, not because this PR reaches either module: none
+ * of its 28 changed source files appear anywhere in this closure.
+ *
+ *   modules        4218 -> 4220   (+2)
+ *   local modules  1032 -> 1032   (+0, both are shared)
  */
-const SESSION_ROUTE_MODULES = 4218
+const SESSION_ROUTE_MODULES = 4220
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [
