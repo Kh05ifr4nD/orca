@@ -1,3 +1,4 @@
+import type { AgentJournalProducerLinkage } from '../../../shared/agent-session-journal-types'
 import { AgentSessionRecoveryCapsule } from '../../runtime/agent-session-recovery-capsule'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -92,19 +93,26 @@ async function attach(): Promise<AgentSessionRecord | null> {
 }
 
 /** Emits a pending approval through the acquired provider sink. */
-async function seedApproval(optionId = 'allow'): Promise<{ itemId: string; revision: number }> {
+async function seedApproval(
+  optionId = 'allow',
+  producer: AgentJournalProducerLinkage = {}
+): Promise<{ itemId: string; revision: number }> {
   const identity = { provider: 'codex' as const, threadId: THREAD, turnId: 'turn-1', ordinal: 99 }
   const events = acquire.mock.calls.at(-1)?.[0].events
   if (!events) {
     throw new Error('seedApproval requires an acquired session')
   }
-  events.appendItem(identity, {
-    kind: 'approval',
-    title: 'Run the command?',
-    detail: null,
-    options: [{ id: optionId, label: 'Allow' }],
-    resolution: { state: 'pending', selectedOptionId: null, resolvedBy: null, resolvedAt: null }
-  })
+  events.appendItem(
+    identity,
+    {
+      kind: 'approval',
+      title: 'Run the command?',
+      detail: null,
+      options: [{ id: optionId, label: 'Allow' }],
+      resolution: { state: 'pending', selectedOptionId: null, resolvedBy: null, resolvedAt: null }
+    },
+    producer
+  )
   await host.flushStreamedEvents(SESSION)
   const itemId = agentJournalItemKey(identity)
   const page = host.history({ sessionId: SESSION, direction: 'tail' })

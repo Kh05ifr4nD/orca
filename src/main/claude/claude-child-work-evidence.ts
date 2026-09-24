@@ -19,7 +19,7 @@ import type {
 import { record, taskText, taskUsageTotalTokens } from './claude-background-task-frames'
 import { isAgentChildWorkKind } from '../../shared/agent-status-child-work-liveness'
 import type { TrackedClaudeBackgroundTask } from './claude-settled-background-tasks'
-import type { ClaudePendingPrompt } from './claude-prompt-registry'
+import { claudePromptAskingChild, type ClaudePendingPrompt } from './claude-prompt-registry'
 import type { ClaudeSession } from './claude-structured-session-state'
 import { deriveToolInputPreview } from '../../shared/agent-hook-listener/tool-input-preview'
 import {
@@ -238,15 +238,14 @@ export function withClaudeChildWorkOwners(
   )
 }
 
-/** The children blocked on a request the provider is still waiting on an answer to: the agent the
- *  request names, or, from a CLI that does not name one, the child that owns the tool call it gates. */
+/** The children blocked on a request the provider is still waiting on an answer to. */
 export function claudeWaitingChildIds(
   prompts: Iterable<ClaudePendingPrompt>,
   ownerOf: ((toolUseId: string) => string | null) | undefined
 ): Set<string> {
   const waiting = new Set<string>()
   for (const prompt of prompts) {
-    const childId = prompt.agentId ?? ownerOf?.(prompt.toolUseId) ?? null
+    const childId = claudePromptAskingChild(prompt, ownerOf)
     if (childId !== null) {
       waiting.add(childId)
     }

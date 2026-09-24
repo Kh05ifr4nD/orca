@@ -9,6 +9,13 @@ import { reconcileAgentChildWorkEvidence } from '../../shared/agent-status-child
 import { createAgentStatusStore } from '../../shared/agent-status-store'
 import { makeStructuredAgentStatusSubject } from '../../shared/agent-status-subject'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import { agentJournalLinkageFields } from '../../shared/agent-session-journal-producer'
+import {
+  applyJournalRow,
+  createJournalReducerState,
+  renderJournalState
+} from '../native-chat/agent-session-journal/journal-reducer'
+import { buildJournalItemRow } from '../native-chat/agent-session-journal/journal-row-builders'
 import { ClaudeStructuredSessionAdapter } from './claude-structured-session-adapter'
 import {
   fakeClaude,
@@ -63,12 +70,20 @@ export async function producer() {
       reconcileAgentChildWorkEvidence({ store, admission, parent, provider: 'claude', evidence })
     }
   })
+  // A real reducer behind the sink, so a test can project the session's own status from its rows.
+  const rows = createJournalReducerState('session-1', 'epoch-1')
+  let seq = 0
   const journal: StructuredAgentSessionEventSink = {
-    appendItem: (identity, _body, options) => {
+    appendItem: (identity, body, options) => {
       deliveries.push({ kind: 'journal', detail: JSON.stringify(identity) })
       if (options?.agentId !== undefined) {
         stamps.push(options)
       }
+      const linkage = agentJournalLinkageFields(options)
+      applyJournalRow(
+        rows,
+        buildJournalItemRow({ state: rows, identity, body, seq: ++seq, fence: 7, ts: seq, linkage })
+      )
     },
     appendTombstone: () => {},
     // Production's journal publication is what republishes the parent's own row.
@@ -88,5 +103,6 @@ export async function producer() {
   const records = (): AgentChildWorkRecord[] => store.getChildren(parent)
   const byDescription = (description: string) =>
     records().find((record) => record.description === description)
-  return { adapter, claude, store, send, records, byDescription, evidenceLog, stamps }
+  const journalItems = () => renderJournalState(rows).items
+  return { adapter, claude, store, send, records, byDescription, evidenceLog, stamps, journalItems }
 }

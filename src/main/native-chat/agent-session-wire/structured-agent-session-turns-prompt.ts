@@ -1,4 +1,5 @@
 import { parseAgentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
+import { agentJournalLinkageFields } from '../../../shared/agent-session-journal-producer'
 import {
   decodeAgentSessionQuestionAnswers,
   isValidAgentSessionQuestionAnswers
@@ -27,7 +28,7 @@ export async function performPrompt(
   if (!validated.ok) {
     return validated
   }
-  const { prompt } = validated
+  const { item, prompt } = validated
   const question = prompt.kind === 'question' ? prompt : null
   const freeText = decodeCodexQuestionOptionId(input.optionId)
   const acceptsFreeText =
@@ -69,9 +70,8 @@ export async function performPrompt(
         committed.item = await ctx.journal.appendItem(
           identity,
           { ...prompt, resolution },
-          {
-            fence: ctx.fence
-          }
+          // The answer revises the row in place, so it keeps the agent that raised it.
+          { ...agentJournalLinkageFields(item), fence: ctx.fence }
         )
         ctx.publish()
       }

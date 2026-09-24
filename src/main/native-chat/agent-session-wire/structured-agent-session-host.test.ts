@@ -358,6 +358,24 @@ describe('respondToPrompt', () => {
     expect(answerPrompt).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the agent that raised a prompt on the row the answer revises', async () => {
+    await attach()
+    const prompt = await seedApproval('allow', { agentId: 'task-1', producerKind: 'agent' })
+    const fields = { itemId: prompt.itemId, expectedRevision: prompt.revision, optionId: 'allow' }
+    await host.respondToPrompt(CALLER, {
+      envelope: envelope('agentSession.respondTo:approval', fields),
+      kind: 'approval',
+      ...fields
+    })
+    const page = host.history({ sessionId: SESSION, direction: 'tail' })
+    const answered = page.ok ? page.page.items.find((item) => item.itemId === prompt.itemId) : null
+    expect(answered).toMatchObject({
+      agentId: 'task-1',
+      producerKind: 'agent',
+      body: { resolution: { state: 'resolved' } }
+    })
+  })
+
   it('refuses a second answer to one prompt and says which answer won', async () => {
     await attach()
     const prompt = await seedApproval()
