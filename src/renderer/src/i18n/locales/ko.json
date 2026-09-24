@@ -14908,7 +14908,12 @@
         "allow": "허용",
         "deny": "거부"
       },
-      "launchPromptNotDelivered": "전달되지 않음 — 터미널을 확인하세요"
+      "launchPromptNotDelivered": "전달되지 않음 — 터미널을 확인하세요",
+      "contextMenu": {
+        "orchestrationAddressCopied": "오케스트레이션 주소를 복사했습니다",
+        "orchestrationAddressCopyFailed": "오케스트레이션 주소를 복사하지 못했습니다",
+        "copyOrchestrationAddress": "오케스트레이션 주소 복사"
+      }
     },
     "tab": {
       "bar": {

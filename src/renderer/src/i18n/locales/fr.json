@@ -16142,7 +16142,12 @@
         "allow": "Autoriser",
         "deny": "Refuser"
       },
-      "launchPromptNotDelivered": "Non livré — vérifiez le terminal"
+      "launchPromptNotDelivered": "Non livré — vérifiez le terminal",
+      "contextMenu": {
+        "orchestrationAddressCopied": "Adresse d'orchestration copiée",
+        "orchestrationAddressCopyFailed": "Impossible de copier l'adresse d'orchestration",
+        "copyOrchestrationAddress": "Copier l'adresse d'orchestration"
+      }
     },
     "tab": {
       "bar": {

@@ -14876,7 +14876,12 @@
         "allow": "允许",
         "deny": "拒绝"
       },
-      "launchPromptNotDelivered": "未送达 — 请检查终端"
+      "launchPromptNotDelivered": "未送达 — 请检查终端",
+      "contextMenu": {
+        "orchestrationAddressCopied": "已复制编排地址",
+        "orchestrationAddressCopyFailed": "复制编排地址失败",
+        "copyOrchestrationAddress": "复制编排地址"
+      }
     },
     "tab": {
       "bar": {

@@ -14831,7 +14831,12 @@
         "allow": "許可する",
         "deny": "拒否"
       },
-      "launchPromptNotDelivered": "配信されませんでした — ターミナルを確認してください"
+      "launchPromptNotDelivered": "配信されませんでした — ターミナルを確認してください",
+      "contextMenu": {
+        "orchestrationAddressCopied": "オーケストレーションアドレスをコピーしました",
+        "orchestrationAddressCopyFailed": "オーケストレーションアドレスのコピーに失敗しました",
+        "copyOrchestrationAddress": "オーケストレーションアドレスをコピー"
+      }
     },
     "tab": {
       "bar": {
