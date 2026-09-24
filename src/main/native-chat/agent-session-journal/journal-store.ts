@@ -65,7 +65,7 @@ export class AgentSessionJournal {
   private readonly dbPath: string
   private readonly now: () => number
   private readonly mintEpoch: () => string
-  private readonly loaded: JournalLoad | null | undefined
+  private loaded: JournalLoad | null | undefined
 
   private state: JournalReducerState
   private readOnly = false
@@ -145,6 +145,8 @@ export class AgentSessionJournal {
     this.database = openJournalDatabase(this.dbPath)
     try {
       await this.restore()
+      // Consumed here: a rollover replaces the state, and a held load would keep its old rows alive.
+      this.loaded = undefined
     } catch (error) {
       // Nothing else holds a reference to this connection, so a throw here is
       // the leak site unless the store releases it itself — and a close that
