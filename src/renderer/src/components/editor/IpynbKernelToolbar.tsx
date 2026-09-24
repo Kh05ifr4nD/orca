@@ -246,7 +246,7 @@ function IpynbMissingKernelDialog({
   open: boolean
   onChooseAnother: () => void
 }): React.JSX.Element {
-  const command = kernel.environment ? ipykernelInstallCommand(kernel.environment) : ''
+  const command = kernel.environment ? ipykernelInstallCommand(kernel.environment.path) : ''
   return (
     <Dialog
       open={open}

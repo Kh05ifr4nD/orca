@@ -149,6 +149,32 @@ describe('notebook kernel session', () => {
     expect(getSession('/third.ipynb').queue).toEqual([{ key: 'b', code: 'y' }])
   })
 
+  it.each([
+    ['discovery', '/fourth.ipynb', 'listPythonEnvironments'],
+    ['startKernel', FILE, 'startKernel']
+  ] as const)('recovers when %s rejects', async (_step, filePath, method) => {
+    openFiles.current = [{ filePath }]
+    notebookApi[method].mockRejectedValueOnce(new Error('not authorized'))
+    await session.runCells(filePath, [{ key: 'a', code: 'x' }], null)
+    expect(getSession(filePath)).toMatchObject({ status: 'off', queue: [] })
+    expect(JSON.stringify(getCellRun(filePath, 'a')?.outputs)).toContain('not authorized')
+
+    await session.runCells(filePath, [{ key: 'b', code: 'y' }], null)
+    expect(notebookApi.execute).toHaveBeenCalledWith({ filePath, code: 'y' })
+  })
+
+  it('quotes the copyable install command only when the path needs it', () => {
+    expect(session.ipykernelInstallCommand('/v/bin/python', false)).toBe(
+      '/v/bin/python -m pip install -U ipykernel'
+    )
+    expect(session.ipykernelInstallCommand('/my env/bin/python', false)).toBe(
+      '"/my env/bin/python" -m pip install -U ipykernel'
+    )
+    expect(session.ipykernelInstallCommand('C:\\My Env\\python.exe', true)).toBe(
+      '& "C:\\My Env\\python.exe" -m pip install -U ipykernel'
+    )
+  })
+
   it('shuts the kernel down when the notebook tab closes', async () => {
     await session.runCells(FILE, [{ key: 'a', code: 'x' }], null)
     for (const listener of appStoreListeners) {

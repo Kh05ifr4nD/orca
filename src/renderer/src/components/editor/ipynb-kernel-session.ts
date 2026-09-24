@@ -1,7 +1,11 @@
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
-import type { KernelFrameEvent, PythonEnvironment } from '../../../../shared/notebook-kernel-types'
+import type {
+  KernelFrameEvent,
+  KernelStartResult,
+  PythonEnvironment
+} from '../../../../shared/notebook-kernel-types'
 import { applyKernelOutput, type NotebookOutput } from './ipynb-kernel-outputs'
 import {
   getSession,
@@ -15,9 +19,14 @@ import {
 } from './ipynb-kernel-store'
 
 const INTERRUPT_STALL_MS = 10_000
-/** The command Install runs, for the user to run themselves. */
-export function ipykernelInstallCommand({ path }: PythonEnvironment): string {
-  return `"${path}" -m pip install -U ipykernel`
+/** Install's command as a shell line to copy; Install itself spawns without a shell. */
+export function ipykernelInstallCommand(
+  python: string,
+  windows = navigator.userAgent.includes('Windows')
+): string {
+  // PowerShell only runs a quoted path through its call operator.
+  const program = !/\s/.test(python) ? python : windows ? `& "${python}"` : `"${python}"`
+  return `${program} -m pip install -U ipykernel`
 }
 
 function startRun(): CellRun {
@@ -94,14 +103,44 @@ function isOpen(filePath: string): boolean {
   return filePath in store.getState().sessions
 }
 
-async function start(filePath: string): Promise<void> {
-  const environment = store.getState().environments[filePath]
-  if (!environment) {
+/** Picks the nearest Python for a notebook that has none: a workspace env, else one on PATH. */
+async function discoverEnvironment(
+  filePath: string,
+  rootPath: string | null
+): Promise<PythonEnvironment | undefined> {
+  const found = await window.api.notebook.listPythonEnvironments({ filePath, rootPath })
+  const recommended = found.workspace[0] ?? found.path[0]
+  if (recommended && isOpen(filePath)) {
+    setEnvironment(filePath, recommended)
+  }
+  return recommended
+}
+
+async function start(filePath: string, rootPath: string | null = null): Promise<void> {
+  // Why 'starting' before discovery: a second run meanwhile must queue, not start another kernel.
+  updateSession(filePath, () => ({ status: 'starting' }))
+  let result: KernelStartResult | null
+  try {
+    const environment =
+      store.getState().environments[filePath] ?? (await discoverEnvironment(filePath, rootPath))
+    result =
+      environment && isOpen(filePath)
+        ? await window.api.notebook.startKernel({ filePath, python: environment.path })
+        : null
+  } catch (error) {
+    result = { status: 'failed', detail: error instanceof Error ? error.message : String(error) }
+  }
+  if (!isOpen(filePath)) {
     return
   }
-  updateSession(filePath, () => ({ status: 'starting' }))
-  const result = await window.api.notebook.startKernel({ filePath, python: environment.path })
-  if (!isOpen(filePath)) {
+  if (!result) {
+    failQueue(
+      filePath,
+      translate(
+        'auto.components.editor.IpynbViewer.noPython',
+        'Python was not found on this computer. Install it from [python.org](https://www.python.org/downloads/), then run the cell again.'
+      )
+    )
     return
   }
   if (result.status === 'ready') {
@@ -146,27 +185,7 @@ export async function runCells(
   if (status !== 'off' && status !== 'dead') {
     return
   }
-  if (!store.getState().environments[filePath]) {
-    // Why 'starting' before discovery: a second run meanwhile must queue, not start another kernel.
-    updateSession(filePath, () => ({ status: 'starting' }))
-    const found = await window.api.notebook.listPythonEnvironments({ filePath, rootPath })
-    const recommended = found.workspace[0] ?? found.path[0]
-    if (!isOpen(filePath)) {
-      return
-    }
-    if (!recommended) {
-      failQueue(
-        filePath,
-        translate(
-          'auto.components.editor.IpynbViewer.noPython',
-          'Python was not found on this computer. Install it from [python.org](https://www.python.org/downloads/), then run the cell again.'
-        )
-      )
-      return
-    }
-    setEnvironment(filePath, recommended)
-  }
-  await start(filePath)
+  await start(filePath, rootPath)
 }
 
 export function restartKernel(filePath: string): void {
@@ -215,7 +234,7 @@ export async function installIpykernel(filePath: string): Promise<void> {
       'auto.components.editor.IpynbViewer.installFailed',
       'Installing ipykernel failed. Run `{{command}}` yourself, or create a virtual environment for this project with `{{venvCommand}}` and choose it as the kernel.',
       {
-        command: ipykernelInstallCommand(environment),
+        command: ipykernelInstallCommand(environment.path),
         // Windows installs the `py` launcher; `python3` there is often the Store stub.
         venvCommand: `${navigator.userAgent.includes('Windows') ? 'py' : 'python3'} -m venv .venv`
       }
