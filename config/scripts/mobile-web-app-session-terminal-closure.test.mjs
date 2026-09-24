@@ -432,8 +432,15 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *
  *   modules        4216 -> 4218   (+2)
  *   local modules  1030 -> 1032   (+2)
+ *
+ * #22452 (src/shared-only, so its own CI never ran this suite) published the main agent's own
+ * state: `main-agent-status.ts` and `agent-turn-outcome.ts` joined through the agent-status types
+ * the session route carries. Measured on main at `4064653740`, which read 4220 against this pin.
+ *
+ *   modules        4218 -> 4220   (+2)
+ *   local modules  1032 -> 1034   (+2)
  */
-const SESSION_ROUTE_MODULES = 4218
+const SESSION_ROUTE_MODULES = 4220
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [
