@@ -6,6 +6,8 @@ import type { PythonEnvironment, PythonEnvironments } from '../../shared/noteboo
 const PROBE = 'import sys, platform; print(sys.executable); print(platform.python_version())'
 const PROBE_TIMEOUT_MS = 10_000
 const WORKSPACE_ENV_DIRS = ['.venv', '.conda']
+const INSTALL_TIMEOUT_MS = 10 * 60_000
+const INSTALL_DETAIL_CHARS = 4000
 
 /** `.venv`/`.conda` interpreters from the notebook's folder up to the workspace root, nearest first. */
 export function findWorkspaceInterpreters(
@@ -91,4 +93,22 @@ export async function listPythonEnvironments(
       return true
     })
   return { workspace: unique(workspace), path: unique(onPath) }
+}
+
+/** `pip install -U ipykernel` into the interpreter's environment, bootstrapping pip if it has none. */
+export async function installIpykernel(python: string): Promise<{ ok: boolean; detail: string }> {
+  const run = (args: string[]) =>
+    runProcess({ program: python, args: ['-m', ...args], timeoutMs: INSTALL_TIMEOUT_MS })
+  try {
+    let result = await run(['pip', 'install', '-U', 'ipykernel'])
+    // Why: uv-created venvs ship without pip; the stdlib's ensurepip bootstraps it.
+    if (result.code !== 0 && result.stderr.includes('No module named pip')) {
+      await run(['ensurepip'])
+      result = await run(['pip', 'install', '-U', 'ipykernel'])
+    }
+    const detail = (result.stderr.trim() || result.stdout.trim()).slice(-INSTALL_DETAIL_CHARS)
+    return { ok: result.code === 0, detail }
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) }
+  }
 }

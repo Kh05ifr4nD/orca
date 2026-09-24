@@ -15,7 +15,10 @@ import {
 } from './ipynb-kernel-store'
 
 const INTERRUPT_STALL_MS = 10_000
-export const IPYKERNEL_INSTALL_ARGS = '-m pip install -U ipykernel'
+/** The command Install runs, for the user to run themselves. */
+export function ipykernelInstallCommand({ path }: PythonEnvironment): string {
+  return `"${path}" -m pip install -U ipykernel`
+}
 
 function startRun(): CellRun {
   return {
@@ -211,7 +214,7 @@ export async function installIpykernel(filePath: string): Promise<void> {
     translate(
       'auto.components.editor.IpynbViewer.installFailed',
       'Installing ipykernel failed. Run `{{command}}` yourself, or create a virtual environment for this project with `python3 -m venv .venv` and choose it as the kernel.',
-      { command: `"${environment.path}" ${IPYKERNEL_INSTALL_ARGS}` }
+      { command: ipykernelInstallCommand(environment) }
     ),
     result.detail
   )

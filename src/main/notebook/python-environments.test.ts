@@ -1,6 +1,10 @@
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { findWorkspaceInterpreters } from './python-environments'
+import { describe, expect, it, vi } from 'vitest'
+
+const { runProcessMock } = vi.hoisted(() => ({ runProcessMock: vi.fn() }))
+vi.mock('../../shared/child-process/run-process', () => ({ runProcess: runProcessMock }))
+
+import { findWorkspaceInterpreters, installIpykernel } from './python-environments'
 
 function existing(...paths: string[]): (path: string) => boolean {
   return (path) => paths.includes(path)
@@ -33,6 +37,22 @@ describe('findWorkspaceInterpreters', () => {
     expect(findWorkspaceInterpreters('/repo/nb.ipynb', '/repo', 'win32', exists)).toEqual([
       join('/repo/.venv/Scripts/python.exe'),
       join('/repo/.conda/python.exe')
+    ])
+  })
+})
+
+describe('installIpykernel', () => {
+  it('bootstraps pip with ensurepip when the env has none, then installs', async () => {
+    const result = (code: number, stderr = '') => ({ code, stderr, stdout: '' })
+    runProcessMock
+      .mockResolvedValueOnce(result(1, '/venv/bin/python: No module named pip'))
+      .mockResolvedValueOnce(result(0))
+      .mockResolvedValueOnce(result(0))
+    await expect(installIpykernel('/venv/bin/python')).resolves.toEqual({ ok: true, detail: '' })
+    expect(runProcessMock.mock.calls.map(([spec]) => spec.args)).toEqual([
+      ['-m', 'pip', 'install', '-U', 'ipykernel'],
+      ['-m', 'ensurepip'],
+      ['-m', 'pip', 'install', '-U', 'ipykernel']
     ])
   })
 })

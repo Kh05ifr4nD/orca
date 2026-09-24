@@ -38,8 +38,8 @@ import { IpynbToolbarButton } from './IpynbCellToolbar'
 import {
   cancelPendingStart,
   installIpykernel,
+  ipykernelInstallCommand,
   interruptKernel,
-  IPYKERNEL_INSTALL_ARGS,
   restartKernel,
   selectEnvironment
 } from './ipynb-kernel-session'
@@ -246,7 +246,7 @@ function IpynbMissingKernelDialog({
   open: boolean
   onChooseAnother: () => void
 }): React.JSX.Element {
-  const command = kernel.environment ? `"${kernel.environment.path}" ${IPYKERNEL_INSTALL_ARGS}` : ''
+  const command = kernel.environment ? ipykernelInstallCommand(kernel.environment) : ''
   return (
     <Dialog
       open={open}

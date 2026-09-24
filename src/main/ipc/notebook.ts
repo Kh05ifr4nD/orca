@@ -2,18 +2,18 @@ import { dirname } from 'node:path'
 import { ipcMain, type WebContents } from 'electron'
 import type { Store } from '../persistence'
 import { resolveAuthorizedPath } from './filesystem-auth'
-import { runProcess } from '../../shared/child-process/run-process'
 import { startNotebookKernel, type NotebookKernel } from '../notebook/notebook-kernel'
-import { describePython, listPythonEnvironments } from '../notebook/python-environments'
+import {
+  describePython,
+  installIpykernel,
+  listPythonEnvironments
+} from '../notebook/python-environments'
 import type {
   KernelFrameEvent,
   KernelStartResult,
   PythonEnvironment,
   PythonEnvironments
 } from '../../shared/notebook-kernel-types'
-
-const INSTALL_TIMEOUT_MS = 10 * 60_000
-const INSTALL_DETAIL_CHARS = 4000
 
 /** Each renderer document's kernels, by notebook file. */
 const kernelsByOwner = new Map<WebContents, Map<string, NotebookKernel>>()
@@ -91,19 +91,8 @@ export function registerNotebookHandlers(store: Store): void {
 
   ipcMain.handle(
     'notebook:installIpykernel',
-    async (_event, args: { python: string }): Promise<{ ok: boolean; detail: string }> => {
-      try {
-        const result = await runProcess({
-          program: args.python,
-          args: ['-m', 'pip', 'install', '-U', 'ipykernel'],
-          timeoutMs: INSTALL_TIMEOUT_MS
-        })
-        const detail = (result.stderr.trim() || result.stdout.trim()).slice(-INSTALL_DETAIL_CHARS)
-        return { ok: result.code === 0, detail }
-      } catch (error) {
-        return { ok: false, detail: error instanceof Error ? error.message : String(error) }
-      }
-    }
+    (_event, args: { python: string }): Promise<{ ok: boolean; detail: string }> =>
+      installIpykernel(args.python)
   )
 
   ipcMain.handle('notebook:execute', (event, args: { filePath: string; code: string }): void => {
