@@ -510,7 +510,11 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
-  it('types a lead line in the same write as the paste frame, then submits', async () => {
+  it.each([
+    ['claude', true],
+    ['an unknown agent', true],
+    ['codex', false]
+  ] as const)('types the lead line for %s: %s', async (agent, typesLead) => {
     vi.useFakeTimers()
     try {
       const writes: string[] = []
@@ -525,7 +529,10 @@ describe('OrcaRuntimeService', () => {
         kill: () => true,
         getForegroundProcess: async () => null
       })
-      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+      const { handle } = await runtime.createTerminal(
+        `path:${TEST_WORKTREE_PATH}`,
+        agent === 'an unknown agent' ? undefined : { launchAgent: agent }
+      )
 
       const sendPromise = runtime.sendTerminalAgentPrompt(handle, 'the brief', {
         leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE
@@ -533,8 +540,9 @@ describe('OrcaRuntimeService', () => {
       await vi.runAllTimersAsync()
       await sendPromise
 
+      const paste = buildAgentPromptPasteBytes('the brief')
       expect(writes).toEqual([
-        `${ORCA_DISPATCH_PROMPT_LEAD_LINE} ${buildAgentPromptPasteBytes('the brief')}`,
+        typesLead ? `${ORCA_DISPATCH_PROMPT_LEAD_LINE} ${paste}` : paste,
         '\r'
       ])
     } finally {

@@ -7,6 +7,12 @@ export const AGENT_PROMPT_BRACKETED_PASTE_START = '\x1b[200~'
 export const AGENT_PROMPT_BRACKETED_PASTE_END = '\x1b[201~'
 export const AGENT_PROMPT_SUBMIT = '\r'
 
+/** Why unknown agents keep the lead: an unidentified Claude still needs it, while known non-Claude
+ *  TUIs get pre-lead bytes because Codex drops typed text that shares the paste's write (STA-8200). */
+export function agentPromptTakesLeadLine(agent: TuiAgent | null | undefined): boolean {
+  return !agent || TUI_AGENT_CONFIG[agent].pasteNeedsTypedRequest === true
+}
+
 /** OMP recognizes a submitted bracketed paste only when Enter shares its PTY write. */
 export function agentPromptSubmitJoinsPasteFrame(agent: TuiAgent | null | undefined): boolean {
   return agent === 'omp'
