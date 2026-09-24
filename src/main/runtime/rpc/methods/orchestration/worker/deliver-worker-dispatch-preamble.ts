@@ -1,9 +1,11 @@
 import type { RuntimeTerminalSend } from '../../../../../../shared/runtime-terminal-contracts'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
-import { buildDispatchPreamble } from '../../../../orchestration/preamble'
+import {
+  buildDispatchPreamble,
+  dispatchPreambleSendOptions
+} from '../../../../orchestration/preamble'
 import { sendStructuredWorkerPreamble } from '../../orchestration-structured-worker-session'
 import type { createStructuredWorkerSessionForWorktree } from './worker-topology'
-import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../../../../shared/orca-dispatch-status-prompt'
 
 type StructuredSession = Awaited<ReturnType<typeof createStructuredWorkerSessionForWorktree>> | null
 
@@ -52,11 +54,10 @@ export async function deliverWorkerDispatchPreamble(args: {
     return undefined
   }
   return (
-    await runtime.sendTerminalAgentPrompt(terminalHandle, preamble, {
-      leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
-      acceptQueued: true,
-      observationTimeoutMs: 0,
-      requestId: args.requestId
-    })
+    await runtime.sendTerminalAgentPrompt(
+      terminalHandle,
+      preamble,
+      dispatchPreambleSendOptions(args.requestId)
+    )
   ).prompt
 }

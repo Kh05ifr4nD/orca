@@ -1,14 +1,13 @@
 /** Picking worker terminals, sending a task's dispatch preamble, and warning about hung dispatches. */
 import type { OrchestrationDb } from './db'
 import type { TaskRow } from './types'
-import { buildDispatchPreamble } from './preamble'
+import { buildDispatchPreamble, dispatchPreambleSendOptions } from './preamble'
 import type { CoordinatorRuntime, WorktreeDrift } from './coordinator-runtime-contract'
 import {
   DISPATCH_STALE_THRESHOLD,
   parseAllowStaleBaseFromSpec
 } from './coordinator-stale-base-flag'
 import { isAgentPromptStalledError } from '../agent-prompt-submission-verification'
-import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../shared/orca-dispatch-status-prompt'
 
 /** `dispatched-unobserved`: the preamble landed but the worker's turn start was never observed. */
 export type TaskDispatchResult = 'dispatched' | 'dispatched-unobserved' | 'stale-base-refused'
@@ -137,12 +136,11 @@ export async function dispatchTaskToWorker(params: {
   }
 
   try {
-    await runtime.sendTerminalAgentPrompt(targetHandle, preamble + gateContext, {
-      leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
-      acceptQueued: true,
-      observationTimeoutMs: 0,
-      requestId: dispatch.id
-    })
+    await runtime.sendTerminalAgentPrompt(
+      targetHandle,
+      preamble + gateContext,
+      dispatchPreambleSendOptions(dispatch.id)
+    )
   } catch (err) {
     // Why (#16095): Enter is written before submission is verified, so a stall is only ever an
     // unobserved turn start — never proof the preamble is missing. Failing here would reset the

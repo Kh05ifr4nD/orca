@@ -1,4 +1,6 @@
 import type { OrchestrationCliCommand } from './cli-command'
+import type { RuntimeAgentPromptWriteOptions } from '../runtime-terminal-contracts'
+import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../shared/orca-dispatch-status-prompt'
 
 export type PreambleParams = {
   taskId: string
@@ -69,6 +71,7 @@ Your task ID is: ${params.taskId}
 
 The coordinator cannot see this terminal, so reach it with the \`${cli} orchestration\`
 commands below; a question or result left only in this terminal never gets to it.
+Don't post to Slack, GitHub, or other channels during the run; report through these commands.
 
 === CLI COMMANDS ===
 
@@ -140,6 +143,21 @@ ${postDoneInstructions}`
 
 === TASK ===
 ${params.taskSpec}`
+}
+
+export function dispatchPreambleSendOptions(
+  requestId: string
+): Pick<
+  RuntimeAgentPromptWriteOptions,
+  'leadLine' | 'acceptQueued' | 'observationTimeoutMs' | 'requestId'
+> {
+  // Why: a delayed provider hook must not revoke an accepted Dispatch.
+  return {
+    leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
+    acceptQueued: true,
+    observationTimeoutMs: 0,
+    requestId
+  }
 }
 
 function buildPostWorkerDoneInstructions({

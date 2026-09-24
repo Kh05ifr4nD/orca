@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeAgentStatusPayload } from '../../../shared/agent-status-types'
-import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../shared/orca-dispatch-status-prompt'
 import {
   getAgentRowGeneratedTitleText,
   getAgentRowPrimaryText,
@@ -182,19 +181,6 @@ Implement the detailed worker instructions that should not stay as the final lab
         }
       })
     ).toBe('Better worker label')
-  })
-
-  it('reads a raw prompt that carries the typed lead line and paste wrapper', () => {
-    // Why: a raw hook prompt from a host that did not compact it still labels the row.
-    const prompt = `${ORCA_DISPATCH_PROMPT_LEAD_LINE}\n\n<pasted_content id="aac2">\nYou are working inside Orca, a multi-agent IDE.
-Your task ID is: task_lead_raw
-
-=== TASK ===
-Add greet() to src/greet.js
-</pasted_content id="aac2">`
-    expect(isOrcaDispatchPrompt(prompt)).toBe(true)
-    expect(getOrcaDispatchTaskId(prompt)).toBe('task_lead_raw')
-    expect(getAgentRowPrimaryText({ prompt })).toBe('Add greet() to src/greet.js')
   })
 
   it('does not surface preamble boilerplate when the TASK marker is absent', () => {

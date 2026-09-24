@@ -8,9 +8,8 @@
 export const ORCA_DISPATCH_STATUS_PREAMBLE_PREFIX =
   'You are working inside Orca, a multi-agent IDE.'
 export const ORCA_DISPATCH_STATUS_TASK_MARKER = '=== TASK ==='
-// Why: typed (not pasted) ahead of the preamble. Claude Code wraps a paste in
-// <pasted_content> and follows it only where the user's own words ask it to;
-// a bare paste reads as prompt injection and workers refuse it (STA-8200).
+// Why: typed, not pasted, so Claude Code honors the brief: it follows a <pasted_content> block
+// only where the user's own words ask it to, and refused bare pasted briefs (STA-8200).
 export const ORCA_DISPATCH_PROMPT_LEAD_LINE =
   'Please carry out this task from my Orca coordinator by following the brief I pasted below.'
 const ORCA_DISPATCH_STATUS_TASK_ID_MARKER = 'Your task ID is:'
@@ -20,10 +19,6 @@ const ORCA_DISPATCH_STATUS_SOURCE_SCAN_LIMIT = 24_576
 const PASTED_CONTENT_OPEN_TAG = '<pasted_content'
 // Why: Claude Code's tag carries only a short id; bound the search for `>`.
 const PASTED_CONTENT_OPEN_TAG_MAX_LENGTH = 64
-
-export function isOrcaDispatchStatusPrompt(value: string): boolean {
-  return findOrcaDispatchPreambleStart(value) !== -1
-}
 
 /**
  * Index of the preamble prefix, or -1. Hook prompts may carry the typed lead
@@ -39,11 +34,11 @@ export function findOrcaDispatchPreambleStart(value: string): number {
     start = skipTrimWhitespace(value, start + ORCA_DISPATCH_PROMPT_LEAD_LINE.length, scanEnd)
   }
   if (value.startsWith(PASTED_CONTENT_OPEN_TAG, start)) {
-    const tagEnd = value.indexOf('>', start + PASTED_CONTENT_OPEN_TAG.length)
-    if (tagEnd === -1 || tagEnd - start >= PASTED_CONTENT_OPEN_TAG_MAX_LENGTH) {
+    const tagLength = value.slice(start, start + PASTED_CONTENT_OPEN_TAG_MAX_LENGTH).indexOf('>')
+    if (tagLength === -1) {
       return -1
     }
-    start = skipTrimWhitespace(value, tagEnd + 1, scanEnd)
+    start = skipTrimWhitespace(value, start + tagLength + 1, scanEnd)
   }
   return start + ORCA_DISPATCH_STATUS_PREAMBLE_PREFIX.length <= scanEnd &&
     value.startsWith(ORCA_DISPATCH_STATUS_PREAMBLE_PREFIX, start)
@@ -61,20 +56,19 @@ function skipTrimWhitespace(value: string, from: number, scanEnd: number): numbe
 
 /**
  * Collapse a multi-KB dispatch preamble into a single-line status preview that
- * still carries enough structure for UI helpers:
+ * still carries enough structure for UI helpers, or null when `value` is not one:
  *   `<preamble prefix> Your task ID is: <id> === TASK === <task body>`
  */
 export function compactDispatchPromptForStatus(
   value: string,
   maxLength: number,
   normalizeSingleLine: (value: string, maxLength: number) => string
-): string {
-  const scanEnd = Math.min(value.length, ORCA_DISPATCH_STATUS_SOURCE_SCAN_LIMIT)
-  // Bound leading trim to the scan window so a multi-MB paste of pure
-  // whitespace cannot walk the entire string before we give up.
-  const preambleStart = findOrcaDispatchPreambleStart(value)
-  const start = preambleStart === -1 ? skipTrimWhitespace(value, 0, scanEnd) : preambleStart
-  const scan = value.slice(start, scanEnd)
+): string | null {
+  const start = findOrcaDispatchPreambleStart(value)
+  if (start === -1) {
+    return null
+  }
+  const scan = value.slice(start, Math.min(value.length, ORCA_DISPATCH_STATUS_SOURCE_SCAN_LIMIT))
 
   let taskId = ''
   const idMarkerIndex = scan.indexOf(ORCA_DISPATCH_STATUS_TASK_ID_MARKER)

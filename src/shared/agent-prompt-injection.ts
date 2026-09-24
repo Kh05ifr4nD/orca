@@ -118,10 +118,10 @@ export function sanitizeAgentPromptText(text: string): string {
   return sanitized + text.slice(start)
 }
 
-/** `leadLine` is typed, not pasted, so the agent reads it as the user's own words about the
- *  paste; it shares the frame's PTY write and is folded to one line so it cannot submit early. */
+/** `leadLine` is typed, not pasted; folded to one line so it cannot submit. */
 export function buildAgentPromptPasteBytes(prompt: string, leadLine?: string): string {
-  const lead = leadLine ? `${sanitizeAgentPromptText(leadLine.replace(/[\r\n]+/g, ' '))} ` : ''
+  // oxlint-disable-next-line no-control-regex -- the lead must type no C0 control or DEL.
+  const lead = leadLine ? `${leadLine.replace(/[\x00-\x1f\x7f]+/g, ' ')} ` : ''
   return `${lead}${AGENT_PROMPT_BRACKETED_PASTE_START}${sanitizeAgentPromptText(prompt)}${AGENT_PROMPT_BRACKETED_PASTE_END}`
 }
 

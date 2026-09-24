@@ -7,6 +7,7 @@ Your task ID is: task_SNAP
 
 The coordinator cannot see this terminal, so reach it with the \`orca orchestration\`
 commands below; a question or result left only in this terminal never gets to it.
+Don't post to Slack, GitHub, or other channels during the run; report through these commands.
 
 === CLI COMMANDS ===
 

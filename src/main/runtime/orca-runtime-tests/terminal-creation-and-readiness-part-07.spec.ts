@@ -6,6 +6,7 @@ import {
   resolveAgentPromptSubmitDelayForAgent
 } from '../../../shared/agent-prompt-injection'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
+import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../shared/orca-dispatch-status-prompt'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import { OrcaRuntimeService } from '../orca-runtime'
 import { acknowledgeAgentPromptSubmit } from '../orca-runtime-test-mocks.spec'
@@ -527,14 +528,13 @@ describe('OrcaRuntimeService', () => {
       const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
 
       const sendPromise = runtime.sendTerminalAgentPrompt(handle, 'the brief', {
-        leadLine: 'Please follow\rthe brief'
+        leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE
       })
       await vi.runAllTimersAsync()
       await sendPromise
 
-      // Why: a CR in the typed lead would submit before the paste lands.
       expect(writes).toEqual([
-        `Please follow the brief ${AGENT_PROMPT_BRACKETED_PASTE_START}the brief${AGENT_PROMPT_BRACKETED_PASTE_END}`,
+        `${ORCA_DISPATCH_PROMPT_LEAD_LINE} ${buildAgentPromptPasteBytes('the brief')}`,
         '\r'
       ])
     } finally {

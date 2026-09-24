@@ -1,6 +1,9 @@
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import { describeTerminalWaitBlockedReason } from '../../../../../../shared/terminal-wait-blocked-reason-legacy-alias'
-import { buildDispatchPreamble } from '../../../../orchestration/preamble'
+import {
+  buildDispatchPreamble,
+  dispatchPreambleSendOptions
+} from '../../../../orchestration/preamble'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { defineMethod } from '../../../core'
 import { assertOrchestrationWorktreeCreationSupported } from '../worker/folder-worktree-placement'
@@ -24,7 +27,6 @@ import {
   resolveWorkerStartReadinessTimeoutMs
 } from '../../../../../../shared/orchestration-timing-budgets'
 import { assertWorkerStartTaskSpecWithinPromptBudget } from '../worker/worker-start-prompt-budget'
-import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../../../../shared/orca-dispatch-status-prompt'
 
 export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
   defineMethod({
@@ -262,12 +264,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
             canDispatchSubWorkers: (params.depth ?? 1) < runtime.getNestedWorkerMaxDepth(),
             cliCommand: runtime.getTerminalOrchestrationCliCommand(terminalHandle)
           }),
-          {
-            leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
-            acceptQueued: true,
-            observationTimeoutMs: 0,
-            requestId: orchestrationMutation.requestId
-          }
+          dispatchPreambleSendOptions(orchestrationMutation.requestId)
         )
         effects.push({
           kind: 'dispatch_input',

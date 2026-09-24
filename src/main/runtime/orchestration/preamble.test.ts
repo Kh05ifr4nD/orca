@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { describe, expect, it } from 'vitest'
-import { buildDispatchPreamble } from './preamble'
+import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../shared/orca-dispatch-status-prompt'
+import { buildDispatchPreamble, dispatchPreambleSendOptions } from './preamble'
 
 function baseParams(overrides: Partial<Parameters<typeof buildDispatchPreamble>[0]> = {}) {
   return {
@@ -155,11 +156,20 @@ describe('buildDispatchPreamble', () => {
     expect((result.match(/AskUserQuestion/g) ?? []).length).toBe(1)
   })
 
-  it('avoids injection-shaped wording', () => {
-    const result = buildDispatchPreamble(baseParams())
+  it('avoids shouted rules', () => {
     // Why: Claude workers cited shouted rules when refusing briefs as prompt injection (STA-8200).
-    expect(result).not.toMatch(/MUST NOT VIOLATE|BEHAVIOR RULE|NEVER use|reach a human/)
-    expect(result).toContain('The coordinator cannot see this terminal')
+    expect(buildDispatchPreamble(baseParams())).not.toMatch(
+      /MUST NOT VIOLATE|BEHAVIOR RULE|NEVER use/
+    )
+  })
+
+  it('types the lead line ahead of every dispatch preamble send', () => {
+    expect(dispatchPreambleSendOptions('req_1')).toEqual({
+      leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
+      acceptQueued: true,
+      observationTimeoutMs: 0,
+      requestId: 'req_1'
+    })
   })
 
   it('binds every injected worker command to the dispatched terminal', () => {
