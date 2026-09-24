@@ -370,6 +370,26 @@ describe('jumping from the rail while following the end', () => {
     expect(distanceFromBottom()).toBe(0)
   })
 
+  it('leaves the reader where they are after a wheel over the rail while the jump pages', async () => {
+    const pages = holdFirstPage()
+    render(<PagedTranscript holdPage={pages.holdPage} />)
+    await settle(10)
+    await pickUnloadedWhilePaging('prompt-5')
+    expect(pages.asked()).toBe(1)
+
+    // The rail forwards its wheel to the transcript: the reader is scrolling.
+    fireEvent.wheel(screen.getByRole('button', { name: 'Your messages' }), { deltaY: -40 })
+    await frame()
+    // Anti-vacuous: the wheel moved the transcript.
+    expect(distanceFromBottom()).toBe(40)
+    pages.release()
+    await settle(60)
+
+    expect(pages.asked()).toBe(1)
+    expect(screen.queryByText('prompt-5')).toBeNull()
+    expect(distanceFromBottom()).toBe(40)
+  })
+
   it('stays at the latest message when "Jump to latest" is pressed while the jump pages', async () => {
     const pages = holdFirstPage()
     render(<PagedTranscript holdPage={pages.holdPage} />)

@@ -403,6 +403,7 @@ export function NativeChatMessageList({
             rail={rail}
             scrollRef={scrollRef}
             onSelect={selectRailItem}
+            onReaderScroll={beginNavigation}
             pendingId={railHistoryJump.pendingId}
           />
           {showJump ? (
