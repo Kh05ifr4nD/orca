@@ -1970,11 +1970,16 @@
         "continueUnconfirmed": "Continuation delivery is unconfirmed for {{value0}} chats. Open them to check before sending another message.",
         "continueUnconfirmed_one": "Continuation delivery is unconfirmed for {{value0}} chat. Open it to check before sending another message.",
         "continueUnconfirmed_other": "Continuation delivery is unconfirmed for {{value0}} chats. Open them to check before sending another message.",
-        "continueRefused": "{{value0}} chats could not be continued. Open them to continue manually.",
-        "continueRefused_one": "{{value0}} chat could not be continued. Open it to continue manually.",
-        "continueRefused_other": "{{value0}} chats could not be continued. Open them to continue manually.",
         "dismissAll": "Dismiss all",
-        "dismissUnconfirmed": "Dismissing the resume offer was not confirmed — it may still be in the status bar."
+        "dismissUnconfirmed": "Dismissing the resume offer was not confirmed — it may still be in the status bar.",
+        "notContinuedOne": "1 chat couldn’t be resumed",
+        "notContinuedMany": "{{value0}} chats couldn’t be resumed",
+        "notConfirmedOne": "Couldn’t confirm 1 chat was resumed",
+        "notConfirmedMany": "Couldn’t confirm {{value0}} chats were resumed",
+        "notConfirmedOtherOne": "Couldn’t confirm 1 other chat was resumed",
+        "notConfirmedOtherMany": "Couldn’t confirm {{value0}} other chats were resumed",
+        "show": "Show",
+        "dismiss": "Dismiss"
       },
       "StarNagCard": {
         "92b0f9d921": "is authenticated and try again.",
@@ -4075,7 +4080,17 @@
             "label": "{{value0}} chats to resume",
             "ariaLabelOne": "1 chat available to resume",
             "ariaLabel": "{{value0}} chats available to resume",
-            "tooltip": "Open interrupted chats available to resume"
+            "tooltip": "Open interrupted chats available to resume",
+            "failedLabelOne": "1 chat failed to resume",
+            "failedLabel": "{{value0}} chats failed to resume",
+            "failedAriaOne": "1 chat failed to resume. Click for details.",
+            "failedAria": "{{value0}} chats failed to resume. Click for details.",
+            "failedTooltip": "Chats Orca could not resume after the restart. Click for details.",
+            "checkLabelOne": "1 chat to check",
+            "checkLabel": "{{value0}} chats to check",
+            "checkAriaOne": "1 chat to check after resuming. Click for details.",
+            "checkAria": "{{value0}} chats to check after resuming. Click for details.",
+            "checkTooltip": "Chats Orca couldn’t resume, or couldn’t confirm it resumed, after the restart. Click for details."
           }
         }
       },
@@ -15036,7 +15051,32 @@
           "1833dbbc43": "Markdown",
           "7005960d73": "Code",
           "8dbe39a152": "More cell actions",
-          "fa8fd99cf1": "Cell type"
+          "fa8fd99cf1": "Cell type",
+          "kernelStarting": "Starting…",
+          "kernelInstalling": "Installing ipykernel…",
+          "kernelDead": "Kernel died",
+          "selectKernel": "Select Kernel",
+          "notPython": "That file is not a Python interpreter.",
+          "interrupt": "Interrupt",
+          "restart": "Restart kernel",
+          "runAll": "Run all",
+          "clearAll": "Clear all outputs",
+          "notResponding": "Not responding. Restart kernel",
+          "findingPython": "Finding Python environments…",
+          "recommended": "Recommended",
+          "pythonOnPath": "Python on PATH",
+          "browsePython": "Browse for Python…",
+          "missingIpykernelTitle": "Install ipykernel?",
+          "missingIpykernel": "Running cells with '{{env}}' requires the ipykernel package.",
+          "copyCommand": "Copy command",
+          "chooseAnother": "Choose Another",
+          "install": "Install",
+          "kernelStartFailed": "The kernel failed to start.",
+          "noPython": "Python was not found on this computer. Install it from [python.org](https://www.python.org/downloads/), then run the cell again.",
+          "installFailed": "Installing ipykernel failed. Run `{{command}}` yourself, or create a virtual environment for this project with `{{venvCommand}}` and choose it as the kernel.",
+          "kernelDied": "The kernel died.",
+          "localOnly": "Notebook cells can only run for files on this computer.",
+          "pythonOnly": "Only Python notebooks can run in Orca."
         },
         "MarkdownPreview": {
           "e4683f70c4": "Cancel",
@@ -17199,6 +17239,26 @@
         "9a4c6b2d7e": "Skill sharing",
         "3d8e5f1b9c": "Share skills behind an unlisted link and install them on any machine you use.",
         "c5b3e8a17d": "Sign in to Orca"
+      },
+      "NativeChatResumeOutcomeRow": {
+        "openChat": "Open chat",
+        "retry": "Retry",
+        "dismiss": "Dismiss",
+        "unconfirmed": "Couldn’t confirm the chat was resumed",
+        "failed": "Couldn’t resume",
+        "statusFor": "{{value0}}: {{value1}}",
+        "dismissChat": "Dismiss \"{{value0}}\" in {{value1}}",
+        "toResume": "To resume:"
+      },
+      "NativeChatResumeFailureGuidance": {
+        "unconfirmed": "Orca couldn’t confirm the “continue” message was delivered. Open the chat and check before sending another.",
+        "superseded": "Open the chat and reply. New work arrived in it right after the restart, so Orca didn’t send its “continue” message.",
+        "conflict": "Another Orca window or terminal still owns this session. Close it, then retry.",
+        "ownershipUnknown": "Orca is still working out which process owns this session. Wait a moment, then retry.",
+        "notAttached": "The chat didn’t reconnect. Retry, or open it to start a fresh turn.",
+        "dispatchRejected": "The agent refused the “continue” message. Open the chat and send one yourself.",
+        "unsupported": "This chat can’t be resumed by Orca. Open it to see where it stopped.",
+        "fallback": "Orca couldn’t resume this chat. Open it to continue manually."
       }
     },
     "i18n": {
