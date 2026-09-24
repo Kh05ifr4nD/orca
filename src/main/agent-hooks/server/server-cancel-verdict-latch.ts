@@ -57,11 +57,22 @@ function refoldUnderLatchedMainAgent(
   }
 }
 
+/** A main agent's own prompt submission always opens a turn, including a harness-injected one that
+ *  keeps the cached prompt (the task notification Claude starts when background work ends). */
+function opensNewTurn(event: AgentHookEventPayload): boolean {
+  return (
+    event.hookEventName === 'SessionStart' ||
+    (event.hookEventName === 'UserPromptSubmit' &&
+      event.toolAgentId === undefined &&
+      event.isReplay !== true)
+  )
+}
+
 /**
  * The store's hold on a cancel verdict against restatements that predate it: a relay never learns
  * of the cancel the desktop infers, and TUIs emit late same-turn hooks after Ctrl+C. The latch dies
  * on the provider's own verdict (any settled `mainAgent`) or a new turn (another prompt, an
- * explicit prompt, a session start). Child-attributed and replayed events keep the latched main
+ * explicit prompt, a prompt submission, a session start). Child-attributed and replayed events keep the latched main
  * agent and are re-folded with their own child evidence; late main agent work is held.
  */
 export function resolveCancelVerdictLatch(
@@ -76,7 +87,7 @@ export function resolveCancelVerdictLatch(
     previous.payload.agentType !== incoming.payload.agentType ||
     previous.payload.prompt !== incoming.payload.prompt ||
     incoming.payload.mainAgent?.state === 'done' ||
-    incoming.hookEventName === 'SessionStart'
+    opensNewTurn(incoming)
   ) {
     return apply
   }

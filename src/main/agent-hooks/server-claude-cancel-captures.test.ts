@@ -215,7 +215,12 @@ describe('a Claude cancel with a background shell (captured)', () => {
         workingMode: 'monitoring',
         mainAgent: { state: 'done', outcome: 'cancellation' }
       })
-      await post(server, hookAt(records, 22))
+      // The shell's death notification opens a real turn, so the cancel's verdict gives way to it.
+      const notification = hookAt(records, 22)
+      expect(String(notification.payload.prompt)).toContain('<task-notification>')
+      await post(server, notification)
+      expect(row(server)).toMatchObject({ state: 'working', mainAgent: { state: 'working' } })
+      expect(row(server).workingMode).toBeUndefined()
       const settled = hookAt(records, 23)
       expect(settled.payload).toMatchObject({ hook_event_name: 'Stop', background_tasks: [] })
       await post(server, settled)
