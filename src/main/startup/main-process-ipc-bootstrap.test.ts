@@ -38,7 +38,9 @@ describe('app:prepareTerminalStartupRestoration', () => {
     const prepare = vi.fn(() => new Promise<void>(() => {}))
     state.runtime = { prepareStructuredAgentSessionStartupRestoration: prepare }
 
-    await expect(handlers.get('app:prepareTerminalStartupRestoration')?.()).resolves.toBeUndefined()
+    const answered = Promise.resolve(handlers.get('app:prepareTerminalStartupRestoration')?.())
+    const deadline = new Promise((resolve) => setTimeout(() => resolve('still waiting'), 1_000))
+    await expect(Promise.race([answered, deadline])).resolves.toBeUndefined()
     expect(prepare).toHaveBeenCalledOnce()
   })
 

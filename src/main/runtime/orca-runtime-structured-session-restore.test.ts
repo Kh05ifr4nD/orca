@@ -80,10 +80,9 @@ describe('structured session cold restoration', () => {
   })
 
   it('takes the TUI owner census only once the PTY provider can list daemon terminals', async () => {
-    let providerReady!: () => void
-    const runtime = new OrcaRuntimeService(null, undefined, {
-      awaitLocalPtyProviderStartup: () => new Promise<void>((resolve) => (providerReady = resolve))
-    })
+    const provider = Promise.withResolvers<void>()
+    const awaitLocalPtyProviderStartup = vi.fn(() => provider.promise)
+    const runtime = new OrcaRuntimeService(null, undefined, { awaitLocalPtyProviderStartup })
     const refresh = vi.fn(async () => new Set<string>())
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: both members exist on the runtime; they are protected, not absent.
     const internal = runtime as unknown as {
@@ -96,9 +95,10 @@ describe('structured session cold restoration', () => {
       providerHandleChain: []
     })
     await Promise.resolve()
+    expect(awaitLocalPtyProviderStartup).toHaveBeenCalledOnce()
     expect(refresh).not.toHaveBeenCalled()
 
-    providerReady()
+    provider.resolve()
 
     await expect(recovery).rejects.toThrow('agent_session_identity_required')
     expect(refresh).toHaveBeenCalledOnce()
