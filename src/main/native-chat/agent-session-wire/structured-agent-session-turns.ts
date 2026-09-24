@@ -23,7 +23,7 @@ import type {
   StructuredAgentSessionAdapter,
   StructuredAgentSessionProviderChildPhase
 } from './structured-agent-session-adapter'
-import { dispatchWriteFailureReason } from '../../../shared/structured-agent-session-dispatch-rejection'
+import { providerStartupFailureRejection } from './structured-agent-session-dead-generation-settlement'
 import { validatePendingPrompt } from './structured-agent-session-prompt-state'
 import { withTimeout } from '../../../shared/promise-timeout-fallback'
 import {
@@ -102,7 +102,7 @@ async function dispatchSafely(
       throw error
     }
     if (ctx.providerChildPhase?.() === 'starting') {
-      return { state: 'rejected', reason: dispatchWriteFailureReason(error) }
+      return { state: 'rejected', reason: providerStartupFailureRejection(error) }
     }
     return { state: 'unknown', reason: error instanceof Error ? error.message : String(error) }
   }

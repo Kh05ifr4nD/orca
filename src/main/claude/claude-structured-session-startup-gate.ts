@@ -7,6 +7,7 @@
 import type { AgentSessionDispatchOutcome } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { AgentSessionPreDispatchError } from '../native-chat/agent-session-wire/structured-agent-session-operation-settlement'
 import { dispatchWriteFailureReason } from '../../shared/structured-agent-session-dispatch-rejection'
+import { providerStartupFailureRejection } from '../native-chat/agent-session-wire/structured-agent-session-dead-generation-settlement'
 import { claudeUserMessageWasProvablyUnwritten } from './claude-agent-sdk-user-message-queue'
 import {
   forgetRetiredWaiter,
@@ -41,7 +42,7 @@ export function createClaudeSessionStartupGate(): ClaudeSessionStartupGate {
 
 export function claudeStartupFailureReason(session: ClaudeSession): string | null {
   return session.startup.state === 'failed'
-    ? dispatchWriteFailureReason(session.startup.failure ?? new Error('claude startup failed'))
+    ? providerStartupFailureRejection(session.startup.failure ?? undefined)
     : null
 }
 
@@ -150,5 +151,5 @@ export function failClaudeStartupGate(session: ClaudeSession, error: Error): voi
     gate.state = 'failed'
     gate.failure = error
   }
-  rejectClaudeStartupWrites(session, dispatchWriteFailureReason(error))
+  rejectClaudeStartupWrites(session, providerStartupFailureRejection(error))
 }

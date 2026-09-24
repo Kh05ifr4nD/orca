@@ -33,6 +33,23 @@ function fence(host: StructuredAgentSessionHost): number {
   return host.deps.store.getRecord(SESSION)?.lease.runtimeFence ?? 0
 }
 
+function attempt(host: StructuredAgentSessionHost, text: string) {
+  const body = hostTestMessage(text)
+  return host.send(CALLER, {
+    envelope: {
+      sessionId: SESSION,
+      clientOperationId: `${Date.now()}-${(++operations).toString(16).padStart(32, '0')}`,
+      expectedRuntimeFence: fence(host),
+      payloadFingerprint: computeAgentSessionPayloadFingerprint({
+        method: 'agentSession.send',
+        sessionId: SESSION,
+        fields: { body }
+      })
+    },
+    body
+  })
+}
+
 async function send(host: StructuredAgentSessionHost, text: string): Promise<string> {
   const body = hostTestMessage(text)
   const clientOperationId = `${Date.now()}-${(++operations).toString(16).padStart(32, '0')}`
@@ -136,7 +153,8 @@ describe('a send whose restarted Claude child dies before the dispatch reaches t
     await vi.waitFor(() =>
       expect(submission(host, sent)).toMatchObject({
         dispatchState: 'rejected',
-        reason: expect.stringContaining('not signed in (rig)')
+        // Worded for the user: the red line under the composer shows it as it stands.
+        reason: `The provider stopped before it finished starting: ${DIAGNOSTIC}.`
       })
     )
     expect(statusRows(host)).toEqual([
@@ -188,6 +206,92 @@ describe('a send whose restarted Claude child dies before the dispatch reaches t
         // The subscriber ended up on the fence the exit published, not the one the restart did.
         expect(seen.fences.at(-1)).toBe(fence(host))
       })
+    } finally {
+      unsubscribe()
+    }
+  })
+})
+
+describe('a chat whose Claude CLI keeps failing to start, seen by a subscriber open throughout', () => {
+  const STARTUP_FAILURE =
+    'The provider stopped before it finished starting: claude stream-json exited (code 1): claude: not signed in (rig).'
+
+  /** Status rows a subscriber has been shown, one per row whatever frame carried it. */
+  function shownRows(events: AgentSessionSubscribeEvent[]): Map<string, string> {
+    const rows = new Map<string, string>()
+    for (const event of events) {
+      if (event.type === 'end') {
+        continue
+      }
+      const page = event.type === 'batch' ? event.batch : event.page
+      for (const item of page.items) {
+        if (item.body.kind === 'status') {
+          rows.set(item.itemId, item.body.text)
+        }
+      }
+    }
+    return rows
+  }
+
+  it('shows one row naming the cause per failed attempt, admitted or refused, and none once the CLI is fixed', async () => {
+    claude.behave(SESSION, { initHangs: true })
+    const host = await claude.install()
+    const events: AgentSessionSubscribeEvent[] = []
+    await expect(host.attach(CALLER, claude.attachParams(SESSION, null))).resolves.toMatchObject({
+      ok: true
+    })
+    const unsubscribe = host.subscribe({
+      id: 'pane',
+      sessionId: SESSION,
+      emit: (event) => {
+        events.push(event)
+      }
+    })
+    try {
+      await failLatestStart(host, 1)
+      await vi.waitFor(() => expect([...shownRows(events).values()]).toEqual([STARTUP_FAILURE]))
+
+      // Send: admitted against the restarted child, which dies before starting.
+      killChildAtDispatch(host)
+      const sent = await attempt(host, 'hello?')
+      await waitForStructuredAgentSessionRecovery()
+      expect(sent).toMatchObject({
+        ok: true,
+        value: { submission: { dispatchState: 'rejected', reason: STARTUP_FAILURE } }
+      })
+      await vi.waitFor(() =>
+        expect([...shownRows(events).values()]).toEqual([STARTUP_FAILURE, STARTUP_FAILURE])
+      )
+
+      // Retry while still broken: this restart dies before its child is handed over, so the send
+      // is refused before admission. Still one row, saying the same thing.
+      claude.behave(SESSION, {
+        exitsDuringSpawn: {
+          diagnostic: 'claude stream-json exited (code 1): claude: not signed in (rig)',
+          at: 'start-time-read'
+        }
+      })
+      await expect(attempt(host, 'hello?')).resolves.toMatchObject({
+        ok: false,
+        refusal: {
+          code: 'agent_session_owner_restart_failed',
+          message: expect.stringMatching(/couldn't restart: .*not signed in \(rig\)/)
+        }
+      })
+      await waitForStructuredAgentSessionRecovery()
+      await vi.waitFor(() =>
+        expect([...shownRows(events).values()]).toEqual([
+          STARTUP_FAILURE,
+          STARTUP_FAILURE,
+          STARTUP_FAILURE
+        ])
+      )
+
+      // The CLI is fixed: Retry delivers and adds no row.
+      claude.behave(SESSION, {})
+      await expect(attempt(host, 'hello?')).resolves.toMatchObject({ ok: true })
+      await vi.waitFor(() => expect(claude.child(SESSION).calls).toContain('send'))
+      expect(shownRows(events).size).toBe(3)
     } finally {
       unsubscribe()
     }

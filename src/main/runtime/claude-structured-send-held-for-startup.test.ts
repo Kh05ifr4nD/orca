@@ -95,7 +95,8 @@ describe('a send into a Claude chat whose CLI keeps failing at startup', () => {
     await vi.waitFor(() =>
       expect(submission(host, held)).toMatchObject({
         dispatchState: 'rejected',
-        reason: expect.stringContaining('not signed in (rig)')
+        // Worded for the user: the red line under the composer shows it as it stands.
+        reason: `The provider stopped before it finished starting: ${DIAGNOSTIC}.`
       })
     )
     expect(statusRows(host)).toEqual([
@@ -149,7 +150,8 @@ describe('a send while the first Claude start is still answering initialize', ()
     await vi.waitFor(() =>
       expect(submission(host, held)).toMatchObject({
         dispatchState: 'rejected',
-        reason: expect.stringContaining('not signed in (rig)')
+        // Worded for the user: the red line under the composer shows it as it stands.
+        reason: `The provider stopped before it finished starting: ${DIAGNOSTIC}.`
       })
     )
     expect(statusRows(host)).toEqual([

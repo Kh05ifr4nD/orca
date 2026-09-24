@@ -4,7 +4,6 @@ import type {
   AgentJournalRenderItem
 } from '../../../shared/agent-session-journal-types'
 import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
-import { dispatchWriteFailureReason } from '../../../shared/structured-agent-session-dispatch-rejection'
 import { partitionJournalLifecycleMutations } from '../agent-session-journal/journal-lifecycle-batch-partition'
 import type { JournalLifecycleMutationInput } from '../agent-session-journal/journal-row-builders'
 import {
@@ -54,6 +53,14 @@ export function providerStartupFailureOutcome(reason?: string): string {
   return detail
     ? `The provider stopped before it finished starting: ${detail}.`
     : 'The provider stopped before it finished starting.'
+}
+
+/** Why a send a child that never started left unwritten was rejected. The child's own diagnostic is
+ *  the cause the user can act on, so it is the reason, in the words the chat row uses. */
+export function providerStartupFailureRejection(cause?: unknown): string {
+  return providerStartupFailureOutcome(
+    cause === undefined ? undefined : cause instanceof Error ? cause.message : String(cause)
+  )
 }
 
 function exitReasonDetail(reason: string | undefined): string | undefined {
@@ -151,7 +158,7 @@ export async function settleStructuredAgentSessionDeadGeneration(input: {
     await (input.exitedDuringStartup
       ? input.journal.rejectPendingSubmissions(
           input.fence,
-          dispatchWriteFailureReason(input.unexpectedExitReason ?? input.pendingSubmissionReason)
+          providerStartupFailureRejection(input.unexpectedExitReason)
         )
       : input.journal.markPendingSubmissionsUnknown(input.fence, input.pendingSubmissionReason))
     const items = input.journal.snapshot().items
