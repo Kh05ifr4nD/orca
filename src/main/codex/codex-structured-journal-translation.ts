@@ -9,7 +9,7 @@ import {
 import { settleCodexJournalSession } from './codex-structured-journal-settlement'
 import { restoreCodexJournalThread } from './codex-structured-journal-translation-restore'
 import { CodexJournalTurnBoundaries } from './codex-structured-journal-translation-turn-boundaries'
-import { createCodexJournalTranslatorParts } from './codex-structured-journal-translation-parts'
+import { createCodexJournalTranslatorWriters } from './codex-structured-journal-translation-writers'
 import { publishCodexTurnLifecycle } from './codex-structured-journal-translation-turns'
 import { readCodexProviderVerdict } from './codex-structured-journal-provider-verdicts'
 import { createCodexThreadItemRouter } from './codex-structured-journal-thread-item-routing'
@@ -46,7 +46,7 @@ export function createCodexJournalTranslator(
     goals,
     prompts,
     settleOversizedNotification
-  } = createCodexJournalTranslatorParts(deps)
+  } = createCodexJournalTranslatorWriters(deps)
   const flushStreams = (): CodexJournalTranslationAdmission =>
     items.streams.flush() ? CODEX_JOURNAL_ADMITTED : { accepted: false, reason: 'backpressure' }
   let readActivity = createCodexProviderActivityReader()

@@ -12,7 +12,7 @@ import { createCodexOversizedNotificationSettler } from './codex-structured-jour
 import { CodexJournalActiveTurns } from './codex-structured-journal-translation-turn-state'
 import { CodexSubagentRoster } from './codex-subagent-roster'
 
-export function createCodexJournalTranslatorParts(deps: CodexJournalTranslatorDeps) {
+export function createCodexJournalTranslatorWriters(deps: CodexJournalTranslatorDeps) {
   const activeTurns = new CodexJournalActiveTurns()
   const activeTurn = (threadId: string): string | null => activeTurns.current(threadId)
   const subagents = new CodexSubagentRoster({
