@@ -319,6 +319,7 @@ export function NativeChatStructuredSession(
       />
       <NativeChatStructuredSessionStatus
         sessionId={props.sessionId}
+        paneKey={paneKey}
         error={controller.error}
         composerError={composerError}
         isVisible={props.isVisible}
