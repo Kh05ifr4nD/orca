@@ -87,11 +87,10 @@ export type JournalDispatchRow = JournalRowBase & {
   reason: string | null
 }
 
-/** An item mutation names its own producer: one batch can settle rows several
- *  agents wrote, and a revision that dropped the stamp would hand a child's row
- *  back to the session's own agent. Inline like the row base, and for the same
- *  reason no `v` bump: an older host ignores the unknown keys and reads the
- *  mutation as root, which is what it always showed. */
+/** An item mutation may name its own producer, because one batch can CREATE
+ *  rows several agents produced. Naming none keeps the row's existing producer.
+ *  Inline like the row base, and for the same reason no `v` bump: an older host
+ *  ignores the unknown keys and reads the mutation as root, as it always did. */
 export type JournalLifecycleMutation =
   | (AgentJournalProducerLinkage & {
       kind: 'item'

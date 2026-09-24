@@ -13,10 +13,9 @@
 // checked — Claude's turn rows are built with no linkage at all, Codex writes
 // turn rows only for its primary thread (the one thread it never stamps), the
 // compact row passes only a fence, and the stale-turn and dead-generation
-// sweeps restate a producer only on the prompt and tool rows they revise, never
-// on the turn revisions they build. So a child-linked row can never be what
-// terminates one of these scans. Re-check that before giving any of those sites
-// a producer.
+// sweeps name no producer, so their turn revisions keep the turn row's own
+// (none). So a child-linked row can never be what terminates one of these
+// scans. Re-check that before giving any of those sites a producer.
 
 import type {
   AgentJournalRenderItem,

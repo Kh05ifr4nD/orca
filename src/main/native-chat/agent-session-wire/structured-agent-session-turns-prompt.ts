@@ -1,5 +1,4 @@
 import { parseAgentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
-import { agentJournalLinkageFields } from '../../../shared/agent-session-journal-producer'
 import {
   decodeAgentSessionQuestionAnswers,
   isValidAgentSessionQuestionAnswers
@@ -28,7 +27,7 @@ export async function performPrompt(
   if (!validated.ok) {
     return validated
   }
-  const { item, prompt } = validated
+  const { prompt } = validated
   const question = prompt.kind === 'question' ? prompt : null
   const freeText = decodeCodexQuestionOptionId(input.optionId)
   const acceptsFreeText =
@@ -67,12 +66,12 @@ export async function performPrompt(
       optionId: input.optionId,
       fence: ctx.fence,
       commit: async () => {
-        // The answer revises the asker's row, so it restates who asked: a
-        // revision without it would file a subagent's prompt as the parent's.
         committed.item = await ctx.journal.appendItem(
           identity,
           { ...prompt, resolution },
-          { fence: ctx.fence, ...agentJournalLinkageFields(item) }
+          {
+            fence: ctx.fence
+          }
         )
         ctx.publish()
       }

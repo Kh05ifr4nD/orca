@@ -250,9 +250,8 @@ describe('dead structured-session generation settlement', () => {
   })
 
   it("keeps a subagent's settled rows the subagent's, in one batch and after a reopen", async () => {
-    // One batch settles rows several agents wrote. A revision that dropped the
-    // producer would file the child's failed tool and cancelled prompt under the
-    // session's own agent, for good: the reducer takes linkage from the newest row.
+    // One batch settles rows several agents wrote and names none of them. Each
+    // row keeps the producer its first write named, including after a replay.
     const child = { agentId: 'thread-child', producerKind: 'agent' as const }
     const childCall = {
       provider: 'codex' as const,

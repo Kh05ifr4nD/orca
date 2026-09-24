@@ -359,8 +359,7 @@ describe('respondToPrompt', () => {
   })
 
   it("keeps a subagent's approval the subagent's once the user answers it", async () => {
-    // The answer is a revision, and the reducer takes linkage from the newest
-    // revision: an answer that dropped it would file the child's prompt as the parent's.
+    // The answer revises the row without naming a producer, so it keeps the asker's.
     await attach()
     const child = { agentId: 'thread-child', producerKind: 'agent' as const }
     const identity = {
