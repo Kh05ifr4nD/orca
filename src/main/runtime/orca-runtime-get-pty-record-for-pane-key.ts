@@ -11,7 +11,7 @@ import { isSettledNativeOwner } from './orchestration/structured-session-pointer
 import type { StructuredPointerTarget } from './orchestration/structured-mailbox-pointer-delivery'
 import {
   handleLessCoordinatorSessionId,
-  readAgentSessionRecordStore,
+  findConnectedPtyBoundToSession,
   structuredSessionAddressTarget,
   structuredSessionMailTarget,
   structuredSessionMailView,
@@ -218,12 +218,8 @@ export class OrcaRuntimeWithGetPtyRecordForPaneKey extends OrcaRuntimeWithPruneM
 
   /** The terminal of a session's terminal view, while a TUI owns it; the PTY lane types there. */
   getTerminalViewHandleForSession(sessionId: string): string | null {
-    const view = structuredSessionMailView(sessionId, readAgentSessionRecordStore())
-    const pty = [...this.ptysById.values()].find(
-      (candidate) =>
-        candidate.connected &&
-        agentSessionPtyWriteGate.boundSessionId(candidate.ptyId) === sessionId
-    )
+    const view = structuredSessionMailView(sessionId, this._orchestrationDb)
+    const pty = findConnectedPtyBoundToSession(this.ptysById.values(), sessionId)
     return view === 'terminal-view' && pty?.paneKey
       ? this.getTerminalHandleForPaneKey(pty.paneKey)
       : null
@@ -247,7 +243,7 @@ export class OrcaRuntimeWithGetPtyRecordForPaneKey extends OrcaRuntimeWithPruneM
     if (mailboxHandle.startsWith('run:')) {
       return this.resolveStructuredCoordinatorMailboxTarget(mailboxHandle.slice('run:'.length))
     }
-    const addressed = structuredSessionAddressTarget(mailboxHandle)
+    const addressed = structuredSessionAddressTarget(mailboxHandle, this._orchestrationDb)
     if (addressed !== undefined) {
       return addressed
     }
@@ -280,7 +276,7 @@ export class OrcaRuntimeWithGetPtyRecordForPaneKey extends OrcaRuntimeWithPruneM
     const run = this._orchestrationDb?.getRun?.(runId)
     const sessionId = run ? handleLessCoordinatorSessionId(run) : null
     if (sessionId) {
-      return structuredSessionMailTarget(sessionId, readAgentSessionRecordStore())
+      return structuredSessionMailTarget(sessionId, this._orchestrationDb)
     }
     const coordinator = run?.coordinator_handle
     if (!coordinator) {
