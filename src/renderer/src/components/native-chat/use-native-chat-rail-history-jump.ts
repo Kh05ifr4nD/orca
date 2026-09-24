@@ -88,7 +88,10 @@ export function useNativeChatRailHistoryJump({
     pagedFromRef.current = messages
     pageTokenRef.current += 1
     const token = pageTokenRef.current
-    setPending({ ...pending, pages: pending.pages + 1, awaitingPage: token })
+    // Functional: a pick or cancel queued since this commit must survive the step.
+    setPending((current) =>
+      current ? { ...current, pages: current.pages + 1, awaitingPage: token } : current
+    )
     const settle = (): void =>
       setPending((current) =>
         current?.awaitingPage === token ? { ...current, awaitingPage: null } : current
