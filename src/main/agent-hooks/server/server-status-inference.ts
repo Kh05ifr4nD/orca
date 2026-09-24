@@ -81,16 +81,18 @@ export abstract class AgentHookServerStatusInference extends AgentHookServerRowO
       (agentType === 'claude' &&
         (this.state.claudeRunningNonAgentTaskPaneKeys.has(existing.paneKey) ||
           this.state.claudeActiveSessionCronPaneKeys.has(existing.paneKey)))
-    // Why: a 'working' pane can be child-driven. For a Claude row the main agent fact decides: Ctrl+C at
-    // the idle prompt of a row held open by a shell, cron or subagent cancels nothing, while a
-    // cancel of a live main agent turn is folded with the child work it leaves running, exactly as a
-    // Stop would be. A row from a host too old to publish `mainAgent`, and every other provider (whose
-    // combine does not run through the fold here), keeps the evidence guard: Ctrl+C does not stop
-    // background children, so inferring `done` there would retire live child rows.
-    const cancelledMainAgentFolds = agentType === 'claude' && payload.mainAgent !== undefined
-    if (cancelledMainAgentFolds ? payload.mainAgent?.state !== 'working' : childWorkEvidenced) {
+    // Why: a 'working' pane can be child-driven, and Ctrl+C at the idle prompt of a main agent that
+    // child work holds open cancels nothing, so the main agent fact decides. A row from a host too
+    // old to publish `mainAgent` keeps the evidence guard, and so does Codex: its synthesized row is
+    // a plain done, which would retire the live children its combine keeps working.
+    if (
+      payload.mainAgent
+        ? payload.mainAgent.state !== 'working' || (agentType === 'codex' && childWorkEvidenced)
+        : childWorkEvidenced
+    ) {
       return false
     }
+    const cancelledMainAgentFolds = agentType === 'claude' && payload.mainAgent !== undefined
     // Why: keep the provider's main agent-turn record in sync, or a later child event re-emits the stale
     // 'working' state and resurrects the cancelled pane.
     const folded = cancelledMainAgentFolds
@@ -122,13 +124,11 @@ export abstract class AgentHookServerStatusInference extends AgentHookServerRowO
         ...(state === 'done' ? { interrupted: true } : {}),
         // Why: idle children are display state; dropping them on an inferred interrupt blanks rows a later hook would restore.
         ...(payload.subagents ? { subagents: payload.subagents } : {}),
-        // Why: the interrupt ends a running main agent's turn; one a watch loop held open had already
-        // settled, so it keeps its own clock and verdict.
-        mainAgent:
-          folded?.mainAgent ??
-          (payload.mainAgent?.state === 'done'
-            ? payload.mainAgent
-            : { state: 'done', outcome: 'cancellation', stateStartedAt: Date.now() })
+        mainAgent: folded?.mainAgent ?? {
+          state: 'done',
+          outcome: 'cancellation',
+          stateStartedAt: Date.now()
+        }
       }
     })
     if (!inferred) {

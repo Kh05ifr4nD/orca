@@ -400,7 +400,7 @@ describe('the main agent fact on an inferred interrupt', () => {
     }
   })
 
-  it('keeps an already settled main agent behind a watch loop as it was', () => {
+  it('refuses a cancel at the idle prompt of a main agent a watch loop holds open', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     try {
@@ -432,12 +432,9 @@ describe('the main agent fact on an inferred interrupt', () => {
           baselineAgentType: 'grok',
           intent: 'ctrl-c'
         })
-      ).toBe(true)
-      expect(server.getStatusSnapshot()[0]).toMatchObject({
-        state: 'done',
-        interrupted: true,
-        mainAgent: settled
-      })
+      ).toBe(false)
+      // Why: the main agent already settled; Ctrl+C at its prompt stops nothing the row shows.
+      expect(server.getStatusSnapshot()[0]).toEqual(baseline)
     } finally {
       vi.useRealTimers()
     }
