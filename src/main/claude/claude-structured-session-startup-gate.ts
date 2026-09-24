@@ -80,6 +80,10 @@ export async function holdClaudeStartupWrite(
     message: input.message,
     ...(input.settleLate ? { settleLate: input.settleLate } : {})
   })
+  // Startup finished writing what it held while the barrier ran; nothing else would drain this.
+  if (!claudeStartupHoldsWrites(session)) {
+    void drainClaudeStartupWrites(session)
+  }
   return { state: 'admitted' }
 }
 
@@ -89,6 +93,11 @@ export async function openClaudeStartupGate(session: ClaudeSession): Promise<voi
     return
   }
   gate.state = 'proven'
+  await drainClaudeStartupWrites(session)
+}
+
+async function drainClaudeStartupWrites(session: ClaudeSession): Promise<void> {
+  const gate = session.startup
   gate.draining = true
   try {
     for (let held = gate.held.shift(); held; held = gate.held.shift()) {

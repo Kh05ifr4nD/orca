@@ -113,6 +113,25 @@ describe('Claude structured session publishes before the CLI answers initialize'
     await adapter.closeAll()
   })
 
+  it('writes a prompt whose admission barrier was still running when startup landed', async () => {
+    const claude = fakeClaude({ initDelayMs: SLOW_INIT_MS })
+    const { adapter } = startingAdapter(claude)
+    await adapter.acquire(ACQUIRE)
+    let passBarrier = (): void => {}
+    const barrier = new Promise<void>((resolve) => {
+      passBarrier = resolve
+    })
+
+    const dispatched = adapter.dispatch({ ...PROMPT, beforeDispatch: () => barrier })
+    await vi.advanceTimersByTimeAsync(SLOW_INIT_MS)
+    await adapter.drainStartup('session-1')
+    passBarrier()
+
+    await expect(dispatched).resolves.toEqual({ state: 'admitted' })
+    expect(claude.connections[0].sent.filter((message) => message.type === 'user')).toHaveLength(1)
+    await adapter.closeAll()
+  })
+
   it('ends the session with the exit reason when the CLI dies before init, and rejects held prompts', async () => {
     const claude = fakeClaude({
       initDelayMs: SLOW_INIT_MS,
