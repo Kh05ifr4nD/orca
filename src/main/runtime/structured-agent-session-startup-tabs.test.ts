@@ -282,6 +282,34 @@ describe('restored chat tabs come from durable state', () => {
     expect(close).toHaveBeenCalledWith('closed-early')
   })
 
+  it.each([
+    ['names another workspace', 'workspace-2', new Set(['kept'])],
+    ['addresses a chat whose tab is already closed', 'workspace-1', new Set<string>()]
+  ])(
+    'refuses an unpublished chat close that %s, as for any unknown tab',
+    async (_case, worktreeId, listed) => {
+      const setSessionTabVisibility = vi.fn(async () => undefined)
+      const close = vi.fn(async () => undefined)
+      const runtime = restartedRuntime({
+        ensureHost: async () => {
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a tab close reads only these host members.
+          setStructuredAgentSessionHost({
+            ...persistedHost([chat('kept', 'workspace-1')], listed),
+            setSessionTabVisibility,
+            close
+          } as never)
+        }
+      })
+
+      await expect(
+        runtime.closeMobileSessionTab(`id:${worktreeId}`, 'agent-session:kept', { reason: 'user' })
+      ).rejects.toThrow('tab_not_found')
+
+      expect(setSessionTabVisibility).not.toHaveBeenCalled()
+      expect(close).not.toHaveBeenCalled()
+    }
+  )
+
   it('does not publish a chat whose close landed while earlier tabs were publishing', async () => {
     const runtime = restartedRuntime()
     const listed = new Set(['new', 'closed-mid'])

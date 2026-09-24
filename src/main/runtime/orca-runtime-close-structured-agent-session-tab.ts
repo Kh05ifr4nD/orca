@@ -49,7 +49,12 @@ export class OrcaRuntimeWithCloseStructuredAgentSessionTab extends OrcaRuntimeWi
     ) {
       const sessionId = args.tabId.slice('agent-session:'.length)
       const host = await this.structuredAgentSessionHostForTabClose()
-      if (host?.deps?.store?.getRecord?.(sessionId)) {
+      const record = host?.deps?.store?.getRecord?.(sessionId)
+      // Only a tab the index still holds, in the workspace the close names; anything else is unknown.
+      if (
+        record?.location?.workspaceId === args.worktreeId &&
+        host.deps.store.isSessionTabVisible?.(sessionId) === true
+      ) {
         await this.closeStructuredAgentSessionTab({
           type: 'agent-session',
           id: args.tabId,
