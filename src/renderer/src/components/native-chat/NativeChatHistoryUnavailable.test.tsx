@@ -18,7 +18,7 @@ describe('NativeChatHistoryUnavailable', () => {
     render(<NativeChatHistoryUnavailable tabId="agent-session:lost" />)
 
     expect(screen.getByText("This conversation's history couldn't be loaded")).toBeTruthy()
-    expect(screen.getByText('The saved history for this chat is missing or damaged.')).toBeTruthy()
+    expect(screen.getByText('The saved history for this chat is damaged.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Close tab' }))
     expect(closeUnifiedTab).toHaveBeenCalledWith('agent-session:lost')
   })

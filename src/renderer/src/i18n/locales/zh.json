@@ -14855,7 +14855,7 @@
         },
         "historyUnavailable": {
           "title": "无法加载此对话的历史记录",
-          "subtitle": "此聊天保存的历史记录丢失或已损坏。",
+          "subtitle": "此聊天保存的历史记录已损坏。",
           "closeTab": "关闭选项卡"
         }
       },

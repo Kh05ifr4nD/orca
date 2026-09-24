@@ -2681,7 +2681,7 @@
           "title": "Could not load conversation"
         },
         "historyUnavailable": {
-          "subtitle": "The saved history for this chat is missing or damaged.",
+          "subtitle": "The saved history for this chat is damaged.",
           "title": "This conversation's history couldn't be loaded"
         },
         "loading": {

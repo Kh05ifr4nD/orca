@@ -14775,7 +14775,7 @@
         },
         "historyUnavailable": {
           "title": "No se pudo cargar el historial de esta conversación",
-          "subtitle": "El historial guardado de este chat falta o está dañado.",
+          "subtitle": "El historial guardado de este chat está dañado.",
           "closeTab": "Cerrar pestaña"
         }
       },

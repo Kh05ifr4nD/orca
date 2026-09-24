@@ -16121,7 +16121,7 @@
         },
         "historyUnavailable": {
           "title": "Impossible de charger l'historique de cette conversation",
-          "subtitle": "L'historique enregistré de ce chat est manquant ou endommagé.",
+          "subtitle": "L'historique enregistré de ce chat est endommagé.",
           "closeTab": "Fermer l'onglet"
         }
       },

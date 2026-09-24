@@ -25,7 +25,7 @@ export const NATIVE_CHAT_EMPTY_STATE_COPY = {
   },
   historyUnavailable: {
     title: "This conversation's history couldn't be loaded",
-    subtitle: 'The saved history for this chat is missing or damaged.'
+    subtitle: 'The saved history for this chat is damaged.'
   }
 } as const satisfies Record<string, NativeChatEmptyStateCopy>
 
