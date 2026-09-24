@@ -220,9 +220,12 @@ describe('a Claude start whose CLI answers initialize but not a control request'
     await expect(
       host.attach(CALLER, claude.attachParams(SESSION, null, { options: { model: 'sonnet' } }))
     ).resolves.toMatchObject({ ok: true })
-    await vi.waitFor(() => expect(record(host)?.options).toMatchObject({ model: 'sonnet' }), {
-      timeout: DEADLINE_MS * 40
-    })
+    // The record holds the saved model from creation; only the start's own report (effort) says
+    // startup finished, and an option write before then is refused as still starting.
+    await vi.waitFor(
+      () => expect(record(host)?.options).toEqual({ model: 'sonnet', effort: 'high' }),
+      { timeout: DEADLINE_MS * 40 }
+    )
     turnReportsModel('claude-sonnet-5')
 
     behavior.optionWritesHang = false
