@@ -17,6 +17,7 @@ import { listFilesWithGit } from './fs-handler-git-fallback'
 import { listFilesWithRg } from './fs-handler-list-files'
 import { searchWithRg } from './fs-handler-utils'
 import { RipgrepUnavailableError } from '../shared/ripgrep-process-availability'
+import { buildRelayCommandEnv } from './relay-command-env'
 import { configureRelayBundledRipgrep } from './relay-bundled-ripgrep'
 import {
   ListFilesScanCoordinator,
@@ -658,11 +659,14 @@ describe('relay quick open ignored file listing', () => {
     listFirst.emit('error', listError)
 
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2))
+    // Why assert the relay env and not just its presence: the probe decides whether a launch
+    // failure was the binary or the root, so it has to resolve the same `rg` the failed spawn
+    // would have. Under process.env it could find a different one, or none.
     expect(spawnMock.mock.calls[1]).toEqual([
       'rg',
       ['--version'],
       // windowsHide: the probe must never flash a console window on Windows.
-      { stdio: 'ignore', windowsHide: true }
+      { env: buildRelayCommandEnv(), stdio: 'ignore', windowsHide: true }
     ])
     listProbe.emit('close', 0, null)
     await expect(listing).rejects.toThrow(`Search root is not reachable: ${missingRoot}`)
