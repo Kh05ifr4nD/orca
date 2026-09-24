@@ -207,7 +207,7 @@ describe('settled attach retry', () => {
     expect(spawnTokens).toEqual(['spawn-safe', 'spawn-safe'])
   })
 
-  it('fences a crash-interrupted reservation replay until positive recovery', async () => {
+  it('never replays a crash-interrupted reservation, and a new hold starts the chat', async () => {
     const spawnTokens: string[] = []
     acquire.mockImplementation(async ({ fence, spawnToken }) => {
       spawnTokens.push(spawnToken)
@@ -284,12 +284,15 @@ describe('settled attach retry', () => {
     expect(releaseAcquisition).toHaveBeenCalledTimes(1)
     expect(mintSpawnToken).toHaveBeenCalledTimes(1)
     expect(spawnTokens).toEqual(['spawn-1'])
+    // The reservation's child ended with the app run that spawned it, so the lease is free; the
+    // operation that reserved it still never replays.
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
-      claimStatus: 'reserved',
-      handoffStage: 'manual-recovery',
-      runtimeFence: 1,
-      reservedSpawnToken: 'spawn-1',
-      ownerProcess: null
+      claimStatus: 'released',
+      handoffStage: null,
+      runtimeFence: 2,
+      reservedSpawnToken: null,
+      ownerProcess: null,
+      deathEvidence: { kind: 'previous-app-run' }
     })
     expect(
       store.listOperationRows().find((row) => row.operationId === params.envelope.clientOperationId)

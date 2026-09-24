@@ -127,7 +127,7 @@ afterEach(async () => {
 })
 
 describe('recovery exits', () => {
-  it('keeps an ownerless unproven acquisition in manual recovery across restart', async () => {
+  it('frees an ownerless unproven acquisition at restart, since its child ended with that app run', async () => {
     acquire.mockRejectedValueOnce(new Error('simulated crash before identity commit'))
     await expect(host.attach(CALLER, hostTestAttachParams(null))).rejects.toThrow(
       'agent_session_acquisition_exit_unproven'
@@ -142,14 +142,20 @@ describe('recovery exits', () => {
     })
 
     await reopenStore()
-    openHost({ mintSpawnToken: () => 'spawn-b' })
+    const probeOwner = vi.fn(async () => ({
+      outcome: 'indeterminate' as const,
+      reason: 'reservation cannot be attributed'
+    }))
+    openHost({ mintSpawnToken: () => 'spawn-b', probeOwner })
 
-    const refused = await host.attach(CALLER, hostTestAttachParams(1))
-    expect(refused).toMatchObject({
+    const stale = await host.attach(CALLER, hostTestAttachParams(1))
+    expect(stale).toMatchObject({
       ok: false,
-      refusal: { code: 'agent_session_ownership_unknown' }
+      refusal: { code: 'agent_session_checkpoint_stale', currentFence: 2 }
     })
-    expect(acquire).toHaveBeenCalledOnce()
+    expect(probeOwner).not.toHaveBeenCalled()
+    expect(await host.attach(CALLER, hostTestAttachParams(2))).toMatchObject({ ok: true })
+    expect(acquire).toHaveBeenCalledTimes(2)
   })
 
   it('releases an unproven acquisition whose owner later dies, without replaying it as a handoff', async () => {
@@ -208,29 +214,25 @@ describe('recovery exits', () => {
     })
   })
 
-  it('stops a surviving native child after restart instead of readopting its dead transport', async () => {
+  it('evicts a native owner from the previous app run instead of readopting its dead transport', async () => {
     expect((await host.attach(CALLER, hostTestAttachParams(null))).ok).toBe(true)
     await reopenStore()
 
-    let orphanAlive = true
-    const stopOwnerProcess = vi.fn((_pid: number, _signal: 'SIGTERM' | 'SIGKILL') => {
-      orphanAlive = false
-    })
-    openHost({
-      mintSpawnToken: () => 'spawn-b',
-      probeOwner: async () =>
-        orphanAlive
-          ? { outcome: 'identity-matched', matchedOn: ['process-start-time'] }
-          : { outcome: 'pid-absent' },
-      stopOwnerProcess
-    })
+    // The child ended with the app run that spawned it, so restart neither probes nor signals it.
+    const stopOwnerProcess = vi.fn((_pid: number, _signal: 'SIGTERM' | 'SIGKILL') => {})
+    const probeOwner = vi.fn(async () => ({
+      outcome: 'identity-matched' as const,
+      matchedOn: ['process-start-time' as const]
+    }))
+    openHost({ mintSpawnToken: () => 'spawn-b', probeOwner, stopOwnerProcess })
 
     const stale = await host.attach(CALLER, hostTestAttachParams(1))
     expect(stale).toMatchObject({
       ok: false,
       refusal: { code: 'agent_session_checkpoint_stale', currentFence: 2 }
     })
-    expect(stopOwnerProcess).toHaveBeenCalledWith(4242, 'SIGTERM')
+    expect(probeOwner).not.toHaveBeenCalled()
+    expect(stopOwnerProcess).not.toHaveBeenCalled()
     const retried = await host.attach(CALLER, hostTestAttachParams(2))
     expect(retried).toMatchObject({ ok: true })
     // A fresh child was spawned; the orphan pid's lease did not survive as the owner.
@@ -242,28 +244,23 @@ describe('recovery exits', () => {
     })
   })
 
-  it('heals a stranded native owner during startup restore, and spawns nothing until a surface asks', async () => {
+  it('frees a native owner from the previous app run during startup restore, and spawns nothing until a surface asks', async () => {
     expect((await host.attach(CALLER, hostTestAttachParams(null))).ok).toBe(true)
     await reopenStore()
 
-    let orphanAlive = true
-    const stopOwnerProcess = vi.fn(() => {
-      orphanAlive = false
-    })
-    openHost({
-      mintSpawnToken: () => 'spawn-b',
-      probeOwner: async () =>
-        orphanAlive
-          ? { outcome: 'identity-matched', matchedOn: ['process-start-time'] }
-          : { outcome: 'pid-absent' },
-      stopOwnerProcess
-    })
+    const stopOwnerProcess = vi.fn(() => {})
+    const probeOwner = vi.fn(async () => ({
+      outcome: 'identity-matched' as const,
+      matchedOn: ['process-start-time' as const]
+    }))
+    openHost({ mintSpawnToken: () => 'spawn-b', probeOwner, stopOwnerProcess })
 
     await host.restoreReadableSessions()
 
-    // Healing is startup's job; spawning is not. The orphan is stopped and the lease is free, but
-    // nothing has asked to look at this session, so no replacement child exists yet.
-    expect(stopOwnerProcess).toHaveBeenCalledWith(4242, 'SIGTERM')
+    // Freeing is startup's job; spawning is not. The lease is free with no probe, but nothing has
+    // asked to look at this session, so no replacement child exists yet.
+    expect(probeOwner).not.toHaveBeenCalled()
+    expect(stopOwnerProcess).not.toHaveBeenCalled()
     expect(acquire).toHaveBeenCalledTimes(1)
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
       claimStatus: 'released',

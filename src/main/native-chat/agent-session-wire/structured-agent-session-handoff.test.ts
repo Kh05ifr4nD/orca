@@ -564,16 +564,19 @@ describe('structured session ownership recovery on restore', () => {
     await coordinator.restore(PLAIN_RESIDUE)
     expect(launchTui).not.toHaveBeenCalled()
     expect(acquireNativeCalls).toBe(0)
+    // The plain native reservation died with the previous app run: freed, never continued.
     expect(store.getRecord(PLAIN_RESIDUE)?.lease).toMatchObject({
       runtimeKind: 'native',
-      runtimeFence: 1,
-      handoffStage: 'manual-recovery',
-      claimStatus: 'reserved',
-      reservedSpawnToken: 'plain-residue-token'
+      runtimeFence: 2,
+      handoffStage: null,
+      claimStatus: 'released',
+      reservedSpawnToken: null,
+      deathEvidence: { kind: 'previous-app-run' }
     })
+    // Nothing refused it, so its interrupted attach expires with the ledger like any evicted one.
     expect(
       store.listOperationRows().find((row) => row.operationId === plainOperation)?.outcome
-    ).toMatchObject({ status: 'failed', code: 'agent_session_ownership_unknown' })
+    ).toEqual({ status: 'pending' })
 
     await coordinator.restore(SESSION)
 

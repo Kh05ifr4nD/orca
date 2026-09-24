@@ -593,9 +593,25 @@ describe('restart', () => {
     })
   })
 
+  /** A native owner this host spawned is assumed gone at restart; one recorded on another host is
+   *  still probed, which is the path these cases exercise. */
+  async function recordOwnerOnAnotherHost(): Promise<void> {
+    await store.transitionHandoff(SESSION, (record) => ({
+      ...record,
+      lease: {
+        ...record.lease,
+        ownerProcess: record.lease.ownerProcess && {
+          ...record.lease.ownerProcess,
+          hostId: 'ssh:build-box'
+        }
+      }
+    }))
+  }
+
   it("keeps a session whose owner cannot be probed out of a live writer's hands", async () => {
     await attach()
     const held = store.getRecord(SESSION)?.lease.runtimeFence ?? 0
+    await recordOwnerOnAnotherHost()
     await reboot(async () => ({ outcome: 'indeterminate', reason: 'no probe on this host' }))
 
     expect(await host.attach(CALLER, ensureParams(held))).toMatchObject({
@@ -611,6 +627,7 @@ describe('restart', () => {
       .fn<(record: AgentSessionRecord) => Promise<AgentSessionOwnerProbe>>()
       .mockRejectedValueOnce(new Error('probe exploded'))
       .mockResolvedValue({ outcome: 'pid-absent' })
+    await recordOwnerOnAnotherHost()
     await reboot(probe)
 
     await expect(host.attach(CALLER, ensureParams(held))).rejects.toThrow('probe exploded')

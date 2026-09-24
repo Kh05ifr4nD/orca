@@ -466,9 +466,11 @@ describe('restart reconciliation', () => {
     ).rejects.toThrow('execution_owner_reconciling')
   })
 
+  // A native owner loaded at open is assumed gone with the previous app run; these cases are the
+  // leases restart still probes, so they run against a TUI owner.
   it('re-adopts a live owner without moving the fence', async () => {
     const first = await open()
-    await establishOwner(first)
+    await establishOwner(first, { runtimeKind: 'tui' })
     const reopened = await open()
     await reopened.reconcileOnRestart({ probe: async () => MATCHED, now: NOW + 1_000 })
     const record = reopened.getRecord('session-alpha')
@@ -482,7 +484,7 @@ describe('restart reconciliation', () => {
 
   it('never applies a stale restart probe to a replacement owner', async () => {
     const writer = await open()
-    await establishOwner(writer)
+    await establishOwner(writer, { runtimeKind: 'tui' })
     const reconciler = await open()
     let releaseProbe!: (probe: AgentSessionOwnerProbe) => void
     let markProbeStarted!: () => void
@@ -576,7 +578,7 @@ describe('restart reconciliation', () => {
 
   it('sends an unverifiable owner to recovery rather than releasing it', async () => {
     const first = await open()
-    await establishOwner(first)
+    await establishOwner(first, { runtimeKind: 'tui' })
     const reopened = await open()
     await reopened.reconcileOnRestart({ probe: async () => INDETERMINATE, now: NOW + 1_000 })
     const lease = reopened.getRecord('session-alpha')?.lease
@@ -600,7 +602,7 @@ describe('restart reconciliation', () => {
 
   it('keeps a conflict conflicted across a restart that proves nothing', async () => {
     const first = await open()
-    await establishOwner(first)
+    await establishOwner(first, { runtimeKind: 'tui' })
     await first.markClaimConflicted('session-alpha', NOW)
 
     const reopened = await open()
@@ -627,7 +629,7 @@ describe('restart reconciliation', () => {
     // A conflict with no exit is a session the user can never open again; present-time proof that
     // the process the conflict names has exited leaves no claimant left to protect.
     const first = await open()
-    await establishOwner(first)
+    await establishOwner(first, { runtimeKind: 'tui' })
     await first.markClaimConflicted('session-alpha', NOW)
 
     const reopened = await open()

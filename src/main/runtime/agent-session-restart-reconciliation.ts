@@ -1,6 +1,6 @@
 import { pruneAgentSessionOperationRows } from '../../shared/agent-session-operation-ledger'
 import type { AgentSessionOwnerProbe } from '../../shared/agent-session-lease-adjudication'
-import type { AgentSessionRecord } from '../../shared/agent-session-record'
+import type { AgentSessionLease, AgentSessionRecord } from '../../shared/agent-session-record'
 import type { AgentSessionStoreState } from './agent-session-record-store-file'
 import { agentSessionReconciliationTargetMatches } from './agent-session-reconciliation-target'
 import { applyAgentSessionRestartAdjudication } from './agent-session-restart-lease-transitions'
@@ -15,13 +15,42 @@ export type AgentSessionRestartProbeArgs = {
 
 type RestartProbe = { record: AgentSessionRecord; probe: AgentSessionOwnerProbe }
 
+/** Previous-run leases are adjudicated without a probe; every other lease is probed. */
+export type AgentSessionPreviousAppRunTest = (record: AgentSessionRecord) => boolean
+
+/**
+ * A native owner is a child of the app run that spawned it, so a lease this process loaded at
+ * open(), still at that fence, names a process that ended with the previous run. A TUI owner lives
+ * in the terminal daemon and survives restarts, and another host's pid is not this run's child.
+ */
+export function agentSessionLeaseEndedWithPreviousAppRun(
+  lease: AgentSessionLease,
+  fenceLoadedAtOpen: number | undefined,
+  hostId: string
+): boolean {
+  return (
+    lease.runtimeKind === 'native' &&
+    fenceLoadedAtOpen === lease.runtimeFence &&
+    (lease.ownerProcess === null || lease.ownerProcess.hostId === hostId)
+  )
+}
+
 export async function collectAgentSessionRestartProbes(
   records: readonly AgentSessionRecord[],
-  args: AgentSessionRestartProbeArgs
+  args: AgentSessionRestartProbeArgs,
+  endedWithPreviousAppRun: AgentSessionPreviousAppRunTest = () => false
 ): Promise<Map<string, RestartProbe>> {
   const probes = new Map<string, RestartProbe>()
-  const batched = args.probeMany ? await args.probeMany(records) : null
+  const probed: AgentSessionRecord[] = []
   for (const record of records) {
+    if (endedWithPreviousAppRun(record)) {
+      probes.set(record.sessionId, { record, probe: { outcome: 'previous-app-run' } })
+    } else {
+      probed.push(record)
+    }
+  }
+  const batched = args.probeMany && probed.length > 0 ? await args.probeMany(probed) : null
+  for (const record of probed) {
     probes.set(record.sessionId, {
       record,
       probe:
@@ -37,14 +66,17 @@ export async function collectAgentSessionRestartProbes(
 export function applyAgentSessionRestartProbes(
   state: AgentSessionStoreState,
   probes: ReadonlyMap<string, RestartProbe>,
-  now: number
+  now: number,
+  endedWithPreviousAppRun: AgentSessionPreviousAppRunTest = () => false
 ): Map<string, AgentSessionRecord> {
   const reconciled = new Map<string, AgentSessionRecord>()
   for (const [sessionId, probed] of probes) {
     const record = state.records.get(sessionId)
     if (
       !record?.lease.unreconciled ||
-      !agentSessionReconciliationTargetMatches(record, probed.record)
+      !agentSessionReconciliationTargetMatches(record, probed.record) ||
+      // Asked again here: another writer's state may have replaced the loaded one since.
+      (probed.probe.outcome === 'previous-app-run' && !endedWithPreviousAppRun(record))
     ) {
       continue
     }

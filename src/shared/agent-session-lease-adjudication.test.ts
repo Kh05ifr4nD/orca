@@ -313,6 +313,36 @@ describe('restart reconciliation', () => {
   })
 })
 
+describe('owner ended with the previous app run', () => {
+  const PREVIOUS_RUN: AgentSessionOwnerProbe = { outcome: 'previous-app-run' }
+
+  it.each([
+    ['a live owner', lease()],
+    ['a conflicted owner', lease({ claimStatus: 'conflicted', handoffStage: 'manual-recovery' })],
+    ['an unattributable reservation', lease({ ownerProcess: null, claimStatus: 'reserved' })]
+  ])('evicts %s at fence + 1 with that as the evidence', (_name, loaded) => {
+    expect(
+      adjudicateAgentSessionRestart({ lease: loaded, probe: PREVIOUS_RUN, observedAt: 900 })
+    ).toEqual({
+      disposition: 'evicted',
+      nextFence: 8,
+      evidence: {
+        kind: 'previous-app-run',
+        detail: 'owner ended with the previous app run',
+        observedAt: 900
+      }
+    })
+  })
+
+  it('is never proof of death for an acquisition', () => {
+    expect(isProvenDeadProbe(PREVIOUS_RUN)).toBe(false)
+    expect(acquire(lease(), PREVIOUS_RUN)).toEqual({
+      decision: 'refused',
+      code: 'agent_session_ownership_unknown'
+    })
+  })
+})
+
 describe('writer admission and orphan spawn tokens', () => {
   it('admits a writer only when reconciled, settled, live, and holding a process', () => {
     expect(agentSessionLeaseAdmitsWriter(lease())).toBe(true)

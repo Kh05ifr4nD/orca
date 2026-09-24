@@ -50,6 +50,7 @@ import {
   type AgentSessionLeaseRenewal
 } from './agent-session-lease-renewal'
 import {
+  agentSessionLeaseEndedWithPreviousAppRun,
   applyAgentSessionRestartProbes,
   collectAgentSessionRestartProbes,
   type AgentSessionRestartProbeArgs
@@ -270,8 +271,16 @@ export class AgentSessionRecordStore {
     args: AgentSessionRestartProbeArgs
   ): Promise<Map<string, AgentSessionRecord>> {
     const pending = this.listRecords().filter((record) => record.lease.unreconciled)
-    const probes = await collectAgentSessionRestartProbes(pending, args)
-    return this.transact(() => applyAgentSessionRestartProbes(this.state, probes, args.now))
+    const endedWithPreviousAppRun = (record: AgentSessionRecord): boolean =>
+      agentSessionLeaseEndedWithPreviousAppRun(
+        record.lease,
+        this.transactions.fenceLoadedAtOpen(record.sessionId),
+        this.hostId
+      )
+    const probes = await collectAgentSessionRestartProbes(pending, args, endedWithPreviousAppRun)
+    return this.transact(() =>
+      applyAgentSessionRestartProbes(this.state, probes, args.now, endedWithPreviousAppRun)
+    )
   }
 
   /** Admits one non-reservation mutation through the durable ledger. */

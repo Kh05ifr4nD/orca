@@ -31,6 +31,9 @@ export type AgentSessionOwnerProbe =
   | { outcome: 'reservation-unused' }
   /** The host could not answer — restricted container, no start time, no token echo. */
   | { outcome: 'indeterminate'; reason: string }
+  /** Restart only: a native owner this host spawned in the previous app run, assumed gone with it
+   *  rather than probed. Never proof for acquisition. */
+  | { outcome: 'previous-app-run' }
 
 export type AgentSessionLeaseRefusalCode =
   | 'agent_session_checkpoint_stale'
@@ -97,7 +100,14 @@ function deathEvidenceFor(
   if (probe.outcome === 'identity-mismatch') {
     return { kind: 'identity-mismatch', detail: `mismatched ${probe.field}`, observedAt }
   }
+  if (probe.outcome === 'previous-app-run') {
+    return previousAppRunDeathEvidence(observedAt)
+  }
   return null
+}
+
+function previousAppRunDeathEvidence(observedAt: number): AgentSessionDeathEvidence {
+  return { kind: 'previous-app-run', detail: 'owner ended with the previous app run', observedAt }
 }
 
 /** True when the recorded owner may write right now. Used by every mutating path in later parts. */
@@ -223,6 +233,13 @@ export function adjudicateAgentSessionRestart(args: {
         disposition: 'evicted',
         nextFence: nextAgentSessionFence(lease),
         evidence: { kind: 'pid-absent', detail: 'reservation never spawned', observedAt }
+      }
+    }
+    if (probe.outcome === 'previous-app-run') {
+      return {
+        disposition: 'evicted',
+        nextFence: nextAgentSessionFence(lease),
+        evidence: previousAppRunDeathEvidence(observedAt)
       }
     }
     return {

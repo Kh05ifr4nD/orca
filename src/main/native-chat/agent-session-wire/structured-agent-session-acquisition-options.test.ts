@@ -522,15 +522,13 @@ describe('structured session acquisition options', () => {
         reopened.listOperationRows().find((row) => row.operationId === CREATE_OPERATION)?.outcome
       ).toMatchObject({ status: 'failed' })
 
-      await reopened.reconcileOnRestart({
-        probe: async (record) =>
-          exitProven || record.lease.ownerProcess === null
-            ? exitProven
-              ? { outcome: 'reservation-unused' }
-              : { outcome: 'indeterminate', reason: 'owner identity was never committed' }
-            : { outcome: 'identity-matched', matchedOn: ['process-start-time'] },
-        now: NOW + 1
-      })
+      // Whatever cleanup proved, the child was spawned by the app run that just ended.
+      const restartProbe = vi.fn(async () => ({
+        outcome: 'identity-matched' as const,
+        matchedOn: ['process-start-time' as const]
+      }))
+      await reopened.reconcileOnRestart({ probe: restartProbe, now: NOW + 1 })
+      expect(restartProbe).not.toHaveBeenCalled()
 
       if (exitProven) {
         expect(failedRecord?.lease).toMatchObject({
@@ -555,10 +553,15 @@ describe('structured session acquisition options', () => {
           handoffOperationId: null,
           reservedSpawnToken: 'spawn-a'
         })
-        await expect(perform(reopened, RESUME_OPERATION, 1)).resolves.toMatchObject({
-          ok: false,
-          refusal: { code: 'agent_session_ownership_unknown' }
+        expect(reopened.getRecord(SESSION)?.lease).toMatchObject({
+          runtimeFence: 2,
+          claimStatus: 'released',
+          ownerProcess: null,
+          reservedSpawnToken: null,
+          deathEvidence: { kind: 'previous-app-run' }
         })
+        await expect(perform(reopened, RESUME_OPERATION, 2)).resolves.toMatchObject({ ok: true })
+        expectSettledAttachLease(reopened.getRecord(SESSION))
       }
     })
   })

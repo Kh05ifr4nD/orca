@@ -10,6 +10,10 @@ import { isAgentSessionConversationName } from './agent-session-conversation-nam
 
 import type { ExecutionHostId } from './execution-host'
 import {
+  isAgentSessionDeathEvidence,
+  type AgentSessionDeathEvidence
+} from './agent-session-death-evidence'
+import {
   isAgentSessionConversationCommandRecord,
   type AgentSessionConversationCommandRecord
 } from './agent-session-conversation-command'
@@ -79,11 +83,7 @@ export type AgentSessionJournalCheckpoint = { epoch: number; sequence: number }
  */
 export type AgentSessionClaimStatus = 'reserved' | 'live' | 'conflicted' | 'released'
 
-export type AgentSessionDeathEvidence = {
-  kind: 'exit-observed' | 'pid-absent' | 'identity-mismatch'
-  detail: string
-  observedAt: number
-}
+export type { AgentSessionDeathEvidence }
 
 export type AgentSessionLease = {
   sessionId: string
@@ -271,21 +271,6 @@ function isAgentSessionJournalCheckpoint(value: unknown): value is AgentSessionJ
     (checkpoint.epoch as number) >= 0 &&
     Number.isSafeInteger(checkpoint.sequence) &&
     (checkpoint.sequence as number) >= 0
-  )
-}
-
-function isAgentSessionDeathEvidence(value: unknown): value is AgentSessionDeathEvidence {
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-  const evidence = value as Partial<AgentSessionDeathEvidence>
-  return (
-    (evidence.kind === 'exit-observed' ||
-      evidence.kind === 'pid-absent' ||
-      evidence.kind === 'identity-mismatch') &&
-    isBoundedString(evidence.detail, MAX_ID_LENGTH) &&
-    Number.isSafeInteger(evidence.observedAt) &&
-    (evidence.observedAt as number) >= 0
   )
 }
 

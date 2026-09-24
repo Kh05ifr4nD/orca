@@ -56,6 +56,9 @@ function agentSessionStoreStateChanged(
 export class AgentSessionStoreTransactionQueue {
   private queue: Promise<unknown> = Promise.resolve()
   private diskRecoveredFromBackup: boolean
+  /** Fence of every lease as open() loaded it — what the previous app run left. Emptied when
+   *  another writer's state replaces it, since those leases are not a previous run's. */
+  private readonly fencesLoadedAtOpen: Map<string, number>
 
   constructor(
     private readonly filePath: string,
@@ -68,6 +71,13 @@ export class AgentSessionStoreTransactionQueue {
     private needsRewrite: boolean
   ) {
     this.diskRecoveredFromBackup = recoveredFromBackup
+    this.fencesLoadedAtOpen = new Map(
+      [...state.records].map(([sessionId, record]) => [sessionId, record.lease.runtimeFence])
+    )
+  }
+
+  fenceLoadedAtOpen(sessionId: string): number | undefined {
+    return this.fencesLoadedAtOpen.get(sessionId)
   }
 
   static fromLoadedStore(
@@ -169,6 +179,7 @@ export class AgentSessionStoreTransactionQueue {
       throw new Error('agent_session_legacy_required')
     }
     markLoadedLeasesUnreconciled(loaded.state)
+    this.fencesLoadedAtOpen.clear()
     this.state = loaded.state
     this.diskRevision = diskRevision
     this.needsRewrite = loaded.needsRewrite
