@@ -433,15 +433,28 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *   modules        4216 -> 4218   (+2)
  *   local modules  1030 -> 1032   (+2)
  *
+ * #22452 (`80f5aae0f9`) then added `src/shared/main-agent-status.ts` and
+ * `src/shared/agent-turn-outcome.ts`, which `agent-status-types.ts` on this route imports. Two local
+ * modules; the change was src/shared-only, so its own CI never ran this suite and main read two over.
+ *
+ *   modules        4218 -> 4220   (+2)
+ *   local modules  1032 -> 1034   (+2)
+ *
+ * Reverting #18790 then took `src/shared/agent-icons/freebuff.png` back out of
+ * `mobile-agent-icon-assets.ts`, undoing the one module #22119 pinned for it. Measured on the revert.
+ *
+ *   modules        4220 -> 4219   (-1)
+ *   local modules  1034 -> 1033   (-1)
+ *
  * The host identity confirmation adds four local modules and no package: the shared display
  * resolver and platform label, plus `src/transport/host-descriptor-store.ts` and its in-memory
  * `host-descriptor-persistence.web.ts` sibling. The status gate above every route writes the
  * descriptor and the docked host header reads it.
  *
- *   modules        4218 -> 4222   (+4)
- *   local modules  1032 -> 1036   (+4)
+ *   modules        4219 -> 4223   (+4)
+ *   local modules  1033 -> 1037   (+4)
  */
-const SESSION_ROUTE_MODULES = 4222
+const SESSION_ROUTE_MODULES = 4223
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [
