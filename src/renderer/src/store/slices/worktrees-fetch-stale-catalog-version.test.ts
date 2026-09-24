@@ -132,28 +132,32 @@ describe('fetchWorktrees with a listing versioned before an applied create', () 
     ])
   })
 
-  it('fetchAllWorktrees neither tears down nor purges on a listing older than the create', async () => {
-    const store = createTestStore()
-    const { created, surviving } = seed(store)
-    store.setState({ hasHydratedWorktreePurge: true })
-    mockApi.worktrees.listDetected.mockImplementationOnce(async (args) =>
-      qualifyDetectedResult(
-        args,
-        makeDetectedResult('repo1', [surviving], { catalogVersion: { epoch: HOST, sequence: 6 } })
+  // Why both: the startup hydration pass and later refreshes list through separate call sites.
+  it.each([true, false])(
+    'fetchAllWorktrees neither tears down nor purges on a listing older than the create (hydrated purge: %s)',
+    async (hasHydratedWorktreePurge) => {
+      const store = createTestStore()
+      const { created, surviving } = seed(store)
+      store.setState({ hasHydratedWorktreePurge })
+      mockApi.worktrees.listDetected.mockImplementationOnce(async (args) =>
+        qualifyDetectedResult(
+          args,
+          makeDetectedResult('repo1', [surviving], { catalogVersion: { epoch: HOST, sequence: 6 } })
+        )
       )
-    )
 
-    await store.getState().fetchAllWorktrees()
+      await store.getState().fetchAllWorktrees()
 
-    expect(mockApi.worktrees.listDetected).toHaveBeenCalledOnce()
-    expect(mockApi.runtime.call).not.toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'worktree.teardownMissingTerminals' })
-    )
-    expect(store.getState().worktreesByRepo.repo1?.map((w) => w.id)).toEqual([
-      created.id,
-      surviving.id
-    ])
-  })
+      expect(mockApi.worktrees.listDetected).toHaveBeenCalledOnce()
+      expect(mockApi.runtime.call).not.toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'worktree.teardownMissingTerminals' })
+      )
+      expect(store.getState().worktreesByRepo.repo1?.map((w) => w.id)).toEqual([
+        created.id,
+        surviving.id
+      ])
+    }
+  )
 
   it("a paired runtime's listing older than the create stops no terminals", async () => {
     const store = createTestStore()
