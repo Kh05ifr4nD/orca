@@ -26,7 +26,9 @@ export const ORCAD_ARTIFACTS: readonly OrcadArtifact[] = [
   // Forked so a native @parcel/watcher fault kills the child, not the server.
   { filename: 'parcel-watcher-process-entry.js' },
   // Forked so PTYs outlive the runtime process; its absence makes every restart destructive.
-  { filename: 'daemon-entry.js' }
+  { filename: 'daemon-entry.js' },
+  { filename: 'profile-state-writer-worker-entry.js' },
+  { filename: 'profile-state-backup-worker-entry.js' }
 ]
 
 /** Written after the artifacts, so it is never an input to its own hash. */
