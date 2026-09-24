@@ -19,6 +19,7 @@ import type {
 import { record, taskText, taskUsageTotalTokens } from './claude-background-task-frames'
 import { isAgentChildWorkKind } from '../../shared/agent-status-child-work-liveness'
 import type { TrackedClaudeBackgroundTask } from './claude-settled-background-tasks'
+import type { ClaudePendingPrompt } from './claude-prompt-registry'
 import type { ClaudeSession } from './claude-structured-session-state'
 import { deriveToolInputPreview } from '../../shared/agent-hook-listener/tool-input-preview'
 import {
@@ -236,6 +237,41 @@ export function withClaudeChildWorkOwners(
   )
 }
 
+/** The children blocked on a request the provider is still waiting on an answer to: the agent the
+ *  request names, or, from a CLI that does not name one, the child that owns the tool call it gates. */
+export function claudeWaitingChildIds(
+  prompts: Iterable<ClaudePendingPrompt>,
+  ownerOf: ((toolUseId: string) => string | null) | undefined
+): Set<string> {
+  const waiting = new Set<string>()
+  for (const prompt of prompts) {
+    const childId = prompt.agentId ?? ownerOf?.(prompt.toolUseId) ?? null
+    if (childId !== null) {
+      waiting.add(childId)
+    }
+  }
+  return waiting
+}
+
+/** A live child with a request pending reads waiting, whatever the edge that reports it. */
+export function withClaudeChildWorkWaiting(
+  evidence: AgentChildWorkEvidence[],
+  waiting: ReadonlySet<string>
+): AgentChildWorkEvidence[] {
+  if (waiting.size === 0) {
+    return evidence
+  }
+  const stated = (child: AgentChildWorkLiveObservation): AgentChildWorkLiveObservation =>
+    waiting.has(child.handle.id) ? { ...child, state: 'waiting' } : child
+  return evidence.map((edge) =>
+    edge.type === 'live'
+      ? { ...edge, child: stated(edge.child) }
+      : edge.type === 'inventory'
+        ? { ...edge, children: edge.children.map(stated) }
+        : edge
+  )
+}
+
 /**
  * A child's own tool traffic, read after the journal handled the frame: the call the child has
  * open now (a foreground child's traffic reaches the parent's stream; a backgrounded child's does
@@ -276,16 +312,20 @@ export function claudeChildOperation(
 
 /** Everything one frame (or a close) said about the session's child work, owners named. */
 export function drainClaudeChildWork(
-  session: Pick<ClaudeSession, 'backgroundTasks' | 'translator'> | null | undefined,
+  session: Pick<ClaudeSession, 'backgroundTasks' | 'translator' | 'prompts'> | null | undefined,
   message: Record<string, unknown> | null,
   observedAt: number
 ): AgentChildWorkEvidence[] {
   if (!session) {
     return []
   }
+  const ownerOf = session.translator?.childToolOwner
+  // Re-derived from the pending requests on every drain, so no wait outlives its request.
+  const waiting = claudeWaitingChildIds(session.prompts.pending(), ownerOf)
+  session.backgroundTasks.observeWaitingChildren(waiting)
   const decided = session.backgroundTasks.drainChildWorkEvidence(observedAt)
   return [
-    ...withClaudeChildWorkOwners(decided, session.translator?.childToolOwner),
+    ...withClaudeChildWorkWaiting(withClaudeChildWorkOwners(decided, ownerOf), waiting),
     ...(message ? claudeChildOperation(message, session.translator?.childActivity, observedAt) : [])
   ]
 }

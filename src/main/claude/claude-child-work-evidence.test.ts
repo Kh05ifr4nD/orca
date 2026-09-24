@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChildWorkEvidence } from '../../shared/agent-status-child-work-evidence'
 import { ClaudeBackgroundTaskTracker } from './claude-background-task-tracker'
+import { claudeWaitingChildIds, withClaudeChildWorkWaiting } from './claude-child-work-evidence'
+import { ClaudePromptRegistry } from './claude-prompt-registry'
 
 function system(subtype: string, fields: Record<string, unknown>): Record<string, unknown> {
   return { type: 'system', subtype, session_id: 'provider-1', uuid: crypto.randomUUID(), ...fields }
@@ -275,5 +277,97 @@ describe('Claude child-work evidence from the task tracker', () => {
       { type: 'turn-ended', observedAt: 500 },
       { type: 'session-ended', observedAt: 500 }
     ])
+  })
+
+  it("carries a live task's error as what it last said, with no ending and no new state", () => {
+    const tracker = new ClaudeBackgroundTaskTracker(() => 100)
+    tracker.observe(backgroundAgent)
+    drained(tracker)
+    const rows = tracker.state
+    // Shape from the SDK's declared `task_updated` patch; no capture has shown one on a live task.
+    tracker.observe(
+      system('task_updated', { task_id: 'agent-bg', patch: { error: 'Rate limited' } })
+    )
+    expect(tracker.state).toEqual(rows)
+    expect(drained(tracker)).toEqual([
+      expect.objectContaining({
+        type: 'live',
+        child: expect.objectContaining({ state: 'working', lastMessage: 'Rate limited' })
+      })
+    ])
+    tracker.observe(system('task_updated', { task_id: 'agent-unknown', patch: { error: 'x' } }))
+    expect(drained(tracker)).toEqual([])
+  })
+})
+
+describe('Claude children waiting on a permission request', () => {
+  function prompts(...requests: { toolUseId: string; agentId?: string }[]): ClaudePromptRegistry {
+    const registry = new ClaudePromptRegistry()
+    requests.forEach((request, index) =>
+      registry.register({
+        requestId: `request-${index}`,
+        toolName: 'Bash',
+        input: {},
+        suggestions: [],
+        settle: () => {},
+        ...request
+      })
+    )
+    return registry
+  }
+
+  it('names the subagent the request names, else the owner of the tool call it gates', () => {
+    const ownerOf = (toolUseId: string) => (toolUseId === 'toolu_child' ? 'agent-fg' : null)
+    expect(
+      claudeWaitingChildIds(
+        prompts(
+          { toolUseId: 'toolu_a', agentId: 'agent-bg' },
+          { toolUseId: 'toolu_child' },
+          { toolUseId: 'toolu_main' }
+        ).pending(),
+        ownerOf
+      )
+    ).toEqual(new Set(['agent-bg', 'agent-fg']))
+    expect(
+      claudeWaitingChildIds(prompts({ toolUseId: 'toolu_child' }).pending(), undefined)
+    ).toEqual(new Set())
+  })
+
+  it('publishes a live edge when a tracked child starts or stops waiting, and only then', () => {
+    const tracker = new ClaudeBackgroundTaskTracker(() => 100)
+    tracker.observe(backgroundAgent)
+    drained(tracker)
+    const live = [
+      expect.objectContaining({
+        type: 'live',
+        child: expect.objectContaining({ handle: expect.objectContaining({ id: 'agent-bg' }) })
+      })
+    ]
+    tracker.observeWaitingChildren(new Set(['agent-bg', 'agent-untracked']))
+    expect(drained(tracker)).toEqual(live)
+    tracker.observeWaitingChildren(new Set(['agent-bg', 'agent-untracked']))
+    expect(drained(tracker)).toEqual([])
+    tracker.observeWaitingChildren(new Set())
+    expect(drained(tracker)).toEqual(live)
+  })
+
+  it('reads every live report of a waiting child as waiting, inventories included', () => {
+    const tracker = new ClaudeBackgroundTaskTracker(() => 100)
+    tracker.observe(backgroundAgent)
+    tracker.observe(foregroundAgent)
+    tracker.observe(
+      system('background_tasks_changed', {
+        tasks: [{ task_id: 'agent-bg', task_type: 'local_agent' }]
+      })
+    )
+    const states = withClaudeChildWorkWaiting(drained(tracker), new Set(['agent-bg'])).flatMap(
+      (edge) =>
+        edge.type === 'live'
+          ? [`${edge.child.handle.id} ${edge.child.state}`]
+          : edge.type === 'inventory'
+            ? edge.children.map((child) => `listed ${child.handle.id} ${child.state}`)
+            : []
+    )
+    expect(states).toEqual(['agent-bg waiting', 'agent-fg working', 'listed agent-bg waiting'])
   })
 })

@@ -13,6 +13,7 @@ import {
   taskDescription,
   taskId,
   taskName,
+  taskText,
   taskUsageTotalTokens,
   terminalClaudeTaskRunState
 } from './claude-background-task-frames'
@@ -24,13 +25,14 @@ import {
   pendingClaudeSessionEnded,
   pendingClaudeTaskLive,
   pendingClaudeTerminalUpdate,
-  pendingClaudeTurnEnded,
-  type ClaudePendingChildWork
+  pendingClaudeTurnEnded
 } from './claude-child-work-evidence'
+import { ClaudeChildWorkQueue } from './claude-child-work-queue'
 import { ClaudeTaskRestarts } from './claude-background-task-restarts'
 import {
   ClaudeSettledBackgroundTasks,
   claudeBackgroundTaskDetail,
+  makeRoomForClaudeTask,
   type TrackedClaudeBackgroundTask
 } from './claude-settled-background-tasks'
 
@@ -53,7 +55,7 @@ export class ClaudeBackgroundTaskTracker {
   private readonly terminalTaskIds = new Map<string, string | undefined>()
   private readonly restarts = new ClaudeTaskRestarts()
   /** Child-work evidence decided since the last drain; see `claude-child-work-evidence`. */
-  private readonly childWork: ClaudePendingChildWork[] = []
+  private readonly childWork = new ClaudeChildWorkQueue()
   private aggregateRosterObserved = false
   private monitoring = false
   private publishedTasksFingerprint = ''
@@ -75,9 +77,14 @@ export class ClaudeBackgroundTaskTracker {
     return [...this.tasks].flatMap(([id, task]) => (task.backgrounded ? [id] : []))
   }
 
+  /** Which children a pending permission request blocks; see `ClaudeChildWorkQueue`. */
+  observeWaitingChildren(waiting: ReadonlySet<string>): void {
+    this.childWork.observeWaiting(waiting, (id) => this.tasks.get(id) ?? this.restarts.get(id))
+  }
+
   /** The evidence queued since the last drain, stamped with the host clock of the caller. */
   drainChildWorkEvidence(observedAt: number): AgentChildWorkEvidence[] {
-    return this.childWork.splice(0).map((edge) => edge(observedAt))
+    return this.childWork.drain(observedAt)
   }
 
   observe(message: Record<string, unknown>, startsTurn = false): boolean {
@@ -233,7 +240,8 @@ export class ClaudeBackgroundTaskTracker {
       taskName(patch) !== undefined ||
       liveState !== null ||
       (patchKind !== undefined && patchKind !== 'unknown')
-    if (hasContent && (!this.aggregateRosterObserved || existing)) {
+    const upserted = hasContent && (!this.aggregateRosterObserved || existing !== undefined)
+    if (upserted) {
       this.upsert(id, {
         backgrounded: patch.is_backgrounded === true || existing?.backgrounded === true,
         kind: patchKind ?? existing?.kind ?? 'unknown',
@@ -242,9 +250,14 @@ export class ClaudeBackgroundTaskTracker {
         state: liveState ?? undefined,
         startedAt: this.now()
       })
-      return true
     }
-    return false
+    // A live task's error is what it last said: not an ending, and no state follows from it.
+    const error = taskText(patch.error)
+    const run = this.tasks.get(id) ?? this.restarts.get(id)
+    if (error && run) {
+      this.childWork.push(pendingClaudeTaskLive(id, run, { lastMessage: error }))
+    }
+    return upserted
   }
 
   private replaceAggregateRoster(value: unknown): void {
@@ -272,18 +285,8 @@ export class ClaudeBackgroundTaskTracker {
   }
 
   private upsert(id: string, task: Omit<TrackedClaudeBackgroundTask, 'liveInTurn'>): void {
-    if (!this.tasks.has(id) && this.tasks.size >= MAX_TRACKED_TASKS) {
-      let foregroundId: string | undefined
-      for (const [candidateId, candidate] of this.tasks) {
-        if (!candidate.backgrounded) {
-          foregroundId = candidateId
-          break
-        }
-      }
-      if (!foregroundId) {
-        return
-      }
-      this.tasks.delete(foregroundId)
+    if (!makeRoomForClaudeTask(this.tasks, id, MAX_TRACKED_TASKS)) {
+      return
     }
     const existing = this.tasks.get(id) ?? this.retention.resume(id)
     this.terminalTaskIds.delete(id)

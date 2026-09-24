@@ -236,8 +236,14 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     this.sessions.has(sessionId) ? { supportsTaskStop: true, supportsStopAll: true } : undefined
   readCommands: NonNullable<StructuredAgentSessionAdapter['readCommands']> = (sessionId) =>
     this.sessions.get(sessionId)?.commands.commands
-  answerPrompt: StructuredAgentSessionAdapter['answerPrompt'] = (request) =>
-    answerClaudeStructuredPrompt({ request, sessions: this.sessions })
+  answerPrompt: StructuredAgentSessionAdapter['answerPrompt'] = async (request) => {
+    try {
+      await answerClaudeStructuredPrompt({ request, sessions: this.sessions })
+    } finally {
+      // An answered request frees the child it blocked; no provider frame says so first.
+      this.publishChildWork(request.sessionId, this.sessions.get(request.sessionId))
+    }
+  }
   setOption: StructuredAgentSessionAdapter['setOption'] = (input) =>
     setClaudeStructuredOption(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
   readOptions = (input: { sessionId: string; fence: number }) =>

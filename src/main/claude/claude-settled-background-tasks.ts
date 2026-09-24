@@ -33,6 +33,25 @@ export type TrackedClaudeBackgroundTask = {
   toolUseId?: string
 }
 
+/** Room to track one more task: at capacity the oldest foreground task gives way, and with none
+ *  to give way the new task is not tracked. */
+export function makeRoomForClaudeTask(
+  tasks: Map<string, TrackedClaudeBackgroundTask>,
+  id: string,
+  maxTasks: number
+): boolean {
+  if (tasks.has(id) || tasks.size < maxTasks) {
+    return true
+  }
+  for (const [candidateId, candidate] of tasks) {
+    if (!candidate.backgrounded) {
+      tasks.delete(candidateId)
+      return true
+    }
+  }
+  return false
+}
+
 export function claudeBackgroundTaskDetail(
   id: string,
   task: TrackedClaudeBackgroundTask
