@@ -445,8 +445,15 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *
  *   modules        4220 -> 4219   (-1)
  *   local modules  1034 -> 1033   (-1)
+ *
+ * #22301 (`25d7c21fcb`) then added `src/shared/agent-session-context-usage.ts` and its `-schema.ts`,
+ * which modules already on this route import. Two local modules; the change skipped this suite in its
+ * own CI, so main read two over. Measured by this suite's CI run on current main.
+ *
+ *   modules        4219 -> 4221   (+2)
+ *   local modules  1033 -> 1035   (+2)
  */
-const SESSION_ROUTE_MODULES = 4219
+const SESSION_ROUTE_MODULES = 4221
 
 /** What the page enters this route through once the route is a switch with a `.web.tsx` sibling. */
 const ROUTE_ENTRY = [
