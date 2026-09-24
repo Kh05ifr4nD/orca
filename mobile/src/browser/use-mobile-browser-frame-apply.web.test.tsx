@@ -227,7 +227,7 @@ describe('the page frame path', () => {
 
   /**
    * A decoding layer is never re-pointed: on a phone that decodes slower than frames arrive, each
-   * new source would cancel the load before it reported and the pane would never flip.
+   * new source would usually lose the pending onLoad and the pane would stop flipping.
    */
   it('holds the newest frame while a layer decodes and paints it once that decode settles', async () => {
     vi.useFakeTimers()

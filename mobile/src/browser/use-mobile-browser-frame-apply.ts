@@ -179,8 +179,8 @@ export function useMobileBrowserFrameApply(args: BrowserFrameApplyArgs) {
   }, [drainQueuedFrame])
 
   // Why: static UI changes can be the last frame Chromium emits, so the newest frame is held
-  // rather than dropped. A still-decoding layer is never re-pointed: that cancels its load, and on
-  // a phone slower to decode than frames arrive the pane would never flip during a busy page.
+  // rather than dropped. A still-decoding layer is never re-pointed: the replaced load's onLoad is
+  // usually lost, so on a phone slower to decode than frames arrive the pane stops flipping.
   const applyFrameThrottled = useCallback(
     (frame: BrowserScreencastFrame, frameCacheKey: string): void => {
       pendingThrottledFrameRef.current = { frame, cacheKey: frameCacheKey }
