@@ -353,7 +353,7 @@ describe('a removal on one of two hosts that share a worktree id', () => {
 // Why this suite exists: the one-shot startup purge keeps only ids from the scanned rows, read
 // after every repo's listing settled. A create landing in between writes only the visible rows,
 // so without deferral the purge closes the new workspace's tabs, its chat tab included.
-describe('the startup hydration purge after a create lands behind a repo listing', () => {
+describe('the startup hydration purge behind a listing that is no longer current', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetRemoteRuntimeMocks()
@@ -428,6 +428,34 @@ describe('the startup hydration purge after a create lands behind a repo listing
     expect(store.getState().tabsByWorktree[created.id]).toBeDefined()
     expect(store.getState().tabsByWorktree[zombieId]).toBeUndefined()
     expect(store.getState().hasHydratedWorktreePurge).toBe(true)
+  })
+
+  it('defers when a listing is refused because its repo owner changed while it was in flight', async () => {
+    const store = createTestStore()
+    const surviving = makeWorktree({ id: 'repo1::/path/surviving', repoId: 'repo1' })
+    const zombieId = 'repo1::/path/deleted-last-session'
+    const repo1 = {
+      id: 'repo1',
+      path: '/path/repo1',
+      displayName: 'Repo 1',
+      badgeColor: '#000',
+      addedAt: 0
+    }
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the fixture tabs carry only the fields the purge reads.
+    store.setState({
+      repos: [repo1],
+      tabsByWorktree: { [zombieId]: [{ id: 'tab-zombie', worktreeId: zombieId }] }
+    } as unknown as Partial<AppState>)
+    mockApi.worktrees.listDetected.mockImplementation(async (args) => {
+      // A second owner on the same host makes the listing's owner ambiguous by the time it lands.
+      store.setState({ repos: [repo1, { ...repo1 }] })
+      return qualifyDetectedResult(args, makeDetectedResult('repo1', [surviving]))
+    })
+
+    await store.getState().fetchAllWorktrees()
+
+    expect(store.getState().tabsByWorktree[zombieId]).toBeDefined()
+    expect(store.getState().hasHydratedWorktreePurge).toBe(false)
   })
 })
 
