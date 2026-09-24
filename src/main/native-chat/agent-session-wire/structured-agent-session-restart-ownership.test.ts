@@ -315,34 +315,46 @@ it.each(['completed', 'approval', 'question'] as const)(
   }
 )
 
-// A provider mid-turn keeps streaming after the barrier drains. Drain again; do not refuse.
-it('drains events accepted after the dispatch barrier was captured, then continues', async () => {
-  const { host, acquire, dispatch } = await interruptedRestart()
-  await host.restartResume.list()
-  await host.hold(SESSION, 'pane')
-  const events = acquire.mock.calls[0]?.[0].events
-  if (!events) {
-    throw new Error('missing resumed provider event sink')
-  }
-  const flush = host.flushStreamedEvents
-  const draining = vi.spyOn(host, 'flushStreamedEvents').mockImplementationOnce(async (id) => {
-    await flush(id)
-    for (let ordinal = 2; ordinal < 6; ordinal += 1) {
-      events.appendItem(
-        { provider: 'codex', threadId: THREAD, turnId: 'interrupted-turn', ordinal },
-        ordinal === 5 ? pendingApproval().body : { kind: 'status', text: 'Provider tail' }
-      )
+// A provider mid-turn keeps streaming after the barrier drains. Drain again rather than refuse,
+// and judge what the later drain found: its prompt does not refuse the send, a user message does.
+it.each(['provider tail', 'user message'] as const)(
+  'drains a %s accepted after the dispatch barrier before judging the send',
+  async (late) => {
+    const { host, acquire, dispatch } = await interruptedRestart()
+    await host.restartResume.list()
+    await host.hold(SESSION, 'pane')
+    const events = acquire.mock.calls[0]?.[0].events
+    if (!events) {
+      throw new Error('missing resumed provider event sink')
     }
-  })
-  try {
-    const result = await host.restartResume.continueAfterRestart([SESSION], 'modal')
-    expect(result.continued).toMatchObject([{ outcome: 'continued' }])
-    expect(dispatch).toHaveBeenCalledTimes(1)
-  } finally {
-    draining.mockRestore()
-    host.release(SESSION, 'pane')
+    const flush = host.flushStreamedEvents
+    const draining = vi.spyOn(host, 'flushStreamedEvents').mockImplementationOnce(async (id) => {
+      await flush(id)
+      for (let ordinal = 2; ordinal < 6; ordinal += 1) {
+        events.appendItem(
+          { provider: 'codex', threadId: THREAD, turnId: 'interrupted-turn', ordinal },
+          ordinal < 5
+            ? { kind: 'status', text: 'Provider tail' }
+            : late === 'user message'
+              ? hostTestMessage('A newer task from another client')
+              : pendingApproval().body
+        )
+      }
+    })
+    try {
+      const result = await host.restartResume.continueAfterRestart([SESSION], 'modal')
+      expect(result.continued).toMatchObject([
+        late === 'user message'
+          ? { outcome: 'refused', reason: 'agent_session_restart_work_superseded' }
+          : { outcome: 'continued' }
+      ])
+      expect(dispatch).toHaveBeenCalledTimes(late === 'user message' ? 0 : 1)
+    } finally {
+      draining.mockRestore()
+      host.release(SESSION, 'pane')
+    }
   }
-})
+)
 
 it('replays the same logical continuation through the durable send ledger', async () => {
   const { host, store, dispatch, marker } = await interruptedRestart()

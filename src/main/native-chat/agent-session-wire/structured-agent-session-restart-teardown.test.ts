@@ -136,3 +136,24 @@ it('marks a settled chat whose subagent was still running', async () => {
   // Where the journal stood once the child stopped: the settlement's rows land after it.
   expect(offered?.journalCursor).toMatchObject({ sequence: expect.any(Number) })
 })
+
+// The snapshot is kept only once the stop is proven: a child that may still be running was not cut
+// off, and its lease is left for the next launch to adjudicate.
+it('offers nothing for a chat whose child was not proven stopped', async () => {
+  await attach()
+  const { host, root, acquire } = hostTestState()
+  const events = acquire.mock.calls[0]?.[0].events
+  if (!events) {
+    throw new Error('missing provider event sink')
+  }
+  events.appendItem(
+    { provider: 'codex', threadId: THREAD, turnId: 'working', ordinal: 1 },
+    { kind: 'turn', turnId: 'working', state: 'running' }
+  )
+  await host.flushStreamedEvents(SESSION)
+  host.deps.adapter.closeSession = async () => false
+  await host.flushAllStreamedEvents().catch(() => undefined)
+  expect(await new AgentSessionRecoveryCapsule(root).list(NOW)).toEqual([])
+  // The retry the harness's own teardown runs.
+  host.deps.adapter.closeSession = async () => true
+})
