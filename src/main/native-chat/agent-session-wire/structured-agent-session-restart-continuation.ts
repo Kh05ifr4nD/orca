@@ -57,8 +57,9 @@ export type StructuredAgentSessionContinuationHost = {
   onNoteFailed: (sessionId: string, error: unknown) => void
   publish: (sessionId: string, journal: AgentSessionJournal) => void
   now: () => number
-  /** Whether the marker still describes resumable work, with the continuation's own submission
-   *  set aside. Re-asked right before dispatch, so newer user work refuses the send. */
+  /** Whether the marker is still an offer, with the continuation's own submission set aside.
+   *  Re-asked right before dispatch, so a newer user message refuses the send; a provider turn
+   *  running then does not, since both providers queue a message sent mid-turn. */
   stillResumable: (
     marker: AgentSessionResumeMarker,
     options: { pendingContinuationId: string }

@@ -1,13 +1,15 @@
-// Which sessions were genuinely working when this process went away.
+// Whether a session was genuinely working when this process stopped it.
 //
 // Read off the LIVE host state, never off a persisted status field. That distinction is the whole
 // safety argument: a `running` turn row left behind by an older crash is still sitting in that
 // session's journal, and a rule that trusted it would hand a provider child back to work nobody is
-// doing. A crashed generation leaves no entry in this map, so it can never produce a marker.
+// doing. A crashed generation has no live session in this host, so it can never produce a marker.
 //
 // "Working" is what the sidebar showed, not the lead alone: a lead mid-turn, a lead blocked on the
-// user, or a settled lead whose subagents, commands or monitors were still running all count. The
-// marker records only that, and where; what was cut off is read back from the journal.
+// user, or a settled lead whose subagents, commands or monitors were still running all count. It is
+// asked once per session, right before that session's child is stopped, and that answer is the
+// offer: nothing after the restart re-judges it. What was cut off is read back from the journal
+// for display only.
 
 import {
   agentSessionProviderHandleChainHead,
@@ -25,7 +27,6 @@ import type {
   AgentJournalSubmission
 } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionBackgroundTask } from '../../../shared/agent-session-background-task-wire'
-import { agentChildWorkLiveness } from '../../../shared/agent-status-child-work-liveness'
 import {
   activeStructuredAgentSessionTurnId,
   newestStructuredAgentSessionTurn
@@ -66,10 +67,9 @@ export function structuredAgentSessionWorkInFlight(
 
 /**
  * The identity a marker carries: the lead's work in flight, else its newest turn. A settled lead
- * whose children were the work anchors there, so user work after it supersedes the offer, and the
- * journal later reads that turn as finished rather than cut off.
+ * whose children were the work anchors there; the identity keys the continuation's ledger entry.
  */
-export function structuredAgentSessionResumeWork(
+function structuredAgentSessionResumeWork(
   items: readonly AgentJournalRenderItem[],
   submissions: readonly AgentJournalSubmission[]
 ): AgentSessionResumeWork | null {
@@ -88,15 +88,11 @@ type WorkingCandidateSession = {
   fence?: number
 }
 
-export type StructuredAgentSessionTeardownCapture = {
-  markers: AgentSessionResumeMarker[]
-  /** Sessions whose provider still ran children at capture. Eviction clears that roster before a
-   *  marker is confirmed, so this is the one moment it can be read. Never persisted. */
-  withChildWork: ReadonlySet<string>
-}
-
-export function structuredAgentSessionsWorkingAtTeardown(input: {
-  sessions: ReadonlyMap<string, WorkingCandidateSession>
+/** The offer one session is owed, taken right before teardown stops its provider child; null when
+ *  the sidebar would not have shown it working. */
+export function structuredAgentSessionWorkingAtStop(input: {
+  sessionId: string
+  session: WorkingCandidateSession | undefined
   getRecord: (sessionId: string) => AgentSessionRecord | null
   /** The provider's live child roster, the same one the status feed publishes. */
   backgroundTasks: (sessionId: string) => readonly AgentSessionBackgroundTask[] | null | undefined
@@ -104,48 +100,34 @@ export function structuredAgentSessionsWorkingAtTeardown(input: {
   /** Stable teardown identity for continuation deduplication, not launch ancestry. */
   teardownId: string
   now: number
-}): StructuredAgentSessionTeardownCapture {
-  const markers: AgentSessionResumeMarker[] = []
-  const withChildWork = new Set<string>()
-  for (const [sessionId, session] of input.sessions) {
-    if (!session.hasProviderChild) {
-      continue
-    }
-    // A journal this host cannot read tells us nothing about what the turn was doing.
-    if (session.journal.isReadOnly) {
-      continue
-    }
-    const snapshot = session.journal.snapshot()
-    const roster = input.backgroundTasks(sessionId)
-    if (!structuredAgentSessionShowsWork(snapshot, roster, session.fence)) {
-      continue
-    }
-    const work = structuredAgentSessionResumeWork(snapshot.items, snapshot.submissions)
-    if (!work) {
-      continue
-    }
-    const head = agentSessionProviderHandleChainHead(
-      input.getRecord(sessionId)?.providerHandleChain ?? []
-    )
-    if (!head) {
-      continue
-    }
-    if (agentChildWorkLiveness(roster ?? undefined) !== null) {
-      withChildWork.add(sessionId)
-    }
-    markers.push({
-      sessionId,
-      work,
-      latestUserItemId: latestStructuredAgentSessionUserItem(snapshot.items)?.itemId ?? null,
-      recordedAt: input.now,
-      trigger: input.trigger,
-      teardownId: input.teardownId,
-      // Root, not key: the close path advances Claude's leaf moments after this runs, and a key
-      // comparison would then refuse the session forever.
-      providerHandleRoot: agentSessionProviderHandleRoot(head.handle),
-      // Before the stop: closing the child is itself what settles its children's rows.
-      journalCursor: snapshot.cursor
-    })
+}): AgentSessionResumeMarker | null {
+  const { sessionId, session } = input
+  // A journal this host cannot read tells us nothing about what the turn was doing.
+  if (!session?.hasProviderChild || session.journal.isReadOnly) {
+    return null
   }
-  return { markers, withChildWork }
+  const snapshot = session.journal.snapshot()
+  if (!structuredAgentSessionShowsWork(snapshot, input.backgroundTasks(sessionId), session.fence)) {
+    return null
+  }
+  const work = structuredAgentSessionResumeWork(snapshot.items, snapshot.submissions)
+  const head = agentSessionProviderHandleChainHead(
+    input.getRecord(sessionId)?.providerHandleChain ?? []
+  )
+  if (!work || !head) {
+    return null
+  }
+  return {
+    sessionId,
+    work,
+    latestUserItemId: latestStructuredAgentSessionUserItem(snapshot.items)?.itemId ?? null,
+    recordedAt: input.now,
+    trigger: input.trigger,
+    teardownId: input.teardownId,
+    // Root, not key: the close path advances Claude's leaf moments after this runs, and a key
+    // comparison would then refuse the session forever.
+    providerHandleRoot: agentSessionProviderHandleRoot(head.handle),
+    // Before the stop: closing the child is itself what settles its children's rows.
+    journalCursor: snapshot.cursor
+  }
 }

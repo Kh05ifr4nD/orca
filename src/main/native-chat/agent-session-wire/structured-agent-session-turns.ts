@@ -57,6 +57,27 @@ function invalid(message: string): { ok: false; refusal: AgentSessionWireRefusal
   return { ok: false, refusal: { code: 'agent_session_operation_invalid', message } }
 }
 
+/** Drains accepted provider events until none are pending, within the admission bound. A drained
+ *  barrier may be followed by newer events, and a provider mid-turn keeps streaming them; that
+ *  is a reason to drain again, not to refuse the send. */
+async function drainAdmissionEvidence(ctx: AgentSessionTurnContext): Promise<boolean> {
+  const deadline = Date.now() + AGENT_SESSION_ADMISSION_BARRIER_TIMEOUT_MS
+  do {
+    const remaining = deadline - Date.now()
+    if (
+      remaining <= 0 ||
+      !(await withTimeout(
+        ctx.flushStreamedEvents().then(() => true),
+        remaining,
+        false
+      ))
+    ) {
+      return false
+    }
+  } while (ctx.hasPendingStreamedEvents?.())
+  return true
+}
+
 /** A thrown adapter error is indistinguishable from a lost reply, so it settles
  *  as `unknown` rather than as a rejection. */
 async function dispatchSafely(
@@ -74,13 +95,7 @@ async function dispatchSafely(
       ...(ctx.beforeDispatch
         ? {
             beforeDispatch: async () => {
-              const ready = await withTimeout(
-                ctx.flushStreamedEvents().then(() => true),
-                AGENT_SESSION_ADMISSION_BARRIER_TIMEOUT_MS,
-                false
-              )
-              // A drained barrier may be followed by newer accepted events.
-              if (!ready || ctx.hasPendingStreamedEvents?.()) {
+              if (!(await drainAdmissionEvidence(ctx))) {
                 throw new AgentSessionPreDispatchError(
                   'agent_session_admission_evidence_unavailable'
                 )

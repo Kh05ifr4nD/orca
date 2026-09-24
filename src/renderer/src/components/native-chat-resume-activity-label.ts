@@ -14,8 +14,9 @@ function named(label: string): string {
   )
 }
 
-/** What an offered chat was doing when Orca went away. Null for an offer from an older host, which
- *  offered only a lead that was mid-reply — exactly what the dialog's own wording already says. */
+/** What an offered chat was doing when Orca went away. Null when the host sent no activity — an
+ *  older host, or an offer recorded by a build that only offered a lead mid-reply — which the
+ *  dialog's own wording already covers. */
 export function resumeActivityLabel(
   activity: AgentSessionRestartActivity | undefined
 ): ResumeActivityLabel | null {

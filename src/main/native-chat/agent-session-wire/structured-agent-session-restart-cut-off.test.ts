@@ -1,5 +1,5 @@
-// What a restart cut off, read back from the journal rows the teardown settled — and what counts as
-// newer work that supersedes the offer once it has been read.
+// What a restart cut off, read back from the journal rows the teardown settled, for the offer's row
+// to name. Display only: none of it decides whether the chat is offered.
 
 import { describe, expect, it } from 'vitest'
 import type { AgentJournalRenderItem } from '../../../shared/agent-session-journal-types'
@@ -143,12 +143,12 @@ describe('what a restart cut off, read from the journal', () => {
   })
 
   it('leaves a subagent tool call to the subagent row that owns it', () => {
-    expect(
-      resumableSet({
-        markers: [settledLead],
-        items: [at(turnItem('turn-1', 'completed'), 5), failedCommand(11, 'child-1')]
-      })
-    ).toEqual([])
+    const [candidate] = resumableSet({
+      markers: [settledLead],
+      items: [at(turnItem('turn-1', 'completed'), 5), failedCommand(11, 'child-1')]
+    })
+
+    expect(candidate?.activity).toEqual({ midReply: false, prompts: [], tasks: [] })
   })
 
   it('counts a cut-off reply, not its tool calls, when the lead was mid-reply', () => {
@@ -160,74 +160,65 @@ describe('what a restart cut off, read from the journal', () => {
     expect(candidate?.activity).toEqual({ midReply: true, prompts: [], tasks: [] })
   })
 
-  it('offers nothing when the journal shows nothing the restart cut off', () => {
-    expect(
-      resumableSet({
-        markers: [settledLead],
-        items: [at(turnItem('turn-1', 'completed'), 5), subagents('completed', 12)]
-      })
-    ).toEqual([])
+  // The offer was settled at teardown; a journal that names nothing just leaves the row bare.
+  it('still offers the chat when the journal names nothing the restart cut off', () => {
+    const [candidate] = resumableSet({
+      markers: [settledLead],
+      items: [at(turnItem('turn-1', 'completed'), 5), subagents('completed', 12)]
+    })
+
+    expect(candidate?.activity).toEqual({ midReply: false, prompts: [], tasks: [] })
   })
 
   // An older crash left rows unverifiable too; only this teardown's settlement is this offer's.
   it('ignores rows settled before the cursor', () => {
-    expect(
-      resumableSet({
-        markers: [settledLead],
-        items: [at(turnItem('turn-1', 'completed'), 5), subagents('unverifiable', 9)]
-      })
-    ).toEqual([])
+    const [candidate] = resumableSet({
+      markers: [settledLead],
+      items: [at(turnItem('turn-1', 'completed'), 5), subagents('unverifiable', 9)]
+    })
+
+    expect(candidate?.activity?.tasks).toEqual([])
   })
 
-  it('reads nothing against a cursor from another journal epoch', () => {
-    expect(
-      resumableSet({
-        markers: [settledLead],
-        items: [at(turnItem('turn-1', 'completed'), 5), subagents('unverifiable', 12)],
-        epoch: 'epoch-2'
-      })
-    ).toEqual([])
+  it('reads nothing against a cursor from another journal epoch, but keeps a cut-off reply', () => {
+    const [candidate] = resumableSet({
+      markers: [settledLead],
+      items: [at(turnItem('turn-1', 'interrupted'), 11), subagents('unverifiable', 12)],
+      epoch: 'epoch-2'
+    })
+
+    expect(candidate?.activity).toEqual({ midReply: true, prompts: [], tasks: [] })
+  })
+
+  // A send captured before its turn opened was the lead mid-reply by definition.
+  it('names a send that never became a turn as mid-reply', () => {
+    const [candidate] = resumableSet({
+      markers: [marker({ journalCursor: CURSOR, work: { kind: 'submission', id: 'msg-1' } })],
+      items: [at(turnItem('turn-0', 'completed'), 5)]
+    })
+
+    expect(candidate?.activity).toEqual({ midReply: true, prompts: [], tasks: [] })
   })
 
   // THE REPORTED REFUSAL: resuming made Claude open a turn of its own to post "didn't finish
-  // before the previous session ended" and close it at once. It is not live and not the user's.
-  it('is not superseded by a turn the provider opened and closed after the restart', () => {
-    expect(
-      resumableSet({
-        markers: [marker({ journalCursor: CURSOR })],
-        items: [
-          at(turnItem('turn-1', 'interrupted'), 11),
-          at(turnItem('wake-1', 'completed', 'turn:wake-1'), 13)
-        ]
-      })
-    ).toHaveLength(1)
-  })
+  // before the previous session ended" and close it at once. Neither that turn nor one still
+  // running is the user's, so neither withdraws the offer.
+  it.each(['completed', 'running'] as const)(
+    'is not withdrawn by a turn the provider opened after the restart (%s)',
+    (state) => {
+      expect(
+        resumableSet({
+          markers: [marker({ journalCursor: CURSOR })],
+          items: [
+            at(turnItem('turn-1', 'interrupted'), 11),
+            at(turnItem('wake-1', state, 'turn:wake-1'), 13)
+          ]
+        })
+      ).toHaveLength(1)
+    }
+  )
 
-  it('is superseded by a newer message from the user', () => {
-    expect(
-      resumableSet({
-        markers: [settledLead],
-        items: [at(turnItem('turn-1', 'completed'), 5), subagents('unverifiable', 12)],
-        latestUserItemId: 'user-newer'
-      })
-    ).toEqual([])
-  })
-
-  it('is superseded while a turn is running after the restart', () => {
-    expect(
-      resumableSet({
-        markers: [settledLead],
-        items: [
-          at(turnItem('turn-1', 'completed'), 5),
-          subagents('unverifiable', 12),
-          at(turnItem('turn-2', 'running'), 13)
-        ]
-      })
-    ).toEqual([])
-  })
-
-  // Eviction cancels every prompt it cuts off, so a pending one is the resumed agent asking now.
-  it('is superseded while the resumed agent waits on the user', () => {
+  it('is not withdrawn while the resumed agent waits on the user', () => {
     expect(
       resumableSet({
         markers: [settledLead],
@@ -237,26 +228,17 @@ describe('what a restart cut off, read from the journal', () => {
           at(pendingApproval(), 13)
         ]
       })
-    ).toEqual([])
-  })
-
-  // Teardown confirms before eviction settles the child: its prompt is still pending then.
-  it('confirms a lead blocked on a prompt before eviction cancels it', () => {
-    expect(
-      resumableSet({
-        markers: [marker()],
-        items: [turnItem('turn-1', 'running'), pendingApproval()],
-        providerStopped: true
-      })
     ).toHaveLength(1)
   })
 
-  it('confirms a settled lead only when capture saw its children running', () => {
-    const settled = { markers: [marker()], items: [turnItem('turn-1', 'completed')] }
-    expect(resumableSet({ ...settled, providerStopped: true, childWorkAtStop: true })).toHaveLength(
-      1
-    )
-    expect(resumableSet({ ...settled, providerStopped: true })).toEqual([])
+  it('is withdrawn by a newer message from the user', () => {
+    expect(
+      resumableSet({
+        markers: [settledLead],
+        items: [at(turnItem('turn-1', 'completed'), 5), subagents('unverifiable', 12)],
+        latestUserItemId: 'user-newer'
+      })
+    ).toEqual([])
   })
 
   // Opening the chat reattaches it, and the provider restates the rows it lost in its own words.

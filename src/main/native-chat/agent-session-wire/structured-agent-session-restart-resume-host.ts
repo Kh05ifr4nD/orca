@@ -61,8 +61,11 @@ export type StructuredAgentSessionRestartResumeSurfaces = {
 }
 
 export type StructuredAgentSessionRestartResume = {
-  captureMarkers: (trigger: AgentSessionResumeTrigger) => void
-  confirmStoppedMarker: (sessionId: string) => void
+  /** Teardown: begin, then per session a snapshot right before its child stops and a confirmation
+   *  once the stop is proven, then one write of the confirmed offers. */
+  beginTeardown: (trigger: AgentSessionResumeTrigger) => void
+  captureBeforeStop: (sessionId: string) => void
+  confirmStopped: (sessionId: string) => void
   recordMarkers: () => Promise<void>
   list: () => Promise<StructuredAgentSessionResumeCandidate[]>
   /** Offers already acted on whose agent did not carry on. Read-only; nothing here is spent. */
@@ -106,7 +109,6 @@ export function createStructuredAgentSessionRestartResume(
     sessions,
     getRecord: deps.store.getRecord,
     backgroundTasks: (sessionId) => deps.adapter.backgroundTaskState?.(sessionId)?.tasks,
-    derive,
     ...(deps.recoveryCapsule ? { capsule: deps.recoveryCapsule } : {}),
     teardownId: randomUUID(),
     now: surfaces.now,
@@ -315,8 +317,9 @@ export function createStructuredAgentSessionRestartResume(
   }
 
   return {
-    captureMarkers: witnesses.capture,
-    confirmStoppedMarker: witnesses.confirmStopped,
+    beginTeardown: witnesses.begin,
+    captureBeforeStop: witnesses.beforeStop,
+    confirmStopped: witnesses.stopped,
     recordMarkers: witnesses.record,
     list,
     listFailures: failures.list,

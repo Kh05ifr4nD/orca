@@ -8,7 +8,7 @@ import {
   HOST_TEST_THREAD as THREAD
 } from './structured-agent-session-host-test-data'
 
-it.each(['captureMarkers', 'recordMarkers'] as const)(
+it.each(['beginTeardown', 'captureBeforeStop', 'recordMarkers'] as const)(
   'keeps private %s failures out of logs while completing teardown',
   async (method) => {
     await attach()
@@ -22,9 +22,11 @@ it.each(['captureMarkers', 'recordMarkers'] as const)(
       await expect(host.flushAllStreamedEvents()).resolves.toBeUndefined()
       expect(operation).toHaveBeenCalledOnce()
       expect(warning).toHaveBeenCalledExactlyOnceWith(
-        method === 'captureMarkers'
-          ? '[structured-agent-session] capturing recovery witnesses failed'
-          : '[structured-agent-session] recording recovery capsule failed'
+        {
+          beginTeardown: '[structured-agent-session] capturing recovery witnesses failed',
+          captureBeforeStop: '[structured-agent-session] capturing recovery witness failed',
+          recordMarkers: '[structured-agent-session] recording recovery capsule failed'
+        }[method]
       )
       expect(warning.mock.calls.flat().map(String).join(' ')).not.toContain(failure.message)
       expect(store.getRecord(SESSION)?.lease.claimStatus).toBe('released')
@@ -74,8 +76,11 @@ it.each(['approval', 'question', 'completed'])(
   }
 )
 
+// The offer is what the sidebar showed right before the stop. Whatever the provider says while it
+// closes — even that the turn completed — does not re-judge it; the continuation asks the agent to
+// check what finished.
 it.each(['approval', 'question', 'completed'] as const)(
-  'offers work a provider %s interrupted during close only while it is unfinished',
+  'offers work that was running at the stop even when a provider %s arrives during close',
   async (event) => {
     await attach()
     const { host, root, acquire } = hostTestState()
@@ -104,9 +109,7 @@ it.each(['approval', 'question', 'completed'] as const)(
     }
     await host.flushAllStreamedEvents()
     const offered = await new AgentSessionRecoveryCapsule(root).list(NOW)
-    expect(offered.map((entry) => entry.work)).toEqual(
-      event === 'completed' ? [] : [{ kind: 'turn', id: 'working' }]
-    )
+    expect(offered.map((entry) => entry.work)).toEqual([{ kind: 'turn', id: 'working' }])
   }
 )
 

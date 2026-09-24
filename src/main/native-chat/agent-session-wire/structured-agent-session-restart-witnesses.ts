@@ -1,12 +1,10 @@
 // Teardown's word on which sessions were genuinely working when the app went away.
 //
-// Captured from the live runtime at teardown, confirmed per session once its child has stopped,
-// and only then written. A marker is never derived from a persisted `running` row, which survives
-// a crash and would resurrect work nobody is doing.
-//
-// Confirmation runs after the child's last events are journaled and before eviction settles what
-// it left running, so that is where the marker takes its final work identity. Its journal cursor
-// stays the capture's: the child's own close already settled rows the offer has to read.
+// Taken per session from the live runtime right before teardown stops that session's child — the
+// last moment its turn, its pending prompts and the provider's background roster are all still
+// what the sidebar showed — and kept once the stop is proven. That snapshot IS the offer; nothing
+// re-judges it once the child is gone. A marker is never derived from a persisted `running` row,
+// which survives a crash and would resurrect work nobody is doing.
 
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type {
@@ -14,74 +12,67 @@ import type {
   AgentSessionResumeTrigger
 } from '../../../shared/agent-session-resume-marker'
 import type { AgentSessionRecoveryCapsule } from '../../runtime/agent-session-recovery-capsule'
-import type { StructuredAgentSessionRestartCandidateReader } from './structured-agent-session-restart-candidates'
-import {
-  structuredAgentSessionResumeWork,
-  structuredAgentSessionsWorkingAtTeardown
-} from './structured-agent-session-working-at-teardown'
+import { structuredAgentSessionWorkingAtStop } from './structured-agent-session-working-at-teardown'
+
+type WorkingAtStopInput = Parameters<typeof structuredAgentSessionWorkingAtStop>[0]
 
 export type StructuredAgentSessionRestartWitnesses = {
-  capture: (trigger: AgentSessionResumeTrigger) => void
-  confirmStopped: (sessionId: string) => void
+  /** Starts a teardown: witnesses from an earlier one are forgotten. */
+  begin: (trigger: AgentSessionResumeTrigger) => void
+  /** Right before this session's provider child is stopped. */
+  beforeStop: (sessionId: string) => void
+  /** The child is proven gone, so what it was doing was cut off. */
+  stopped: (sessionId: string) => void
   record: () => Promise<void>
   /** An explicit action on the offer supersedes witnesses this host has not yet written. */
   clear: () => void
 }
 
 export function createStructuredAgentSessionRestartWitnesses(deps: {
-  sessions: Parameters<typeof structuredAgentSessionsWorkingAtTeardown>[0]['sessions']
+  sessions: ReadonlyMap<string, NonNullable<WorkingAtStopInput['session']>>
   getRecord: (sessionId: string) => AgentSessionRecord | null
-  backgroundTasks: Parameters<typeof structuredAgentSessionsWorkingAtTeardown>[0]['backgroundTasks']
-  derive: StructuredAgentSessionRestartCandidateReader
+  backgroundTasks: WorkingAtStopInput['backgroundTasks']
   capsule?: Pick<AgentSessionRecoveryCapsule, 'record'>
   teardownId: string
   now: () => number
   enqueue: <T>(operation: () => Promise<T>) => Promise<T>
 }): StructuredAgentSessionRestartWitnesses {
-  let captured = new Map<string, AgentSessionResumeMarker>()
-  let withChildWork: ReadonlySet<string> = new Set()
+  let trigger: AgentSessionResumeTrigger | null = null
+  const stopping = new Map<string, AgentSessionResumeMarker>()
   const confirmed = new Map<string, AgentSessionResumeMarker>()
   const clear = (): void => {
+    trigger = null
+    stopping.clear()
     confirmed.clear()
-    captured.clear()
-    withChildWork = new Set()
   }
   return {
-    capture: (trigger) => {
+    begin: (next) => {
       clear()
-      const capture = structuredAgentSessionsWorkingAtTeardown({
-        sessions: deps.sessions,
+      trigger = next
+    },
+    beforeStop: (sessionId) => {
+      stopping.delete(sessionId)
+      if (trigger === null) {
+        return
+      }
+      const marker = structuredAgentSessionWorkingAtStop({
+        sessionId,
+        session: deps.sessions.get(sessionId),
         getRecord: deps.getRecord,
         backgroundTasks: deps.backgroundTasks,
         trigger,
         teardownId: deps.teardownId,
         now: deps.now()
       })
-      captured = new Map(capture.markers.map((marker) => [marker.sessionId, marker]))
-      withChildWork = capture.withChildWork
-    },
-    confirmStopped: (sessionId) => {
-      const marker = captured.get(sessionId)
-      captured.delete(sessionId)
-      const journal = deps.sessions.get(sessionId)?.journal
-      if (!marker || !journal) {
-        return
+      if (marker) {
+        stopping.set(sessionId, marker)
       }
-      try {
-        const snapshot = journal.snapshot()
-        // A send captured before its turn opened is followed to that turn, and a turn that
-        // finished before the child stopped becomes the anchor it is.
-        const stopped: AgentSessionResumeMarker = {
-          ...marker,
-          work:
-            structuredAgentSessionResumeWork(snapshot.items, snapshot.submissions) ?? marker.work
-        }
-        const options = { providerStopped: true, childWorkAtStop: withChildWork.has(sessionId) }
-        if (deps.derive([stopped], 'may-be-held', options).length === 1) {
-          confirmed.set(sessionId, stopped)
-        }
-      } catch {
-        console.warn('[structured-agent-session] recovery witness validation failed')
+    },
+    stopped: (sessionId) => {
+      const marker = stopping.get(sessionId)
+      stopping.delete(sessionId)
+      if (marker) {
+        confirmed.set(sessionId, marker)
       }
     },
     record: async () => {

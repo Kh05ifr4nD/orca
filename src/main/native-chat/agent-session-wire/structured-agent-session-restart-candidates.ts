@@ -1,33 +1,26 @@
-// Which of a set of markers the predicate would still act on, read off the host's own live journals.
+// Which of a set of markers are still offers, read off the host's own live journals.
 //
 // A different question from storage: the durable record decides which markers are still present;
-// this decides which of those describe work a resume may touch. The offer, the click and the
-// teardown write-back all ask it, each with a different lease expectation.
+// this decides which of those a resume may act on. The offer, the click and the pre-send check all
+// ask it, and all get the same answer: the marker stands until the user sends a newer message.
 //
-// The per-session journal snapshot is cached for the length of one call: the predicate asks the
-// same session for its items four times, and a snapshot that moved between those reads would let
-// two clauses judge two different conversations.
+// The per-session journal snapshot is cached for the length of one call, so the withdrawal check
+// and the row's activity read the same conversation.
 
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
-import type {
-  AgentJournalRenderItem,
-  AgentJournalTurnLifecycle
-} from '../../../shared/agent-session-journal-types'
+import type { AgentJournalRenderItem } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionResumeMarker } from '../../../shared/agent-session-resume-marker'
-import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
-import { newestStructuredAgentSessionTurn } from '../../../shared/structured-agent-session-live-turn'
 import {
   latestStructuredAgentSessionPrompt,
-  latestStructuredAgentSessionUserItem,
-  projectStructuredAgentSessionStatus
+  latestStructuredAgentSessionUserItem
 } from '../../../shared/structured-agent-session-projection'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { adapterSupportsRecord } from './structured-agent-session-provider-support'
 import {
   journalItemRevisions,
-  structuredAgentSessionRestartCutOff,
+  structuredAgentSessionRestartActivity,
   type JournalItemRevision
 } from './structured-agent-session-restart-cut-off'
 import {
@@ -39,25 +32,8 @@ import {
 export type StructuredAgentSessionRestartJournalSource = { journal: AgentSessionJournal }
 
 export type StructuredAgentSessionRestartCandidateOptions = {
-  /** Only teardown may judge before it rewrites the stopped child's running turn. */
-  providerStopped?: boolean
   /** A continuation already in flight; its own submission is not newer user work. */
   pendingContinuationId?: string
-  /** Teardown only: the provider still ran children when this marker was captured. */
-  childWorkAtStop?: boolean
-}
-
-function journalTurnById(
-  items: readonly AgentJournalRenderItem[],
-  turnId: string
-): AgentJournalTurnLifecycle | null {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const turn = readAgentJournalTurn(items[index]?.body)
-    if (turn?.turnId === turnId) {
-      return turn
-    }
-  }
-  return null
 }
 
 export type StructuredAgentSessionRestartCandidateReader = (
@@ -79,7 +55,7 @@ export function liveStructuredAgentSessionLatestUserItemId(
 }
 
 export function createStructuredAgentSessionRestartCandidateReader(deps: {
-  /** The host's LIVE session map — the only honest answer to "was this actually working". */
+  /** The host's live session map; a marker's chat is readable once listing has revealed it. */
   sessions: ReadonlyMap<string, StructuredAgentSessionRestartJournalSource>
   getRecord: (sessionId: string) => AgentSessionRecord | null
   adapter: StructuredAgentSessionAdapter
@@ -111,22 +87,12 @@ export function createStructuredAgentSessionRestartCandidateReader(deps: {
       markers,
       getRecord: deps.getRecord,
       supportsRecord: (record) => adapterSupportsRecord(deps.adapter, record),
-      journalTurn: (sessionId, turnId) => journalTurnById(itemsFor(sessionId), turnId),
-      newestJournalTurn: (sessionId) => newestStructuredAgentSessionTurn(itemsFor(sessionId)),
-      journalSubmission: (sessionId, clientMessageId) =>
-        deps.sessions
-          .get(sessionId)
-          ?.journal.submissions()
-          .find((submission) => submission.clientMessageId === clientMessageId) ?? null,
-      liveWork: (sessionId) => projectStructuredAgentSessionStatus(itemsFor(sessionId)) !== 'idle',
-      cutOff: (marker, midReply) =>
-        structuredAgentSessionRestartCutOff({
+      activity: (marker) =>
+        structuredAgentSessionRestartActivity({
+          marker,
           items: itemsFor(marker.sessionId),
-          revisionsSinceCursor: revisionsSince(marker),
-          midReply
+          revisionsSinceCursor: revisionsSince(marker)
         }),
-      ...(options.providerStopped ? { providerStopped: true } : {}),
-      ...(options.childWorkAtStop ? { childWorkAtStop: true } : {}),
       latestPrompt: (sessionId) => latestStructuredAgentSessionPrompt(itemsFor(sessionId)),
       latestUserItemId: (sessionId) =>
         latestStructuredAgentSessionUserItem(itemsFor(sessionId))?.itemId ?? null,

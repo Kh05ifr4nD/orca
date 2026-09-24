@@ -1,4 +1,7 @@
-// What a restart cut off in one session, read back from its journal.
+// What a restart cut off in one session, read back from its journal for the offer's row to name.
+//
+// Display only: whether the chat is offered was settled at teardown and never depends on this. An
+// unreadable journal or an older marker just leaves the row without an activity line.
 //
 // Teardown settles what a stopped child left running as ordinary journal revisions: a pending
 // prompt becomes `cancelled`, a running tool call `failed`, and each provider marks the subagents
@@ -13,6 +16,8 @@ import type {
   AgentJournalItemBody,
   AgentJournalRenderItem
 } from '../../../shared/agent-session-journal-types'
+import type { AgentSessionResumeMarker } from '../../../shared/agent-session-resume-marker'
+import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
 import type { JournalRow } from '../agent-session-journal/journal-row-schema'
 import { isRootAgentJournalItem } from '../../../shared/agent-session-journal-producer'
 import type {
@@ -64,17 +69,37 @@ export function journalItemRevisions(
   return revisions
 }
 
-/**
- * @param midReply whether the lead's own turn was cut off; its tool calls are then that reply's,
- *   not background work of their own.
- */
-export function structuredAgentSessionRestartCutOff(input: {
+/** Whether the lead's own reply was cut off: a send that had not become a turn yet, or the
+ *  marker's turn, found by id, settled as interrupted. */
+function leadWasMidReply(
+  marker: AgentSessionResumeMarker,
+  items: readonly AgentJournalRenderItem[]
+): boolean {
+  if (marker.work.kind === 'submission') {
+    return true
+  }
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const turn = readAgentJournalTurn(items[index]?.body)
+    if (turn?.turnId === marker.work.id) {
+      return turn.state === 'interrupted' || turn.state === 'unverifiable'
+    }
+  }
+  return false
+}
+
+/** Undefined for a marker with no journal cursor: a build that recorded only a working lead. */
+export function structuredAgentSessionRestartActivity(input: {
+  marker: AgentSessionResumeMarker
   items: readonly AgentJournalRenderItem[]
   /** Revisions written after the marker's cursor; null when the journal cannot answer against it —
-   *  an older marker with none, or an epoch that renumbered the rows since. */
+   *  an epoch that renumbered the rows since. */
   revisionsSinceCursor: readonly JournalItemRevision[] | null
-  midReply: boolean
-}): AgentSessionRestartActivity {
+}): AgentSessionRestartActivity | undefined {
+  if (!input.marker.journalCursor) {
+    return undefined
+  }
+  // A cut-off reply's tool calls are that reply's, not background work of their own.
+  const midReply = leadWasMidReply(input.marker, input.items)
   const prompts: AgentSessionRestartPrompt[] = []
   const tasks: AgentSessionRestartTask[] = []
   const revisions = input.revisionsSinceCursor ?? []
@@ -114,7 +139,7 @@ export function structuredAgentSessionRestartCutOff(input: {
           tasks.push({ kind: block.kind, label: label(block.label) })
         }
       }
-    } else if (body.kind === 'tool-call' && body.state === 'failed' && !input.midReply) {
+    } else if (body.kind === 'tool-call' && body.state === 'failed' && !midReply) {
       const item = itemsById?.get(itemId)
       // A command that outlived its turn: the lead had settled, so the call was nobody's reply.
       if (item && isRootAgentJournalItem(item) && first(itemId)) {
@@ -123,7 +148,7 @@ export function structuredAgentSessionRestartCutOff(input: {
     }
   }
   return {
-    midReply: input.midReply,
+    midReply,
     prompts: prompts.slice(0, MAX_PROMPTS),
     tasks: tasks.slice(0, MAX_TASKS)
   }

@@ -79,7 +79,9 @@ it('still offers and continues a chat the user opened before resuming', async ()
     }
   )
   await host.flushStreamedEvents(SESSION)
-  expect(await host.restartResume.list()).toMatchObject([{ sessionId: SESSION }])
+  expect(await host.restartResume.list()).toMatchObject([
+    { sessionId: SESSION, activity: { tasks: [{ kind: 'agent', label: 'Review loop 4' }] } }
+  ])
   expect(
     (await host.restartResume.continueAfterRestart([SESSION], 'modal')).continued
   ).toMatchObject([{ outcome: 'continued' }])

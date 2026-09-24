@@ -31,7 +31,7 @@ import {
 export const GRACE = 15_000
 
 export async function interruptedRestart(
-  work: 'turn' | 'submission' | 'children' = 'turn',
+  work: 'turn' | 'submission' | 'send-after-reply' | 'children' = 'turn',
   historyBoundaryConsistent = true
 ) {
   const previous = hostTestState()
@@ -40,7 +40,15 @@ export async function interruptedRestart(
   if (!events) {
     throw new Error('missing provider event sink')
   }
-  if (work === 'submission') {
+  if (work === 'send-after-reply') {
+    // An earlier exchange had finished; the user's next send had not opened a turn yet.
+    events.appendItem(
+      { provider: 'codex', threadId: THREAD, turnId: 'earlier-turn', ordinal: 1 },
+      { kind: 'turn', turnId: 'earlier-turn', state: 'completed' }
+    )
+    await previous.host.flushStreamedEvents(SESSION)
+  }
+  if (work === 'submission' || work === 'send-after-reply') {
     previous.dispatch.mockResolvedValueOnce({ state: 'admitted' })
     const body = hostTestMessage('Perform the original task')
     await previous.host.send(CALLER, { envelope: envelope('agentSession.send', { body }), body })
@@ -94,7 +102,7 @@ export async function interruptedRestart(
     adapter: {
       ...adapter(),
       closeSession,
-      ...(work === 'submission'
+      ...(work === 'submission' || work === 'send-after-reply'
         ? {
             providerHistoryWindow: async () => ({
               items: [],
@@ -131,10 +139,9 @@ export function statusNotes(host: StructuredAgentSessionHost) {
     )
 }
 
-/** A reattach that succeeds and a continuation the host refuses: the provider finished the turn
- *  while the continuation was being recorded, as the superseded-evidence cases above set up. */
-/** `userAnswers` has the user reply in the chat just before or after its own attempt, while the
- *  rest of a batch would still be running. */
+/** A reattach that succeeds and a continuation the host refuses: a message from another client
+ *  lands while the continuation is being recorded. `userAnswers` has the user reply in the chat
+ *  just before or after its own attempt, while the rest of a batch would still be running. */
 export async function supersededRefusal(userAnswers?: 'before' | 'after') {
   const { host, acquire, dispatch, root } = await interruptedRestart()
   await host.restartResume.list()
@@ -148,9 +155,8 @@ export async function supersededRefusal(userAnswers?: 'before' | 'after') {
   writing.mockImplementationOnce(async function (this: AgentSessionJournal, input) {
     const cursor = await append.call(this, input)
     events.appendItem(
-      { provider: 'codex', threadId: THREAD, turnId: 'interrupted-turn', ordinal: 1 },
-      { kind: 'turn', turnId: 'interrupted-turn', state: 'completed' },
-      { lifecycle: true }
+      { provider: 'codex', threadId: THREAD, turnId: 'newer-turn', ordinal: 1 },
+      hostTestMessage('A newer task from another client')
     )
     return cursor
   })

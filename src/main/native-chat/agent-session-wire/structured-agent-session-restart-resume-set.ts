@@ -1,20 +1,16 @@
-// Which durable teardown witnesses still describe resumable work.
+// Which durable teardown witnesses are still offers.
 //
-// Every clause here exists to refuse, and the bias is deliberate: a session resumed that should not
-// have been spends the user's tokens and can make an agent redo destructive work it already
-// finished. A session missed is an annoyance. When any input is ambiguous this answers "no".
+// The marker IS the answer to "was this chat working": teardown took it from the same check the
+// sidebar shows, right before the chat's child was stopped. Nothing here re-reads the journal to
+// second-guess it — once reattached, a provider rewrites that journal in its own words (a notice
+// turn of its own, restated subagent rows, a restored thread), and every reading of those rewrites
+// as "the work is done" dropped chats that were owed a resume.
 //
-// Two INDEPENDENT records must concur. The marker is teardown's word that the session was working;
-// the journal is the session's word on what was cut off — its interrupted turn, the prompts
-// eviction cancelled, the children it marked unverifiable. One without the other proves nothing: a
-// marker whose journal shows nothing cut off is a marker for work that did not exist, and a journal
-// turn with no marker is the stale-`running`-row case this whole mechanism exists to refuse.
+// So an offer is withdrawn only by the user moving on — a newer message of theirs — by dismissal,
+// or by expiry. What remains are structural checks that are not about work at all: the record
+// still exists and this build supports it, the lease is free, and the conversation has not forked.
 
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
-import type {
-  AgentJournalSubmission,
-  AgentJournalTurnLifecycle
-} from '../../../shared/agent-session-journal-types'
 import {
   agentSessionProviderHandleChainHead,
   agentSessionProviderHandleRoot
@@ -47,7 +43,8 @@ export type StructuredAgentSessionResumeCandidate = {
   /** Model in force, read from the record's acknowledged options exactly as the status feed does.
    *  Absent until the host has read them. */
   model?: string
-  /** What the restart cut off, read from the journal. Optional on the wire: an older host omits it. */
+  /** What the restart cut off, read from the journal for display. Optional on the wire: an older
+   *  host omits it, and so does a marker from a build that recorded no journal cursor. */
   activity?: AgentSessionRestartActivity
 }
 
@@ -67,25 +64,8 @@ export type StructuredAgentSessionResumeSetInput = {
   markers: readonly AgentSessionResumeMarker[]
   getRecord: (sessionId: string) => AgentSessionRecord | null
   supportsRecord: (record: AgentSessionRecord) => boolean
-  /** The turn record with this id, state included; null when the journal holds none. Deliberately
-   *  not the live-turn reader: eviction has already rewritten that turn to `interrupted`. */
-  journalTurn: (sessionId: string, turnId: string) => AgentJournalTurnLifecycle | null
-  /** The newest turn record, for a send whose own turn cannot be told apart from later ones. */
-  newestJournalTurn: (sessionId: string) => AgentJournalTurnLifecycle | null
-  /** The journalled submission with that client message id, for work that never became a turn. */
-  journalSubmission: (sessionId: string, clientMessageId: string) => AgentJournalSubmission | null
-  /** Whether a root turn is running, or a prompt is waiting on the user, right now. */
-  liveWork: (sessionId: string) => boolean
-  /** What the restart cut off besides the lead's own reply, read from the journal. */
-  cutOff: (marker: AgentSessionResumeMarker, midReply: boolean) => AgentSessionRestartActivity
-  /**
-   * Only teardown may judge before eviction settles the stopped child. Its prompts are still
-   * pending and its turn still running then, and they are the work being cut off, not newer work.
-   */
-  providerStopped?: boolean
-  /** Teardown only: the provider still ran children when the marker was captured, and eviction
-   *  clears that roster before this can read it. */
-  childWorkAtStop?: boolean
+  /** What the restart cut off, for the row to name. Display only: it never decides the offer. */
+  activity: (marker: AgentSessionResumeMarker) => AgentSessionRestartActivity | undefined
   latestPrompt: (sessionId: string) => string
   latestUserItemId: (sessionId: string) => string | null
   now: number
@@ -97,68 +77,6 @@ export type StructuredAgentSessionResumeSetInput = {
    * must never become a way to act on a marker the rest of the predicate rejected.
    */
   leaseState?: 'must-be-released' | 'may-be-held'
-}
-
-/** Eviction rewrites `running` -> `interrupted` and never -> `completed`, so a completed turn is
- *  finished work and one still marked `running` was never settled by anyone. */
-function turnWasCutOff(turn: AgentJournalTurnLifecycle | null, providerStopped = false): boolean {
-  return (
-    turn !== null &&
-    (turn.state === 'interrupted' ||
-      turn.state === 'unverifiable' ||
-      (providerStopped && turn.state === 'running'))
-  )
-}
-
-/** Delivery acknowledgements do not prove turn state: provider events may arrive without one.
- * A completed or running newest turn makes interruption ambiguous, even without a matching key. */
-function submissionWorkWasCutOff(
-  input: StructuredAgentSessionResumeSetInput,
-  sessionId: string
-): boolean {
-  const turn = input.newestJournalTurn(sessionId)
-  // No turn row at all: nothing finished, because finishing writes one.
-  // Otherwise the newest turn decides, and it decides the same way whether or not it names this
-  // submission — which is exactly why the link no longer has to be proved to answer safely.
-  return turn === null || turnWasCutOff(turn, input.providerStopped)
-}
-
-/** Whether the lead's own reply was cut off: its turn, found by id, or the send that had not yet
- *  become one — followed forward to its turn, including lost acknowledgements. */
-function leadWorkWasCutOff(
-  input: StructuredAgentSessionResumeSetInput,
-  marker: AgentSessionResumeMarker
-): boolean {
-  if (marker.work.kind === 'turn') {
-    return turnWasCutOff(input.journalTurn(marker.sessionId, marker.work.id), input.providerStopped)
-  }
-  const submission = input.journalSubmission(marker.sessionId, marker.work.id)
-  if (submission?.clientMessageId !== marker.work.id) {
-    return false
-  }
-  if (submission.dispatchState === 'rejected') {
-    return false
-  }
-  return submissionWorkWasCutOff(input, marker.sessionId)
-}
-
-/**
- * The work this marker is still owed, or null when nothing is: the lead's reply, a prompt, or a
- * child the restart stopped. Before eviction settles the child, a pending prompt or a captured
- * roster stands in for the rows the settlement is about to write.
- */
-function owedWork(
-  input: StructuredAgentSessionResumeSetInput,
-  marker: AgentSessionResumeMarker
-): AgentSessionRestartActivity | null {
-  const midReply = leadWorkWasCutOff(input, marker)
-  if (input.providerStopped) {
-    return midReply || input.liveWork(marker.sessionId) || input.childWorkAtStop === true
-      ? { midReply, prompts: [], tasks: [] }
-      : null
-  }
-  const cutOff = input.cutOff(marker, midReply)
-  return midReply || cutOff.prompts.length > 0 || cutOff.tasks.length > 0 ? cutOff : null
 }
 
 export function structuredAgentSessionResumableSet(
@@ -184,21 +102,12 @@ export function structuredAgentSessionResumableSet(
     if (!head || agentSessionProviderHandleRoot(head.handle) !== marker.providerHandleRoot) {
       continue
     }
-    // At teardown a pending prompt is one the marker records and eviction is about to cancel.
-    // Any later one is the resumed agent asking the user now, which a continuation must not bury.
-    // Newer work supersedes the offer: the user's own message, or — once eviction has settled the
-    // stopped child, which interrupts every turn and cancels every prompt — anything live at all.
-    // A turn the provider opened and closed on its own after the restart is neither.
-    if (
-      input.latestUserItemId(marker.sessionId) !== marker.latestUserItemId ||
-      (!input.providerStopped && input.liveWork(marker.sessionId))
-    ) {
+    // The user moving on is the one thing that withdraws the offer. Anything the provider does on
+    // its own after reattaching — a turn it opens, a prompt, restated rows — is not.
+    if (input.latestUserItemId(marker.sessionId) !== marker.latestUserItemId) {
       continue
     }
-    const owed = owedWork(input, marker)
-    if (!owed) {
-      continue
-    }
+    const activity = input.activity(marker)
     const model = normalizeOptionalField(record.options?.model, AGENT_MODEL_MAX_LENGTH)
     candidates.push({
       sessionId: marker.sessionId,
@@ -211,7 +120,7 @@ export function structuredAgentSessionResumableSet(
       executionHostId: record.location.executionHostId,
       workspaceKind: record.location.workspaceKind,
       ...(model === undefined ? {} : { model }),
-      activity: owed
+      ...(activity === undefined ? {} : { activity })
     })
   }
   return candidates
