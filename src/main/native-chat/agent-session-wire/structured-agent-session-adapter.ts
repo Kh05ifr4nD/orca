@@ -262,7 +262,8 @@ export type StructuredAgentSessionAdapter = {
   forceCloseSession?(sessionId: string): Promise<boolean>
   /** Stops a provider child for teardown without requiring a future-resume cursor. */
   disposeSession?(sessionId: string): Promise<boolean>
-  /** Host acknowledgement that the proven-dead child, lease and journal owner are released. */
+  /** Host acknowledgement that the lease and journal owner are released. This is the close
+   *  decision: the root is gone, though its descendants may still be unverified. */
   acknowledgeSessionRelease?(sessionId: string): void
 }
 

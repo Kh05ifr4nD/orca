@@ -42,6 +42,23 @@ function adapterOf(
   }
 }
 
+describe('StructuredAgentSessionAdapterRouter.acknowledgeSessionRelease', () => {
+  it('hands the host release to the owning adapter only', async () => {
+    const claude = adapterOf(vi.fn(async () => true))
+    const codex = adapterOf(vi.fn(async () => true))
+    claude.acknowledgeSessionRelease = vi.fn()
+    codex.acknowledgeSessionRelease = vi.fn()
+    const router = new StructuredAgentSessionAdapterRouter({ claude, codex }, async () => {})
+    await router.acquire({ identity: claudeIdentity('session-1'), fence: 1, spawnToken: 's-1' })
+
+    router.acknowledgeSessionRelease('session-1')
+    router.acknowledgeSessionRelease('session-1')
+
+    expect(claude.acknowledgeSessionRelease).toHaveBeenCalledExactlyOnceWith('session-1')
+    expect(codex.acknowledgeSessionRelease).not.toHaveBeenCalled()
+  })
+})
+
 describe('StructuredAgentSessionAdapterRouter.releaseAcquisition', () => {
   it('drops the owner even when its release reports a typed failure', async () => {
     const failure = new Error('root exited')

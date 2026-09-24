@@ -39,7 +39,10 @@ export async function resolveClaudeAcquisitionLaunch(args: {
       )
     }
     acquisitions.assertCurrent(sessionId, attempt)
-    let resumeSession = sessions.get(sessionId)
+    // A child whose lease the host already released is retired, never closed again: its tree
+    // proof is cleanup, not a precondition for this resume.
+    let resumeSession =
+      callbacks.retireSuperseded(sessionId, input.fence) ?? sessions.get(sessionId)
     if (!(await closeClaudePublishedSessionForDeps(sessions, sessionId, deps))) {
       throw new AgentSessionAcquisitionExitUnprovenError(
         new Error(`claude session ${sessionId} could not be stopped`)
@@ -54,6 +57,9 @@ export async function resolveClaudeAcquisitionLaunch(args: {
       }
       // The superseded child must settle before its durable resume identity is reused.
       await callbacks.settleExit(sessionId, retainedExit)
+      if (exits.get(sessionId) === retainedExit) {
+        exits.delete(sessionId)
+      }
       resumeSession ??= retainedExit.session
     }
     acquisitions.assertCurrent(sessionId, attempt)

@@ -18,6 +18,7 @@ import type {
 } from '../../shared/agent-session-wire'
 import type { ClaudeBackgroundTaskTracker } from './claude-background-task-tracker'
 import type { ClaudeSlashCommandCatalog } from './claude-slash-command-catalog'
+import type { ClaudeReleasedChildCleanup } from './claude-released-child-cleanup'
 
 export type ClaudeAuthDiagnostic = {
   apiKeySourceConfigured: boolean
@@ -103,6 +104,8 @@ export type ClaudeStructuredSessionAdapterDeps = {
     leafUuid: string
     fence: number
   }) => Promise<void>
+  /** Bounded tree verification for children whose lease was released; injectable for tests. */
+  releasedChildCleanup?: ClaudeReleasedChildCleanup
 }
 
 export type ClaudeDispatchWaiter = {
@@ -181,8 +184,9 @@ export function mintClaudeAcquisitionGeneration(deps: ClaudeStructuredSessionAda
 
 /**
  * The first-hand exit that removed a published session. Kept until the session
- * is acquired again so acquisition cleanup that arrives after the exit finds
- * what the ladder observed, not an absence it would otherwise report as proven.
+ * is acquired again or its lease release is acknowledged, so acquisition cleanup
+ * that arrives after the exit finds what the ladder observed, not an absence it
+ * would otherwise report as proven.
  */
 export type ClaudeSessionExit = {
   connection: ClaudeStreamJsonConnection
@@ -196,6 +200,8 @@ export type ClaudeSessionExit = {
   /** The whole ladder-then-settle tail, retained so a barrier can await an exit
    *  that is observed but not yet published. Never rejects. */
   publication?: Promise<void>
+  /** `ended` went out on the root's exit while the tree stayed unproven; kept only as evidence. */
+  endedWithTreeUnproven?: boolean
 }
 
 export type ClaudeAcquisitionAttempt = {
@@ -314,4 +320,6 @@ export type ClaudeAcquireCallbacks = {
   ) => void
   handleExit: (sessionId: string, attempt: ClaudeAcquisitionAttempt, error: Error) => void
   settleExit: (sessionId: string, exit: ClaudeSessionExit) => Promise<void>
+  /** Retires an indexed child whose lease a later fence proves released; returns it for resume. */
+  retireSuperseded: (sessionId: string, fence: number) => ClaudeSession | undefined
 }

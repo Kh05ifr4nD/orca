@@ -21,14 +21,17 @@ import {
   type ClaudeStructuredSessionAdapterDeps,
   type ClaudeStructuredSessionEvent
 } from './claude-structured-session-state'
+import { closeAllClaudeSessions, closeClaudeSession } from './claude-structured-session-close'
+import { ClaudeReleasedChildCleanup } from './claude-released-child-cleanup'
 import {
-  closeAllClaudeSessions,
-  closeClaudeSession,
-  settleClaudeExitedSession
-} from './claude-structured-session-close'
+  retireClaudeReleasedSession,
+  retireClaudeSessionSupersededByFence,
+  type ClaudeSessionRetirementInput
+} from './claude-structured-session-retirement'
 import {
   drainClaudeObservedExits,
-  persistClaudeSessionHandle
+  retainClaudeUnexpectedExit,
+  settleClaudeUnexpectedExit
 } from './claude-structured-session-exit-lifecycle'
 import type { AgentSessionBackgroundTaskState } from '../../shared/agent-session-wire'
 import { resolveClaudeProviderHistoryWindow } from './claude-structured-history-window'
@@ -55,8 +58,11 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   private readonly sessions = new Map<string, ClaudeSession>()
   private readonly acquisitions = new ClaudeAcquisitionRegistry()
   private readonly exits = new Map<string, ClaudeSessionExit>()
+  private readonly releasedChildren: ClaudeReleasedChildCleanup
 
-  constructor(private readonly deps: ClaudeStructuredSessionAdapterDeps) {}
+  constructor(private readonly deps: ClaudeStructuredSessionAdapterDeps) {
+    this.releasedChildren = deps.releasedChildCleanup ?? new ClaudeReleasedChildCleanup()
+  }
 
   supportsLocation = supportsClaudeStructuredLocation
 
@@ -77,9 +83,28 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         deliver: (attempt, sessionId, event) => this.deliver(attempt, sessionId, event),
         emit: (session, _events, event) => this.emit(session, event),
         handleExit: (sessionId, attempt, error) => this.handleExit(sessionId, attempt, error),
-        settleExit: (sessionId, exit) => this.settleUnexpectedExit(sessionId, exit)
+        settleExit: (sessionId, exit) => this.settleUnexpectedExit(sessionId, exit),
+        retireSuperseded: (sessionId, fence) =>
+          retireClaudeSessionSupersededByFence({ ...this.retirement(sessionId), fence })
       }
     })
+
+  private retirement(sessionId: string): ClaudeSessionRetirementInput {
+    return {
+      sessionId,
+      sessions: this.sessions,
+      exits: this.exits,
+      cleanup: this.releasedChildren,
+      ...(this.deps.onBackgroundTasksChanged
+        ? { onBackgroundTasksChanged: this.deps.onBackgroundTasksChanged }
+        : {})
+    }
+  }
+
+  /** The host released this session's lease: drop it from the index and settle what it owned. */
+  acknowledgeSessionRelease = (sessionId: string): void => {
+    retireClaudeReleasedSession(this.retirement(sessionId))
+  }
 
   private deliver(attempt: ClaudeAcquisitionAttempt, sessionId: string, event: () => void): void {
     if (!attempt.published) {
@@ -100,83 +125,46 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       return
     }
     this.sessions.delete(sessionId)
-    // Re-enter the provider's close ladder before publishing lifecycle recovery.
-    // An exit callback is root evidence only; the retained tree proof must run
-    // before the host releases and reacquires this exact child.
-    const closePromise = session.connection.close().catch(() => false)
-    const exit: ClaudeSessionExit = {
-      connection: session.connection,
+    retainClaudeUnexpectedExit({
+      sessionId,
       session,
       error,
-      closePromise
-    }
-    this.exits.set(sessionId, exit)
-    exit.publication = closePromise
-      .then((proven) => {
-        if (!proven) {
-          return undefined
-        }
-        return this.settleUnexpectedExit(sessionId, exit)
-      })
-      .catch(() => undefined)
+      exits: this.exits,
+      settle: (exit) => this.settleUnexpectedExit(sessionId, exit)
+    })
   }
 
   /** Resolves once every first-hand exit observed so far has published its
-   *  lifecycle event — or has failed its tree proof and stayed indexed for a
+   *  lifecycle event — or has seen a descendant alive and stayed indexed for a
    *  retry. Publication trails observation by the close ladder and the
    *  transcript cursor write, so nothing outside can otherwise tell the two
    *  apart without guessing at wall-clock. */
   drainObservedExits = (): Promise<void> => drainClaudeObservedExits(this.exits)
 
-  /** Lifecycle recovery is published only after the child tree proof is true. */
   private settleUnexpectedExit(sessionId: string, exit: ClaudeSessionExit): Promise<void> {
-    exit.settlementPromise ??= (async () => {
-      exit.session.unbindReadingControl?.()
-      if (this.exits.get(sessionId) !== exit) {
-        settleClaudeExitedSession(exit.session)
-        return
-      }
-      // Persist the last completed turn before publishing the lifecycle
-      // event that lets the host release and reacquire this exact child.
-      await persistClaudeSessionHandle(sessionId, exit.session, this.deps).catch(
-        (error: unknown) => {
-          // Recovery still publishes: the record keeps its last durable point, and the loss is logged.
-          console.warn('[claude-resume-point] exit cursor was not persisted:', { sessionId, error })
-        }
-      )
-      if (this.exits.get(sessionId) !== exit) {
-        settleClaudeExitedSession(exit.session)
-        return
-      }
-      this.exits.delete(sessionId)
-      const ended: ClaudeStructuredSessionEvent = {
-        type: 'ended',
-        sessionId,
-        reason: exit.error.message,
-        cause: 'unexpected-exit',
-        fence: exit.session.fence,
-        acquisitionGeneration: exit.session.acquisitionGeneration,
-        observedAt: this.deps.now?.() ?? Date.now()
-      }
-      try {
-        this.emit(exit.session, ended)
-      } finally {
-        settleClaudeExitedSession(exit.session)
-      }
-    })()
-    return exit.settlementPromise
+    return settleClaudeUnexpectedExit({
+      sessionId,
+      exit,
+      exits: this.exits,
+      deps: this.deps,
+      emit: (event) => this.emit(exit.session, event)
+    })
   }
 
   /** Restart reconciliation reads the transcript a resume replays; these maps track liveness. */
   providerHistoryWindow: NonNullable<StructuredAgentSessionAdapter['providerHistoryWindow']> = (
     input
-  ) =>
-    resolveClaudeProviderHistoryWindow({
+  ) => {
+    const exit = this.exits.get(input.identity.sessionId)
+    return resolveClaudeProviderHistoryWindow({
       identity: input.identity,
       accountHomePath: input.accountHome.path,
+      // An exit that already published `ended` has no turn left to run.
       hasLiveSession:
-        this.sessions.has(input.identity.sessionId) || this.exits.has(input.identity.sessionId)
+        this.sessions.has(input.identity.sessionId) ||
+        (exit !== undefined && exit.endedWithTreeUnproven !== true)
     })
+  }
 
   private emit(session: ClaudeSession | null, event: ClaudeStructuredSessionEvent): void {
     const backgroundTasksChanged =
@@ -296,14 +284,19 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     })
   }
 
-  closeAll = (): Promise<void> =>
-    closeAllClaudeSessions({
-      sessions: this.sessions,
-      acquisitions: this.acquisitions,
-      exits: this.exits,
-      closeSession: this.closeSession,
-      closeExit: (sessionId) => this.releaseAcquisition({ sessionId })
-    })
+  closeAll = async (): Promise<void> => {
+    try {
+      await closeAllClaudeSessions({
+        sessions: this.sessions,
+        acquisitions: this.acquisitions,
+        exits: this.exits,
+        closeSession: this.closeSession,
+        closeExit: (sessionId) => this.releaseAcquisition({ sessionId })
+      })
+    } finally {
+      await this.releasedChildren.closeAll()
+    }
+  }
 
   private session(sessionId: string): ClaudeSession {
     const session = this.sessions.get(sessionId)
