@@ -9023,6 +9023,9 @@
         "shortcutDefinitionCatalog": {
           "missionControlConflict": "Mission Control によってブロックされています。ここで再割り当てするか、システム設定で変更してください。"
         },
+        "RuntimeServerRow": {
+          "lastKnownDescriptor": "最後に取得 · {{descriptor}}"
+        },
         "shortcuts": {
           "search": {
             "ca6a0c2df7": "ショートカット",

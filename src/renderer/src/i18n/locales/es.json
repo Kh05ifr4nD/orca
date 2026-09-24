@@ -9001,6 +9001,9 @@
         "shortcutDefinitionCatalog": {
           "missionControlConflict": "Bloqueado por Mission Control. Reasigna aquí o cámbialo en Ajustes del Sistema."
         },
+        "RuntimeServerRow": {
+          "lastKnownDescriptor": "Último conocido · {{descriptor}}"
+        },
         "shortcuts": {
           "search": {
             "ca6a0c2df7": "atajo",

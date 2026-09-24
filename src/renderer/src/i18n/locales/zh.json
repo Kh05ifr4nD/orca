@@ -9056,6 +9056,9 @@
         "shortcutDefinitionCatalog": {
           "missionControlConflict": "已被调度中心拦截。在此重新映射，或在系统设置中更改。"
         },
+        "RuntimeServerRow": {
+          "lastKnownDescriptor": "上次已知 · {{descriptor}}"
+        },
         "shortcuts": {
           "search": {
             "ca6a0c2df7": "捷径",

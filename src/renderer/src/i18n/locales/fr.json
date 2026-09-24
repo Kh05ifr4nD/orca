@@ -11382,6 +11382,9 @@
         },
         "shortcutDefinitionCatalog": {
           "missionControlConflict": "Bloqué par Mission Control. Remappez ici ou changez-le dans Réglages Système."
+        },
+        "RuntimeServerRow": {
+          "lastKnownDescriptor": "Dernier connu · {{descriptor}}"
         }
       },
       "right": {
