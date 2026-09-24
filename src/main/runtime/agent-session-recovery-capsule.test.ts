@@ -301,6 +301,7 @@ describe('durable restart offers', () => {
         entries: [{ state: 'pending', marker: marker({ sessionId: 'second' }) }],
         failed: [
           { ...readable, marker: marker({ sessionId: 'future' }), outcome: 'later-outcome' },
+          { ...readable, marker: { ...marker({ sessionId: 'future-marker' }), trigger: 'later' } },
           readable
         ]
       })
