@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseIpynb } from './ipynb-parse'
 
-const { getConnectionIdMock, notebookApi } = vi.hoisted(() => {
+const { getConnectionIdMock, notebookApi, toastError } = vi.hoisted(() => {
   const notebookApi = {
     listPythonEnvironments: vi.fn(),
     startKernel: vi.fn(),
@@ -13,24 +13,29 @@ const { getConnectionIdMock, notebookApi } = vi.hoisted(() => {
   }
   // The kernel session subscribes to kernel frames when it loads.
   Object.defineProperty(window, 'api', { configurable: true, value: { notebook: notebookApi } })
-  return { getConnectionIdMock: vi.fn((): string | null => null), notebookApi }
+  return {
+    getConnectionIdMock: vi.fn((): string | null => null),
+    notebookApi,
+    toastError: vi.fn()
+  }
 })
 
 vi.mock('@/lib/connection-context', () => ({ getConnectionId: getConnectionIdMock }))
 vi.mock('@/i18n/i18n', () => ({ translate: (_key: string, fallback: string) => fallback }))
+vi.mock('sonner', () => ({ toast: { error: toastError } }))
 vi.mock('@/store', () => ({ useAppStore: { subscribe: () => () => {} } }))
 
 import { useIpynbCellExecution } from './useIpynbCellExecution'
 
-function notebookContent(): string {
+function notebookContent(withIds: boolean): string {
   return JSON.stringify({
     nbformat: 4,
-    nbformat_minor: 5,
+    nbformat_minor: withIds ? 5 : 4,
     metadata: { language_info: { name: 'python' } },
     cells: [
-      { id: 'md', cell_type: 'markdown', metadata: {}, source: ['# hi'] },
+      { ...(withIds ? { id: 'md' } : {}), cell_type: 'markdown', metadata: {}, source: ['# hi'] },
       {
-        id: 'run',
+        ...(withIds ? { id: 'run' } : {}),
         cell_type: 'code',
         metadata: {},
         execution_count: null,
@@ -41,8 +46,8 @@ function notebookContent(): string {
   })
 }
 
-function renderExecution(filePath: string, applyContent = vi.fn()) {
-  let content = notebookContent()
+function renderExecution(filePath: string, applyContent = vi.fn(), withIds = true) {
+  let content = notebookContent(withIds)
   applyContent.mockImplementation((next: string) => {
     content = next
   })
@@ -89,16 +94,26 @@ describe('notebook cell execution', () => {
     })
   })
 
-  it('writes a local-only notice into the cell for SSH workspaces without starting a kernel', async () => {
+  it('refuses to run in SSH workspaces without touching the notebook or starting a kernel', () => {
     getConnectionIdMock.mockReturnValue('ssh-connection')
-    const { hook, content } = renderExecution('/remote/notebook.ipynb')
+    const { hook, applyContent } = renderExecution('/remote/notebook.ipynb')
 
     act(() => hook.result.current.runCell(1))
-    await waitFor(() => expect(parseIpynb(content()).cells[1]?.outputs).toHaveLength(1))
-    expect(JSON.stringify(parseIpynb(content()).cells[1]?.outputs)).toContain(
-      'only run for files on this computer'
+    expect(toastError).toHaveBeenCalledWith(
+      'Notebook cells can only run for files on this computer.'
     )
+    expect(applyContent).not.toHaveBeenCalled()
     expect(hook.result.current.pendingRun).toBeNull()
     expect(notebookApi.startKernel).not.toHaveBeenCalled()
+  })
+
+  it('gives id-less cells ids before queueing, so output follows a moved cell', () => {
+    const { hook, content } = renderExecution('/repo/legacy.ipynb', vi.fn(), false)
+
+    act(() => hook.result.current.runCell(1))
+    const [cell] = hook.result.current.pendingRun ?? []
+    const { cells } = parseIpynb(content())
+    expect(cells[1]?.id).toBeTruthy()
+    expect(cell?.key).toBe(cells[1]?.id)
   })
 })

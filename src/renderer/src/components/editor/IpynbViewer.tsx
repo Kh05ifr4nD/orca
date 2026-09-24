@@ -172,8 +172,6 @@ export default function IpynbViewer({
             <IpynbKernelToolbar
               filePath={filePath}
               rootPath={rootPath}
-              pickerOpen={execution.pickerOpen}
-              onPickerOpenChange={execution.setPickerOpen}
               onRunAll={() => execution.runAll(notebook.cells.length)}
               onClearAll={execution.clearAllOutputs}
             />

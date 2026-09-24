@@ -15,28 +15,30 @@ import type {
 const INSTALL_TIMEOUT_MS = 10 * 60_000
 const INSTALL_DETAIL_CHARS = 4000
 
-/** One kernel per notebook file, owned by the window that started it. */
-const kernels = new Map<string, { kernel: NotebookKernel; owner: WebContents }>()
-const watchedOwners = new WeakSet<WebContents>()
+/** Each renderer document's kernels, by notebook file. */
+const kernelsByOwner = new Map<WebContents, Map<string, NotebookKernel>>()
 
-function stopKernel(filePath: string): void {
-  kernels.get(filePath)?.kernel.shutdown()
-  kernels.delete(filePath)
-}
-
-// Why: a closed window can leave the app running on macOS; its kernels must not outlive it.
-function stopKernelsWithOwner(owner: WebContents): void {
-  if (watchedOwners.has(owner)) {
-    return
-  }
-  watchedOwners.add(owner)
-  owner.once('destroyed', () => {
-    for (const [filePath, entry] of kernels) {
-      if (entry.owner === owner) {
-        stopKernel(filePath)
+// Why: a reloaded, crashed or closed renderer has lost its sessions, so its kernels go with it.
+function kernelsOf(owner: WebContents): Map<string, NotebookKernel> {
+  let kernels = kernelsByOwner.get(owner)
+  if (!kernels) {
+    const owned = new Map<string, NotebookKernel>()
+    const stopAll = (): void => {
+      for (const kernel of owned.values()) {
+        kernel.shutdown()
       }
+      owned.clear()
     }
-  })
+    owner.on('did-navigate', stopAll)
+    owner.on('render-process-gone', stopAll)
+    owner.once('destroyed', () => {
+      stopAll()
+      kernelsByOwner.delete(owner)
+    })
+    kernelsByOwner.set(owner, owned)
+    kernels = owned
+  }
+  return kernels
 }
 
 export function registerNotebookHandlers(store: Store): void {
@@ -62,15 +64,13 @@ export function registerNotebookHandlers(store: Store): void {
     async (event, args: { filePath: string; python: string }): Promise<KernelStartResult> => {
       // Why: run from the notebook's folder so relative imports and data paths resolve as on disk.
       const cwd = dirname(await resolveAuthorizedPath(args.filePath, store))
-      stopKernel(args.filePath)
       const owner = event.sender
-      const { kernel, ready } = startNotebookKernel({
+      const kernels = kernelsOf(owner)
+      kernels.get(args.filePath)?.shutdown()
+      const { kernel, ready, exited } = startNotebookKernel({
         python: args.python,
         cwd,
         onFrame: (frame) => {
-          if (frame.type === 'exit' && kernels.get(args.filePath)?.kernel === kernel) {
-            kernels.delete(args.filePath)
-          }
           if (!owner.isDestroyed()) {
             owner.send('notebook:kernelFrame', {
               filePath: args.filePath,
@@ -79,13 +79,13 @@ export function registerNotebookHandlers(store: Store): void {
           }
         }
       })
-      kernels.set(args.filePath, { kernel, owner })
-      stopKernelsWithOwner(owner)
-      const result = await ready
-      if (result.status !== 'ready' && kernels.get(args.filePath)?.kernel === kernel) {
-        kernels.delete(args.filePath)
-      }
-      return result
+      kernels.set(args.filePath, kernel)
+      void exited.then(() => {
+        if (kernels.get(args.filePath) === kernel) {
+          kernels.delete(args.filePath)
+        }
+      })
+      return ready
     }
   )
 
@@ -106,15 +106,17 @@ export function registerNotebookHandlers(store: Store): void {
     }
   )
 
-  ipcMain.handle('notebook:execute', (_event, args: { filePath: string; code: string }): void => {
-    kernels.get(args.filePath)?.kernel.execute(args.code)
+  ipcMain.handle('notebook:execute', (event, args: { filePath: string; code: string }): void => {
+    kernelsOf(event.sender).get(args.filePath)?.execute(args.code)
   })
 
-  ipcMain.handle('notebook:interrupt', (_event, args: { filePath: string }): void => {
-    kernels.get(args.filePath)?.kernel.interrupt()
+  ipcMain.handle('notebook:interrupt', (event, args: { filePath: string }): void => {
+    kernelsOf(event.sender).get(args.filePath)?.interrupt()
   })
 
-  ipcMain.handle('notebook:shutdownKernel', (_event, args: { filePath: string }): void => {
-    stopKernel(args.filePath)
+  ipcMain.handle('notebook:shutdownKernel', (event, args: { filePath: string }): void => {
+    const kernels = kernelsOf(event.sender)
+    kernels.get(args.filePath)?.shutdown()
+    kernels.delete(args.filePath)
   })
 }

@@ -1,18 +1,14 @@
 import bridgePath from '../../../resources/notebook/kernel-bridge.py?asset&asarUnpack'
 import { spawnProcess } from '../../shared/child-process/run-process'
 import { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
-import type { KernelFrame, KernelStartResult } from '../../shared/notebook-kernel-types'
+import {
+  KERNEL_OUTPUT_TYPES,
+  type KernelFrame,
+  type KernelStartResult
+} from '../../shared/notebook-kernel-types'
 
 const STDERR_TAIL_CHARS = 4000
 const SHUTDOWN_GRACE_MS = 5000
-const OUTPUT_TYPES = new Set([
-  'stream',
-  'display_data',
-  'execute_result',
-  'update_display_data',
-  'clear_output',
-  'error'
-] as const)
 
 type BridgeFrame = KernelFrame | { type: 'ready' } | { type: 'missing' }
 
@@ -41,7 +37,7 @@ function parseFrame(line: string): BridgeFrame | null {
       execution_count: typeof value.execution_count === 'number' ? value.execution_count : null
     }
   }
-  const outputType = [...OUTPUT_TYPES].find((candidate) => candidate === type)
+  const outputType = KERNEL_OUTPUT_TYPES.find((candidate) => candidate === type)
   return outputType && isRecord(content) ? { type: outputType, content } : null
 }
 
@@ -76,7 +72,7 @@ export function startNotebookKernel({
   python: string
   cwd: string
   onFrame: (frame: KernelFrame) => void
-}): { kernel: NotebookKernel; ready: Promise<KernelStartResult> } {
+}): { kernel: NotebookKernel; ready: Promise<KernelStartResult>; exited: Promise<void> } {
   const child = spawnProcess({
     program: python,
     args: [bridgePath],
@@ -87,6 +83,7 @@ export function startNotebookKernel({
   const ready = new Promise<KernelStartResult>((resolve) => {
     settle = resolve
   })
+  const exited = new Promise<void>((resolve) => child.once('close', () => resolve()))
   let started = false
   let stopping = false
   let stderrTail = ''
@@ -103,6 +100,8 @@ export function startNotebookKernel({
     createFrameReader((frame) => {
       if (frame.type === 'ready') {
         started = true
+        // Why: a death notice should show what the kernel said since it started, not startup warnings.
+        stderrTail = ''
         settle({ status: 'ready' })
       } else if (frame.type === 'missing') {
         settle({ status: 'missing-ipykernel' })
@@ -125,6 +124,7 @@ export function startNotebookKernel({
   }
   return {
     ready,
+    exited,
     kernel: {
       execute: (code) => send({ op: 'execute', code }),
       interrupt: () => send({ op: 'interrupt' }),
@@ -133,7 +133,7 @@ export function startNotebookKernel({
         child.stdin.end()
         const forceKill = setTimeout(() => void forceTerminateProcessTree(child), SHUTDOWN_GRACE_MS)
         forceKill.unref()
-        child.once('close', () => clearTimeout(forceKill))
+        void exited.then(() => clearTimeout(forceKill))
       }
     }
   }

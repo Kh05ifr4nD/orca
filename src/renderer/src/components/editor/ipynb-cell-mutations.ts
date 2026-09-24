@@ -167,3 +167,20 @@ export function clearIpynbOutputs(content: string): string {
   }
   return serializeNotebook(root)
 }
+
+/** Gives every cell an nbformat 4.5 id, as Jupyter does when it upgrades a 4.4 notebook. */
+export function withIpynbCellIds(content: string): string {
+  const root = parseNotebookRoot(content)
+  const cells = Array.isArray(root.cells) ? root.cells.filter(isRecord) : []
+  if (cells.every((cell) => typeof cell.id === 'string')) {
+    return content
+  }
+  for (const cell of cells) {
+    cell.id = typeof cell.id === 'string' ? cell.id : createBrowserUuid()
+  }
+  root.nbformat_minor = Math.max(
+    typeof root.nbformat_minor === 'number' ? root.nbformat_minor : 0,
+    5
+  )
+  return serializeNotebook(root)
+}

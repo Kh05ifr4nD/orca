@@ -56,10 +56,11 @@ async function probe(
 
 /** Names an interpreter after its environment folder when it lives in one. */
 function environmentName(executable: string): string {
-  const envDir = dirname(dirname(executable))
-  return existsSync(join(envDir, 'pyvenv.cfg')) || existsSync(join(envDir, 'conda-meta'))
-    ? basename(envDir)
-    : basename(executable)
+  // venvs keep python in bin/ or Scripts\; Windows conda envs keep it at the env root.
+  const envDir = [dirname(dirname(executable)), dirname(executable)].find(
+    (dir) => existsSync(join(dir, 'pyvenv.cfg')) || existsSync(join(dir, 'conda-meta'))
+  )
+  return basename(envDir ?? executable)
 }
 
 export function describePython(path: string): Promise<PythonEnvironment | null> {

@@ -64,7 +64,10 @@ describe.skipIf(!python)('notebook kernel against a real ipykernel', () => {
     expect(await next('done')).toMatchObject({ status: 'error' })
 
     kernel.execute('import os; os._exit(1)')
-    expect(await next('exit')).toMatchObject({ type: 'exit' })
+    const death = await next('exit')
+    expect(death).toMatchObject({ type: 'exit' })
+    // ipykernel's startup warning about unencrypted TCP is not why it died.
+    expect(JSON.stringify(death)).not.toContain('without encryption')
   }, 60_000)
 })
 

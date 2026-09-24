@@ -20,13 +20,15 @@ export type KernelStartResult =
   | { status: 'failed'; detail: string }
 
 /** Kernel output message types the bridge forwards, named as in the Jupyter messaging protocol. */
-export type KernelOutputType =
-  | 'stream'
-  | 'display_data'
-  | 'execute_result'
-  | 'update_display_data'
-  | 'clear_output'
-  | 'error'
+export const KERNEL_OUTPUT_TYPES = [
+  'stream',
+  'display_data',
+  'execute_result',
+  'update_display_data',
+  'clear_output',
+  'error'
+] as const
+export type KernelOutputType = (typeof KERNEL_OUTPUT_TYPES)[number]
 
 /** What a running kernel reports, in order, for the one execution in flight. */
 export type KernelFrame =

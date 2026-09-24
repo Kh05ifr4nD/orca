@@ -99,19 +99,16 @@ async function browseForPython(filePath: string): Promise<void> {
 export function IpynbKernelToolbar({
   filePath,
   rootPath,
-  pickerOpen,
-  onPickerOpenChange,
   onRunAll,
   onClearAll
 }: {
   filePath: string
   rootPath: string | null
-  pickerOpen: boolean
-  onPickerOpenChange: (open: boolean) => void
   onRunAll: () => void
   onClearAll: () => void
 }): React.JSX.Element {
   const kernel = useNotebookKernelState(filePath)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [environments, setEnvironments] = useState<PythonEnvironments | null>(null)
   const settling = kernel.status === 'starting' || kernel.status === 'installing'
 
@@ -176,16 +173,7 @@ export function IpynbKernelToolbar({
           )}
         </Button>
       ) : null}
-      <DropdownMenu
-        open={pickerOpen}
-        onOpenChange={(open) => {
-          onPickerOpenChange(open)
-          // Radix runs an item's onSelect before closing, so a pick has already started the kernel.
-          if (!open) {
-            cancelPendingStart(filePath)
-          }
-        }}
-      >
+      <DropdownMenu open={pickerOpen} onOpenChange={setPickerOpen}>
         <DropdownMenuTrigger asChild>
           <Button type="button" variant="ghost" size="xs" disabled={settling}>
             {settling ? (
@@ -239,9 +227,9 @@ export function IpynbKernelToolbar({
       <IpynbMissingKernelDialog
         filePath={filePath}
         kernel={kernel}
-        // The picker takes over from the dialog; closing it without a pick cancels the run.
+        // The picker stands in for the dialog; closing it without a pick brings the dialog back.
         open={kernel.status === 'missing-ipykernel' && !pickerOpen}
-        onChooseAnother={() => onPickerOpenChange(true)}
+        onChooseAnother={() => setPickerOpen(true)}
       />
     </div>
   )

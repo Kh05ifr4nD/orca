@@ -128,14 +128,25 @@ describe('notebook kernel session', () => {
     expect(outputs).toContain('Installing ipykernel failed')
   })
 
-  it('asks for an interpreter when there is no workspace env', async () => {
+  it('falls back to Python on PATH when there is no workspace env', async () => {
     notebookApi.listPythonEnvironments.mockResolvedValue({ workspace: [], path: [VENV] })
     // A remembered env from an earlier test would skip discovery; use a fresh notebook.
     openFiles.current = [{ filePath: '/other.ipynb' }]
-    expect(await session.runCells('/other.ipynb', [{ key: 'a', code: 'x' }], null)).toBe(
-      'choose-environment'
-    )
-    expect(notebookApi.startKernel).not.toHaveBeenCalled()
+    await session.runCells('/other.ipynb', [{ key: 'a', code: 'x' }], null)
+    expect(notebookApi.startKernel).toHaveBeenCalledWith({
+      filePath: '/other.ipynb',
+      python: VENV.path
+    })
+  })
+
+  it('starts one kernel when a second run lands during discovery', async () => {
+    openFiles.current = [{ filePath: '/third.ipynb' }]
+    await Promise.all([
+      session.runCells('/third.ipynb', [{ key: 'a', code: 'x' }], null),
+      session.runCells('/third.ipynb', [{ key: 'b', code: 'y' }], null)
+    ])
+    expect(notebookApi.startKernel).toHaveBeenCalledOnce()
+    expect(getSession('/third.ipynb').queue).toEqual([{ key: 'b', code: 'y' }])
   })
 
   it('shuts the kernel down when the notebook tab closes', async () => {

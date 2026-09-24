@@ -7,7 +7,8 @@ import {
   updateIpynbCellKind,
   updateIpynbCellRun,
   updateIpynbCellSource,
-  updateIpynbCellSources
+  updateIpynbCellSources,
+  withIpynbCellIds
 } from './ipynb-cell-mutations'
 import {
   concatIpynbMultilineString,
@@ -279,5 +280,22 @@ describe('ipynb parsing', () => {
     const cleared = JSON.parse(clearIpynbOutputs(content))
     expect(cleared.cells[0]).toEqual({ cell_type: 'markdown', metadata: {}, source: ['# hi'] })
     expect(cleared.cells[1]).toMatchObject({ execution_count: null, outputs: [] })
+  })
+
+  it('upgrades an nbformat 4.4 notebook to cell ids, keeping existing ones', () => {
+    const content = JSON.stringify({
+      nbformat: 4,
+      nbformat_minor: 4,
+      metadata: {},
+      cells: [
+        { id: 'kept', cell_type: 'markdown', metadata: {}, source: [] },
+        { cell_type: 'code', metadata: {}, execution_count: null, outputs: [], source: [] }
+      ]
+    })
+    const upgraded = JSON.parse(withIpynbCellIds(content))
+    expect(upgraded.nbformat_minor).toBe(5)
+    expect(upgraded.cells[0].id).toBe('kept')
+    expect(upgraded.cells[1].id).toMatch(/^[\w-]+$/)
+    expect(withIpynbCellIds(JSON.stringify(upgraded))).toBe(JSON.stringify(upgraded))
   })
 })

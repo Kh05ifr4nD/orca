@@ -86,6 +86,11 @@ function pump(filePath: string): void {
   void window.api.notebook.execute({ filePath, code: next.code })
 }
 
+/** False once the notebook's tab has closed, which ends its session mid-await. */
+function isOpen(filePath: string): boolean {
+  return filePath in store.getState().sessions
+}
+
 async function start(filePath: string): Promise<void> {
   const environment = store.getState().environments[filePath]
   if (!environment) {
@@ -93,7 +98,7 @@ async function start(filePath: string): Promise<void> {
   }
   updateSession(filePath, () => ({ status: 'starting' }))
   const result = await window.api.notebook.startKernel({ filePath, python: environment.path })
-  if (!store.getState().sessions[filePath]) {
+  if (!isOpen(filePath)) {
     return
   }
   if (result.status === 'ready') {
@@ -117,15 +122,12 @@ export function trustNotebook(filePath: string): void {
   updateSession(filePath, () => ({ trusted: true }))
 }
 
-/**
- * Queues cells to run, starting a kernel when there is none. Resolves to `'choose-environment'`
- * when the user has to pick an interpreter first.
- */
+/** Queues cells to run, starting a kernel in the nearest Python when there is none. */
 export async function runCells(
   filePath: string,
   cells: QueuedCell[],
   rootPath: string | null
-): Promise<'choose-environment' | void> {
+): Promise<void> {
   updateSession(filePath, (session) => {
     const running = runningCellKey(session)
     const fresh = cells.filter(
@@ -142,12 +144,14 @@ export async function runCells(
     return
   }
   if (!store.getState().environments[filePath]) {
+    // Why 'starting' before discovery: a second run meanwhile must queue, not start another kernel.
+    updateSession(filePath, () => ({ status: 'starting' }))
     const found = await window.api.notebook.listPythonEnvironments({ filePath, rootPath })
-    const [recommended] = found.workspace
+    const recommended = found.workspace[0] ?? found.path[0]
+    if (!isOpen(filePath)) {
+      return
+    }
     if (!recommended) {
-      if (found.path.length > 0) {
-        return 'choose-environment'
-      }
       failQueue(
         filePath,
         translate(
@@ -195,7 +199,7 @@ export async function installIpykernel(filePath: string): Promise<void> {
   }
   updateSession(filePath, () => ({ status: 'installing' }))
   const result = await window.api.notebook.installIpykernel({ python: environment.path })
-  if (!store.getState().sessions[filePath]) {
+  if (!isOpen(filePath)) {
     return
   }
   if (result.ok) {
@@ -213,22 +217,11 @@ export async function installIpykernel(filePath: string): Promise<void> {
   )
 }
 
-/** Drops cells waiting on an interpreter choice or ipykernel when the user backs out. */
+/** Drops the cells waiting on ipykernel when the user backs out of installing it. */
 export function cancelPendingStart(filePath: string): void {
-  const { status } = getSession(filePath)
-  if (status === 'off' || status === 'missing-ipykernel') {
+  if (getSession(filePath).status === 'missing-ipykernel') {
     updateSession(filePath, () => ({ status: 'off', queue: [] }))
   }
-}
-
-/** Records a notice for a cell that cannot run, e.g. in an SSH workspace. */
-export function failCell(filePath: string, key: string, markdown: string): void {
-  updateSession(filePath, ({ runs }) => ({
-    runs: {
-      ...runs,
-      [key]: { ...startRun(), outputs: [noticeOutput(markdown)], finishedAt: Date.now() }
-    }
-  }))
 }
 
 export function markRunCommitted(filePath: string, key: string): void {
@@ -246,10 +239,10 @@ export function forgetFinishedRuns(filePath: string): void {
 }
 
 function handleFrame({ filePath, frame }: KernelFrameEvent): void {
-  const session = store.getState().sessions[filePath]
-  if (!session) {
+  if (!isOpen(filePath)) {
     return
   }
+  const session = getSession(filePath)
   if (frame.type === 'exit') {
     const died = translate('auto.components.editor.IpynbViewer.kernelDied', 'The kernel died.')
     updateSession(filePath, (current) => ({

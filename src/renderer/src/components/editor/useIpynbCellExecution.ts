@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { getConnectionId } from '@/lib/connection-context'
-import { clearIpynbOutputs, updateIpynbCellRun } from './ipynb-cell-mutations'
+import { clearIpynbOutputs, updateIpynbCellRun, withIpynbCellIds } from './ipynb-cell-mutations'
 import { toStoredOutputs } from './ipynb-kernel-outputs'
 import {
-  failCell,
   forgetFinishedRuns,
   markRunCommitted,
   runCells,
@@ -12,7 +12,7 @@ import {
 } from './ipynb-kernel-session'
 import {
   getCellRun,
-  useNotebookKernelState,
+  getSession,
   useUncommittedRunKeys,
   type QueuedCell
 } from './ipynb-kernel-store'
@@ -35,10 +35,8 @@ export function useIpynbCellExecution({
   flushSourceDrafts,
   applyContent
 }: UseIpynbCellExecutionArgs) {
-  const kernel = useNotebookKernelState(filePath)
   const uncommittedRunKeys = useUncommittedRunKeys(filePath)
   const [pendingRun, setPendingRun] = useState<QueuedCell[] | null>(null)
-  const [pickerOpen, setPickerOpen] = useState(false)
 
   // Why: runs can finish while this notebook is not the visible tab, so outputs wait in the kernel
   // session until the open document takes them in.
@@ -73,56 +71,49 @@ export function useIpynbCellExecution({
     }
   }, [applyContent, filePath, flushSourceDrafts, uncommittedRunKeys])
 
-  const queueCells = async (cells: QueuedCell[]): Promise<void> => {
-    if ((await runCells(filePath, cells, rootPath)) === 'choose-environment') {
-      setPickerOpen(true)
-    }
-  }
-
   const run = (indexes: number[]): void => {
-    const notebook = parseIpynb(flushSourceDrafts())
-    const cells = indexes.flatMap((index) => {
-      const cell = notebook.cells[index]
-      return cell?.kind === 'code' ? [{ key: getIpynbCellKey(cell, index), code: cell.source }] : []
+    const drafted = flushSourceDrafts()
+    const notebook = parseIpynb(drafted)
+    const codeIndexes = indexes.filter((index) => notebook.cells[index]?.kind === 'code')
+    if (codeIndexes.length === 0) {
+      return
+    }
+    if (getConnectionId(worktreeId) || notebook.language !== 'python') {
+      toast.error(
+        getConnectionId(worktreeId)
+          ? translate(
+              'auto.components.editor.IpynbViewer.localOnly',
+              'Notebook cells can only run for files on this computer.'
+            )
+          : translate(
+              'auto.components.editor.IpynbViewer.pythonOnly',
+              'Only Python notebooks can run in Orca.'
+            )
+      )
+      return
+    }
+    // Why: id-less (nbformat 4.4) cells are keyed by index, so a move mid-run would misroute output.
+    const content = withIpynbCellIds(drafted)
+    if (content !== drafted) {
+      applyContent(content)
+    }
+    const { cells } = parseIpynb(content)
+    const queued = codeIndexes.flatMap((index) => {
+      const cell = cells[index]
+      return cell ? [{ key: getIpynbCellKey(cell, index), code: cell.source }] : []
     })
-    const [first] = cells
-    if (!first) {
-      return
+    if (getSession(filePath).trusted) {
+      void runCells(filePath, queued, rootPath)
+    } else {
+      setPendingRun(queued)
     }
-    if (getConnectionId(worktreeId)) {
-      failCell(
-        filePath,
-        first.key,
-        translate(
-          'auto.components.editor.IpynbViewer.localOnly',
-          'Notebook cells can only run for files on this computer.'
-        )
-      )
-      return
-    }
-    if (notebook.language !== 'python') {
-      failCell(
-        filePath,
-        first.key,
-        translate(
-          'auto.components.editor.IpynbViewer.pythonOnly',
-          'Only Python notebooks can run in Orca.'
-        )
-      )
-      return
-    }
-    if (!kernel.trusted) {
-      setPendingRun(cells)
-      return
-    }
-    void queueCells(cells)
   }
 
   const confirmPendingRun = (): void => {
     trustNotebook(filePath)
     setPendingRun(null)
     if (pendingRun) {
-      void queueCells(pendingRun)
+      void runCells(filePath, pendingRun, rootPath)
     }
   }
 
@@ -135,8 +126,6 @@ export function useIpynbCellExecution({
     pendingRun,
     cancelPendingRun: () => setPendingRun(null),
     confirmPendingRun,
-    pickerOpen,
-    setPickerOpen,
     runCell: (index: number) => run([index]),
     runAll: (cellCount: number) => run([...Array(cellCount).keys()]),
     clearAllOutputs

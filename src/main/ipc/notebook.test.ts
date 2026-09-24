@@ -25,7 +25,7 @@ function fakeKernel() {
   const kernel = { execute: vi.fn(), interrupt: vi.fn(), shutdown: vi.fn() }
   startNotebookKernelMock.mockImplementationOnce((options) => {
     onFrame = options.onFrame
-    return { kernel, ready: Promise.resolve({ status: 'ready' }) }
+    return { kernel, ready: Promise.resolve({ status: 'ready' }), exited: new Promise(() => {}) }
   })
   return { kernel, emit: (frame: KernelFrame) => onFrame(frame) }
 }
@@ -54,7 +54,10 @@ describe('notebook IPC', () => {
       expect.objectContaining({ python: '/py', cwd: '/real/repo' })
     )
 
-    await handlers.get('notebook:execute')!({}, { filePath: '/repo/nb.ipynb', code: 'x' })
+    await handlers.get('notebook:execute')!(
+      { sender: owner },
+      { filePath: '/repo/nb.ipynb', code: 'x' }
+    )
     expect(first.kernel.execute).toHaveBeenCalledWith('x')
     first.emit({ type: 'done', status: 'ok', execution_count: 1 })
     expect(owner.send).toHaveBeenCalledWith('notebook:kernelFrame', {
@@ -67,14 +70,38 @@ describe('notebook IPC', () => {
     expect(first.kernel.shutdown).toHaveBeenCalledOnce()
   })
 
-  it('shuts down a window’s kernels when the window goes away', async () => {
-    const { kernel } = fakeKernel()
-    const owner = fakeOwner()
-    await handlers.get('notebook:startKernel')!(
-      { sender: owner },
-      { filePath: '/repo/nb.ipynb', python: '/py' }
+  it.each(['destroyed', 'render-process-gone', 'did-navigate'])(
+    'shuts down a renderer’s kernels on %s',
+    async (lifecycleEvent) => {
+      const { kernel } = fakeKernel()
+      const owner = fakeOwner()
+      await handlers.get('notebook:startKernel')!(
+        { sender: owner },
+        { filePath: '/repo/nb.ipynb', python: '/py' }
+      )
+      owner.emit(lifecycleEvent)
+      expect(kernel.shutdown).toHaveBeenCalledOnce()
+      await handlers.get('notebook:execute')!(
+        { sender: owner },
+        { filePath: '/repo/nb.ipynb', code: 'x' }
+      )
+      expect(kernel.execute).not.toHaveBeenCalled()
+    }
+  )
+
+  it('keeps each window’s kernel for the same notebook separate', async () => {
+    const first = fakeKernel()
+    const second = fakeKernel()
+    const [a, b] = [fakeOwner(), fakeOwner()]
+    const start = handlers.get('notebook:startKernel')!
+    await start({ sender: a }, { filePath: '/repo/nb.ipynb', python: '/py' })
+    await start({ sender: b }, { filePath: '/repo/nb.ipynb', python: '/py' })
+    expect(first.kernel.shutdown).not.toHaveBeenCalled()
+    await handlers.get('notebook:execute')!(
+      { sender: b },
+      { filePath: '/repo/nb.ipynb', code: 'x' }
     )
-    owner.emit('destroyed')
-    expect(kernel.shutdown).toHaveBeenCalledOnce()
+    expect(second.kernel.execute).toHaveBeenCalledWith('x')
+    expect(first.kernel.execute).not.toHaveBeenCalled()
   })
 })
