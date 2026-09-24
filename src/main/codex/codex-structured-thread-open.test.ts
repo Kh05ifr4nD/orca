@@ -216,4 +216,85 @@ describe('openCodexThread', () => {
     ).resolves.toMatchObject({ threadId: 'thread-1' })
     expect(request).toHaveBeenCalledTimes(2)
   })
+
+  describe('a thread Codex never saved', () => {
+    const noRollout = (threadId: string, code = -32600) =>
+      new CodexAppServerRequestError(
+        'thread/resume',
+        code,
+        `codex app-server thread/resume failed: no rollout found for thread id ${threadId}`
+      )
+    function codexWithoutRollout(error: Error = noRollout('thread-unsaved')) {
+      return vi.fn(async (method: string, _params?: Record<string, unknown>) => {
+        if (method === 'thread/resume') {
+          throw error
+        }
+        return { thread: { id: 'thread-new' }, model: 'gpt-live' }
+      })
+    }
+
+    it('starts a new thread in its place when Codex proves it holds no rollout', async () => {
+      const request = codexWithoutRollout()
+
+      await expect(
+        openCodexThread(
+          connectionFor(request),
+          { cwd: '/workspace', resumeThreadId: 'thread-unsaved', supersedeIfUnsaved: true },
+          2_000
+        )
+      ).resolves.toMatchObject({
+        threadId: 'thread-new',
+        supersededThreadId: 'thread-unsaved',
+        model: 'gpt-live'
+      })
+      expect(request.mock.calls.map(([method]) => method)).toEqual([
+        'thread/resume',
+        'thread/start'
+      ])
+      expect(request).toHaveBeenLastCalledWith(
+        'thread/start',
+        { cwd: '/workspace' },
+        {
+          timeoutMs: 2_000
+        }
+      )
+    })
+
+    it('keeps the resume failure for a thread a resume already proved', async () => {
+      const request = codexWithoutRollout()
+
+      await expect(
+        openCodexThread(
+          connectionFor(request),
+          { cwd: '/workspace', resumeThreadId: 'thread-unsaved' },
+          2_000
+        )
+      ).rejects.toThrow('no rollout found for thread id thread-unsaved')
+      expect(request).toHaveBeenCalledOnce()
+    })
+
+    it('treats no other resume failure as proof that nothing was saved', async () => {
+      const failures = [
+        noRollout('thread-other'),
+        noRollout('thread-unsaved', -32603),
+        new CodexAppServerRequestError(
+          'thread/resume',
+          -32600,
+          'codex app-server thread/resume failed: thread not found'
+        ),
+        new Error('codex app-server exited')
+      ]
+      for (const failure of failures) {
+        const request = codexWithoutRollout(failure)
+        await expect(
+          openCodexThread(
+            connectionFor(request),
+            { cwd: '/workspace', resumeThreadId: 'thread-unsaved', supersedeIfUnsaved: true },
+            2_000
+          )
+        ).rejects.toBe(failure)
+        expect(request).toHaveBeenCalledOnce()
+      }
+    })
+  })
 })

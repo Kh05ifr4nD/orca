@@ -210,7 +210,8 @@ export async function acquireCodexStructuredSession(input: {
       process,
       link: codexProviderHandleLink({
         threadId: opened.threadId,
-        resumed: launch.resumeThreadId !== null,
+        resumed: launch.resumeThreadId !== null && opened.supersededThreadId === undefined,
+        ...(opened.supersededThreadId ? { supersedesThreadId: opened.supersededThreadId } : {}),
         fence: acquireInput.fence,
         linkId: deps.mintLinkId?.(),
         observedAt: deps.now?.() ?? Date.now()

@@ -114,6 +114,31 @@ describe('codex structured launch resolution', () => {
     expect(launch.resumeThreadId).toBe('thread-current')
   })
 
+  it('lets only a thread this session created be superseded when Codex never saved it', async () => {
+    const chainFor = (origin: 'created' | 'resumed' | 'adopted') =>
+      [
+        {
+          origin: origin === 'resumed' ? 'created' : origin,
+          handle: { provider: 'codex', threadId: 't' }
+        },
+        ...(origin === 'resumed' ? [{ origin, handle: { provider: 'codex', threadId: 't' } }] : [])
+      ] as AgentSessionRecord['providerHandleChain']
+
+    const created = await resolverFor(record({ providerHandleChain: chainFor('created') }))({
+      identity: IDENTITY
+    })
+    expect(created).toMatchObject({ resumeThreadId: 't', supersedeIfUnsaved: true })
+    for (const origin of ['resumed', 'adopted'] as const) {
+      const launch = await resolverFor(record({ providerHandleChain: chainFor(origin) }))({
+        identity: IDENTITY
+      })
+      expect(launch.resumeThreadId).toBe('t')
+      expect(launch).not.toHaveProperty('supersedeIfUnsaved')
+    }
+    const fresh = await resolverFor(record())({ identity: IDENTITY })
+    expect(fresh).not.toHaveProperty('supersedeIfUnsaved')
+  })
+
   // Agent Permissions is the only thing derived from the arguments field. app-server owns it on
   // the thread RPC rather than through the interactive CLI's process flags.
   it('resolves the bypass posture as app-server thread policy', async () => {

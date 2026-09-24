@@ -1,5 +1,8 @@
 import type { AgentSessionJournalIdentity } from '../../shared/agent-session-journal-types'
-import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
+import {
+  agentSessionProviderHandleKey,
+  type AgentSessionProviderHandleLink
+} from '../../shared/agent-session-provider-handle'
 import type { AgentSessionProcessIdentity } from '../../shared/agent-session-record'
 import { readProcessStartTimeMs } from '../runtime/agent-session-process-identity-probe'
 
@@ -50,6 +53,8 @@ export function codexProviderHandleLink(input: {
   threadId: string
   resumed: boolean
   origin?: 'adopted'
+  /** The unsaved thread a new thread was started in place of. */
+  supersedesThreadId?: string
   fence: number
   linkId?: string
   observedAt: number
@@ -59,6 +64,14 @@ export function codexProviderHandleLink(input: {
     handle: { provider: 'codex', threadId: input.threadId },
     origin: input.origin ?? (input.resumed ? 'resumed' : 'created'),
     mintedAtFence: input.fence,
-    observedAt: input.observedAt
+    observedAt: input.observedAt,
+    ...(input.supersedesThreadId
+      ? {
+          supersedesKey: agentSessionProviderHandleKey({
+            provider: 'codex',
+            threadId: input.supersedesThreadId
+          })
+        }
+      : {})
   }
 }
