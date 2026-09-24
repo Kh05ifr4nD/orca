@@ -152,16 +152,20 @@ export function installPreviewTerminalKeyHandler(args: {
       return consumeEvent(event)
     }
 
-    if (platform === 'darwin' && matchesMacAppMenuAccelerator(event)) {
-      // Why: the popout shares the global app menu, so its terminal must let the
-      // menu accelerators through for the same reason the pane does (#20837).
-      return false
-    }
     const action = resolvePreviewShortcutAction(event, {
       ...args.getShortcutContext(),
       optionKeyLocations: optionKeyLocations.get()
     })
     if (!action) {
+      // Why after the resolver and not before it: a pane has Orca's window-level
+      // handlers ahead of it in the capture phase, so a rebound chord is claimed
+      // before xterm sees it. The popout has no earlier layer — this resolver IS
+      // its shortcut layer and it reads the user's keybindings — so checking the
+      // accelerators first would make a rebound Cmd+M work in a pane and die
+      // here, which is the drift #20837 set out to close.
+      if (platform === 'darwin' && matchesMacAppMenuAccelerator(event)) {
+        return false
+      }
       return true
     }
     switch (action.type) {

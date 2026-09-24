@@ -353,6 +353,31 @@ describe('AgentTerminalPreview clipboard routes', () => {
     }
   })
 
+  it('lets a user keybinding on an accelerator chord win in the popout', async () => {
+    // Why this is not symmetric with a pane: a pane has Orca's window-level
+    // handlers ahead of it in the capture phase, so a rebound chord never
+    // reaches xterm. The popout has no earlier layer, so checking the
+    // accelerators before the resolver made a rebound Cmd+M work in a pane and
+    // die here — the same drift this change set out to close.
+    platformState.value = 'darwin'
+    storeState.keybindings = { 'terminal.clear': ['Mod+M'] }
+    const view = render(<AgentTerminalPreview ptyId="pty-1" />)
+    await waitFor(() => expect(terminalHarness.instances).toHaveLength(1))
+    const terminal = terminalHarness.instances[0]!
+    await waitFor(() => expect(terminal.customKeyHandler).not.toBeNull())
+    focusInsidePreview(view.container)
+
+    const rebound = new KeyboardEvent('keydown', {
+      key: 'm',
+      code: 'KeyM',
+      metaKey: true,
+      cancelable: true
+    })
+    terminal.customKeyHandler!(rebound)
+    // The binding claimed it, so the chord never reached the menu bypass.
+    expect(rebound.defaultPrevented).toBe(true)
+  })
+
   it('pastes on plain Ctrl+V on Windows, where no Edit-menu accelerator ever fires', async () => {
     platformState.value = 'win32'
     const view = render(<AgentTerminalPreview ptyId="pty-1" />)

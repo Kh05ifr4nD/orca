@@ -277,6 +277,12 @@ function isPlainCtrlC(event: XtermBypassEvent): boolean {
 // macOS application-menu accelerators (Hide, Hide Others, Minimize, Quit). Orca
 // binds none of them on darwin, so no window-level handler consumes them before
 // xterm — the assumption the Cmd branch below was written under.
+//
+// This list is a hand-copy of what `src/main/menu/register-app-menu.ts` registers,
+// in another process, with nothing linking the two. Full-screen and dev-tools carry
+// key equivalents there as well and are deliberately left out: they are reachable
+// without a focused terminal, so the drift they can cause is smaller than the CSI-u
+// traffic claiming them would add.
 const MAC_APP_MENU_ACCELERATORS = ['Mod+H', 'Mod+Alt+H', 'Mod+M', 'Mod+Q'] as const
 
 /** Exported so every xterm key handler answers these the same way — the pane's
