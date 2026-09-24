@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
+import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type { AgentSessionRecordStore } from '../runtime/agent-session-record-store'
 import { createCodexStructuredLaunchResolver } from './codex-structured-launch-resolution'
@@ -115,14 +116,18 @@ describe('codex structured launch resolution', () => {
   })
 
   it('lets only a thread this session created be superseded when Codex never saved it', async () => {
+    const link = (
+      origin: AgentSessionProviderHandleLink['origin'],
+      mintedAtFence: number
+    ): AgentSessionProviderHandleLink => ({
+      linkId: `link-${mintedAtFence}`,
+      handle: { provider: 'codex', threadId: 't' },
+      origin,
+      mintedAtFence,
+      observedAt: 1
+    })
     const chainFor = (origin: 'created' | 'resumed' | 'adopted') =>
-      [
-        {
-          origin: origin === 'resumed' ? 'created' : origin,
-          handle: { provider: 'codex', threadId: 't' }
-        },
-        ...(origin === 'resumed' ? [{ origin, handle: { provider: 'codex', threadId: 't' } }] : [])
-      ] as AgentSessionRecord['providerHandleChain']
+      origin === 'resumed' ? [link('created', 1), link('resumed', 2)] : [link(origin, 1)]
 
     const created = await resolverFor(record({ providerHandleChain: chainFor('created') }))({
       identity: IDENTITY
