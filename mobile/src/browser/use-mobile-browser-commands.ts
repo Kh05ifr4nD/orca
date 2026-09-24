@@ -145,7 +145,7 @@ export function useMobileBrowserCommands(args: MobileBrowserCommandArgs) {
         setError(null)
         return
       } catch (error) {
-        // Why: a timed-out click may still run on the host; replaying it as move/down/up double-taps.
+        // Why: a timed-out click may still run on the host, and the move/down/up replay drops modifiers.
         if (isRpcDeliveryUnknown(error) || pointerModifiers.length > 0) {
           return
         }

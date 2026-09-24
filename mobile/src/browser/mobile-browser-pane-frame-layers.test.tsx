@@ -95,10 +95,23 @@ function layerKeyOf(element: ReactElement): unknown {
   return propOf(propOf(propOf(element.props, 'children'), 'props'), 'onLoad')
 }
 
+/** Called once per host mount, for its ref: a fresh Image loads the source it mounted with. */
 function createNodeMock(element: ReactElement) {
+  const key = layerKeyOf(element)
+  if (key !== undefined) {
+    const layer = nativeLayer(key)
+    if (element.type === 'Image') {
+      const uri = propOf(propOf(element.props, 'source'), 'uri')
+      layer.source = typeof uri === 'string' ? uri : undefined
+      layer.loading = layer.source !== undefined
+      layer.rendered.source = layer.source
+    } else {
+      layer.opacity = flatOpacity(propOf(element.props, 'style')) ?? 1
+      layer.rendered.opacity = layer.opacity
+    }
+  }
   return {
     setNativeProps: (props: NativeProps) => {
-      const key = layerKeyOf(element)
       if (key === undefined) {
         return
       }
@@ -265,6 +278,12 @@ async function renderPane() {
     }
     commitRenderedProps(mounted)
   }
+  const layout = (width: number, height: number): void => {
+    act(() => {
+      viewport?.props.onLayout({ nativeEvent: { layout: { width, height } } })
+    })
+    commitRenderedProps(mounted)
+  }
   const setAppState = (state: string): void => {
     act(() => {
       appState.listener?.(state)
@@ -280,7 +299,7 @@ async function renderPane() {
     commitRenderedProps(mounted)
   }
   commitRenderedProps(mounted)
-  return { decodeAll, push, rerender, setAppState, shown }
+  return { decodeAll, layout, push, rerender, setAppState, shown }
 }
 
 describe('the pane frame layers', () => {
@@ -339,5 +358,26 @@ describe('the pane frame layers', () => {
     pane.decodeAll()
 
     expect(pane.shown()).toBe(uriOf(NEXT))
+  })
+
+  it('keeps each layer and the stream through a remount of both Images mid-decode', async () => {
+    const pane = await renderPane()
+    pane.push(CARET_ON)
+    pane.decodeAll()
+    pane.push(CARET_OFF)
+    pane.decodeAll()
+    const NEXT = frame(3, [3, 3, 3])
+    pane.push(NEXT)
+
+    // A zero-size layout drops the frame geometry, which remounts both Images, and back again.
+    pane.layout(0, 0)
+    pane.layout(360, 640)
+    pane.decodeAll()
+    expect(pane.shown()).toBe(uriOf(CARET_OFF))
+
+    const LAST = frame(4, [4, 4, 4])
+    pane.push(LAST)
+    pane.decodeAll()
+    expect(pane.shown()).toBe(uriOf(LAST))
   })
 })

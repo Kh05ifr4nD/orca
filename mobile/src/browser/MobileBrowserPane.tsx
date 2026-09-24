@@ -83,7 +83,6 @@ export function MobileBrowserPane({
     url: tab.url
   })
   const [keyboardValue, setKeyboardValue] = useState('')
-  const [frameUri, setFrameUri] = useState<string | null>(cachedInitialFrame?.uri ?? null)
   const [frameMetadata, setFrameMetadata] = useState<BrowserScreencastFrameMetadata | null>(
     cachedInitialFrame?.metadata ?? null
   )
@@ -184,33 +183,33 @@ export function MobileBrowserPane({
 
   const binaryScreencastGranted = useBrowserBinaryScreencastGrant()
 
-  const { frameGeometry, frameLayers, pageParams, sendBrowserRequest } = useMobileBrowserStream({
-    appActive,
-    binaryScreencastGranted,
-    browserViewMode,
-    busyRef,
-    cacheKey,
-    client,
-    frameMetadata,
-    frameMetadataRef,
-    initialFrameUri: cachedInitialFrame?.uri ?? null,
-    lastStreamCacheKeyRef,
-    lastZoomResetUrlRef,
-    layout,
-    resetBrowserZoomState,
-    screencastSupported,
-    setAddressValue,
-    setBusy,
-    setDialog,
-    setError,
-    setFrameMetadata,
-    setFrameUri,
-    setZoom,
-    streamGenerationRef,
-    tab,
-    worktreeId,
-    zoomRef
-  })
+  const { frameGeometry, frameLayers, pageParams, renderedFrameSource, sendBrowserRequest } =
+    useMobileBrowserStream({
+      appActive,
+      binaryScreencastGranted,
+      browserViewMode,
+      busyRef,
+      cacheKey,
+      client,
+      frameMetadata,
+      frameMetadataRef,
+      initialFrameUri: cachedInitialFrame?.uri ?? null,
+      lastStreamCacheKeyRef,
+      lastZoomResetUrlRef,
+      layout,
+      resetBrowserZoomState,
+      screencastSupported,
+      setAddressValue,
+      setBusy,
+      setDialog,
+      setError,
+      setFrameMetadata,
+      setZoom,
+      streamGenerationRef,
+      tab,
+      worktreeId,
+      zoomRef
+    })
 
   const navigateToAddress = useCallback(async () => {
     const url = normalizeBrowserUrl(addressValue)
@@ -300,9 +299,6 @@ export function MobileBrowserPane({
     },
     [browserViewMode, resetBrowserZoomState, tab.browserPageId, worktreeId]
   )
-
-  // Why: only mounts the layers; the pacer re-points them natively, which a re-render must not undo.
-  const renderedFrameSource = frameUri ? { uri: frameUri } : null
 
   return (
     <MobileBrowserPaneView

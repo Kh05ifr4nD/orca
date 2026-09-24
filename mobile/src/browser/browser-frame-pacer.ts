@@ -10,7 +10,7 @@ import {
 } from './browser-frame-layer-paint'
 
 type QueuedFrame = { frame: BrowserScreencastFrame; cacheKey: string }
-export type ShownBrowserFrame = QueuedFrame & { uri: string }
+type ShownBrowserFrame = QueuedFrame & { uri: string }
 
 /** What a layer's Image holds natively, and whether that source has answered yet. */
 type LayerState = { uri: string | null; status: 'loading' | 'ready' | 'failed' }
@@ -30,14 +30,13 @@ export type BrowserFrameLayerBinding = {
   onError: () => void
 }
 
-export type BrowserFramePacer = ReturnType<typeof createBrowserFramePacer>
-
 /**
  * Owns the pane's double buffer: each frame decodes on the hidden layer and is shown by flipping
  * opacity once it has, at most one frame per interval.
  *
- * A layer is written only when it is not loading and only with a different source, so every write
- * gets exactly one native answer: an unchanged source reloads nothing on Android or iOS.
+ * The stream writes a layer only when it is not loading and only with a different source, so every
+ * write gets exactly one native answer: an unchanged source reloads nothing on Android or iOS.
+ * `replace` writes over a loading layer; the new source is the one that answers.
  */
 export function createBrowserFramePacer(deps: BrowserFramePacerDeps) {
   const views: [View | null, View | null] = [null, null]
@@ -127,8 +126,7 @@ export function createBrowserFramePacer(deps: BrowserFramePacerDeps) {
 
   // Why: never cut a decode short; re-pointing an Android layer mid-decode stalls flips under load.
   function drain(): void {
-    const decoding = mountedUri !== null && layers[hiddenLayer()].status === 'loading'
-    if (timer !== null || queued === null || decoding) {
+    if (timer !== null || queued === null || layers[hiddenLayer()].status === 'loading') {
       return
     }
     const wait = lastAppliedAt + MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS - Date.now()
@@ -186,15 +184,13 @@ export function createBrowserFramePacer(deps: BrowserFramePacerDeps) {
       },
       attachImage: (image) => {
         images[layer] = image
-        if (image === null) {
+        if (image === null || mountedUri === null) {
           return
         }
-        // A fresh Image holds the source it mounted with; put back the one this layer held.
+        // A fresh Image loads the source it mounted with; put back the one this layer held.
         const held = layers[layer].uri
-        if (mountedUri !== null) {
-          layers[layer] = { uri: mountedUri, status: 'loading' }
-          awaitDecode(layer, mountedUri)
-        }
+        layers[layer] = { uri: mountedUri, status: 'loading' }
+        awaitDecode(layer, mountedUri)
         if (held !== null) {
           write(layer, held)
         }

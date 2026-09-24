@@ -48,7 +48,6 @@ type MobileBrowserStreamArgs = {
   setDialog: Dispatch<SetStateAction<BrowserDialogState | null>>
   setError: Dispatch<SetStateAction<string | null>>
   setFrameMetadata: Dispatch<SetStateAction<BrowserScreencastFrameMetadata | null>>
-  setFrameUri: Dispatch<SetStateAction<string | null>>
   setZoom: Dispatch<SetStateAction<BrowserZoomState>>
   streamGenerationRef: { current: number }
   tab: MobileBrowserTab
@@ -77,7 +76,6 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     setDialog,
     setError,
     setFrameMetadata,
-    setFrameUri,
     setZoom,
     streamGenerationRef,
     tab,
@@ -94,6 +92,7 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     worktreeId
   })
 
+  const [frameUri, setFrameUri] = useState(initialFrameUri)
   const [framePacer] = useState(() =>
     createBrowserFramePacer({
       initialUri: initialFrameUri,
@@ -251,5 +250,14 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     worktreeId
   ])
 
-  return { frameGeometry, frameLayers: framePacer.layers, pageParams, sendBrowserRequest }
+  // Why: only mounts the layers; the pacer re-points them natively, which a re-render must not undo.
+  const renderedFrameSource = frameUri ? { uri: frameUri } : null
+
+  return {
+    frameGeometry,
+    frameLayers: framePacer.layers,
+    pageParams,
+    renderedFrameSource,
+    sendBrowserRequest
+  }
 }
