@@ -70,10 +70,10 @@ import {
   type AgentSessionStoreState
 } from './agent-session-record-store-file'
 import { loadProtectedAgentSessionStore } from './agent-session-record-store-security'
-import type { UserDataOwnership } from '../startup/single-instance-lock'
 import {
   AgentSessionStoreTransactionQueue,
-  markAgentSessionStoreLeasesUnreconciled
+  markAgentSessionStoreLeasesUnreconciled,
+  type AgentSessionStoreOpenOptions
 } from './agent-session-store-transaction-queue'
 
 export const AGENT_SESSION_LEASE_TTL_MS = 30_000,
@@ -82,12 +82,9 @@ export const AGENT_SESSION_LEASE_TTL_MS = 30_000,
 export class AgentSessionRecordStore {
   private constructor(private readonly transactions: AgentSessionStoreTransactionQueue) {}
 
-  static async open(args: {
-    directory: string
-    hostId: string
-    /** Absent means shared: nothing proves the leases on disk were left by a previous run. */
-    ownership?: UserDataOwnership
-  }): Promise<AgentSessionRecordStore> {
+  static async open(
+    args: { directory: string; hostId: string } & AgentSessionStoreOpenOptions
+  ): Promise<AgentSessionRecordStore> {
     const filePath = agentSessionStorePath(args.directory)
     const loaded = await loadProtectedAgentSessionStore(filePath, args.hostId)
     // Why: every persisted lease is unreconciled until this host adjudicates it, so a restart
@@ -99,7 +96,7 @@ export class AgentSessionRecordStore {
       args.hostId,
       loaded,
       diskRevision,
-      args.ownership ?? 'shared'
+      args
     )
     if (loaded.needsRewrite && !loaded.readOnly && !loaded.recoveredFromBackup) {
       await transactions.persistLoadedRewrite()
@@ -141,7 +138,9 @@ export class AgentSessionRecordStore {
 
   /** Persist the user-visible tab reference separately from the rollback-sensitive profile tabs. */
   setSessionTabVisibility(sessionId: string, visible: boolean): Promise<void> {
-    return this.transact(() => setVisibleSessionId(this.state, sessionId, visible))
+    return this.transact(() =>
+      setVisibleSessionId(this.state, sessionId, visible, this.transactions.savedTabSessionIds)
+    )
   }
 
   listByScope(location: AgentSessionExecutionLocation): AgentSessionRecord[] {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 const installed = vi.hoisted(() => {
-  const state: { deps: Record<string, unknown> | null } = { deps: null }
+  const state: { deps: Partial<StructuredAgentSessionRuntimeDeps> | null } = { deps: null }
   return state
 })
 
@@ -13,7 +13,7 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('./structured-agent-session-runtime', () => ({
-  ensureStructuredAgentSessionHost: vi.fn(async (deps: Record<string, unknown>) => {
+  ensureStructuredAgentSessionHost: vi.fn(async (deps: StructuredAgentSessionRuntimeDeps) => {
     installed.deps = deps
   })
 }))
@@ -21,8 +21,14 @@ vi.mock('./structured-agent-session-runtime', () => ({
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { OrcaRuntimeService } from './orca-runtime'
+import type { StructuredAgentSessionRuntimeDeps } from './structured-agent-session-runtime'
 
 const MAIN_ROOT = join(import.meta.dirname, '..')
+
+/** Read through a call: a test's reset to null would otherwise narrow away the install's write. */
+function installedDeps(): Partial<StructuredAgentSessionRuntimeDeps> | null {
+  return installed.deps
+}
 
 // Why: a restart evicts every native lease it loads without a probe only while this process holds
 // the profile alone; a peer sharing the store would lose its live chat to that eviction.
@@ -33,7 +39,7 @@ describe('structured store ownership wiring', () => {
 
     await runtime.ensureStructuredAgentSessionHost()
 
-    expect(installed.deps?.['storeOwnership']).toBe('exclusive')
+    expect(installedDeps()?.recordStore?.ownership).toBe('exclusive')
   })
 
   it('shares the store when the runtime was told nothing about ownership', async () => {
@@ -42,7 +48,7 @@ describe('structured store ownership wiring', () => {
 
     await runtime.ensureStructuredAgentSessionHost()
 
-    expect(installed.deps?.['storeOwnership']).toBe('shared')
+    expect(installedDeps()?.recordStore?.ownership).toBe('shared')
   })
 
   it('derives the desktop ownership from its own single-instance lock', () => {
@@ -57,5 +63,31 @@ describe('structured store ownership wiring', () => {
     const source = readFileSync(join(MAIN_ROOT, 'orcad/orcad-entry.ts'), 'utf8')
 
     expect(source).not.toContain('userDataOwnership')
+  })
+})
+
+describe('structured store saved-tab wiring', () => {
+  it('hands the host the chat tabs the saved workspace session lists', async () => {
+    installed.deps = null
+    const runtime = new OrcaRuntimeService()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the saved-tab read uses only getWorkspaceSession.
+    ;(runtime as unknown as { store: unknown }).store = {
+      getWorkspaceSession: () => ({
+        activeTabIdByWorktree: {},
+        unifiedTabs: {
+          'workspace-1': [
+            {
+              id: 'agent-session:saved-chat-1',
+              entityId: 'saved-chat-1',
+              contentType: 'agent-session'
+            }
+          ]
+        }
+      })
+    }
+
+    await runtime.ensureStructuredAgentSessionHost()
+
+    expect(installedDeps()?.recordStore?.savedTabSessionIds?.()).toEqual(['saved-chat-1'])
   })
 })

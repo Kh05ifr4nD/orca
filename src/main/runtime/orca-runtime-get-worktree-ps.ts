@@ -14,6 +14,8 @@ import { compareWorktreePs } from './runtime-worktree-status-projection'
 import type { Repo } from '../../shared/repo-types'
 import { enrichMissingRepoGitRemoteIdentities } from '../repo-git-remote-identity-enrichment'
 import { ensureStructuredAgentSessionHost as installStructuredAgentSessionHost } from './structured-agent-session-runtime'
+import { collectSavedStructuredAgentSessionIds } from './saved-structured-agent-session-restoration'
+import { localStructuredAgentSessionWorkspaceSession } from './structured-agent-session-startup-tabs'
 import { maybeAutoRenameWorkspaceOnFirstStructuredTurn } from '../agent-hooks/first-work-structured-session-rename'
 import { firstWorkRenameDeps } from '../agent-hooks/first-work-rename-runtime'
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
@@ -143,7 +145,13 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
     await installStructuredAgentSessionHost({
       stateDirectory: getProfileUserDataPath(),
       hostId: LOCAL_EXECUTION_HOST_ID,
-      storeOwnership: this.userDataOwnership,
+      recordStore: {
+        ownership: this.userDataOwnership,
+        savedTabSessionIds: () =>
+          collectSavedStructuredAgentSessionIds(
+            localStructuredAgentSessionWorkspaceSession(this.store)
+          )
+      },
       claimKeyId: this.agentSessionClaimSigner.keyId,
       // Resolves folder workspaces as well as git worktrees, so a chat session
       // in a plain folder lands in the folder rather than failing to resolve.

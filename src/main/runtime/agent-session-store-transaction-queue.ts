@@ -55,6 +55,14 @@ function agentSessionStoreStateChanged(
   )
 }
 
+/** How a host opens its record store, beyond where the file lives and which host it is. */
+export type AgentSessionStoreOpenOptions = {
+  /** Absent means shared: nothing proves the leases on disk were left by a previous run. */
+  ownership?: UserDataOwnership
+  /** The chat tabs a profile saved before this store kept a visible-tab index. */
+  savedTabSessionIds?: () => readonly string[]
+}
+
 export class AgentSessionStoreTransactionQueue {
   private queue: Promise<unknown> = Promise.resolve()
   private diskRecoveredFromBackup: boolean
@@ -62,6 +70,7 @@ export class AgentSessionStoreTransactionQueue {
    *  process holds the store alone — with a live peer, a loaded lease may be the peer's — and
    *  emptied when another writer's state replaces it. */
   private readonly fencesLoadedAtOpen: Map<string, number>
+  readonly savedTabSessionIds: () => readonly string[]
 
   constructor(
     private readonly filePath: string,
@@ -72,11 +81,12 @@ export class AgentSessionStoreTransactionQueue {
     public state: AgentSessionStoreState,
     private diskRevision: string,
     private needsRewrite: boolean,
-    ownership: UserDataOwnership
+    options: AgentSessionStoreOpenOptions
   ) {
     this.diskRecoveredFromBackup = recoveredFromBackup
+    this.savedTabSessionIds = options.savedTabSessionIds ?? (() => [])
     this.fencesLoadedAtOpen = new Map(
-      ownership === 'exclusive'
+      options.ownership === 'exclusive'
         ? [...state.records].map(([sessionId, record]) => [sessionId, record.lease.runtimeFence])
         : []
     )
@@ -94,7 +104,7 @@ export class AgentSessionStoreTransactionQueue {
     hostId: string,
     loaded: LoadedAgentSessionStore,
     diskRevision: string,
-    ownership: UserDataOwnership
+    options: AgentSessionStoreOpenOptions
   ): AgentSessionStoreTransactionQueue {
     return new AgentSessionStoreTransactionQueue(
       filePath,
@@ -105,7 +115,7 @@ export class AgentSessionStoreTransactionQueue {
       loaded.state,
       diskRevision,
       loaded.needsRewrite,
-      ownership
+      options
     )
   }
 

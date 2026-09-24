@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { listPersistedStructuredAgentSessionTabs } from '../native-chat/agent-session-wire/structured-agent-session-host-tabs'
@@ -7,6 +10,8 @@ import {
 } from '../../shared/agent-session-record.test-fixture'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
 import { OrcaRuntimeService } from './orca-runtime'
+import { AgentSessionRecordStore } from './agent-session-record-store'
+import { agentSessionStorePath } from './agent-session-record-store-file'
 import { structuredAgentSessionWorkspaceExists } from './structured-agent-session-startup-tabs'
 
 afterEach(() => setStructuredAgentSessionHost(null))
@@ -77,6 +82,81 @@ function persistedHost(
       adapter: { supportsCreate: () => true }
     }
   }
+}
+
+/** A saved workspace session listing these chats as tabs of one worktree. */
+function savedSession(sessionIds: readonly string[]) {
+  return {
+    activeRepoId: null,
+    activeWorktreeId: 'workspace-1',
+    activeTabId: null,
+    tabsByWorktree: {},
+    terminalLayoutsByTabId: {},
+    activeTabIdByWorktree: {},
+    unifiedTabs: {
+      'workspace-1': sessionIds.map((sessionId, sortOrder) => ({
+        id: `agent-session:${sessionId}`,
+        entityId: sessionId,
+        groupId: 'group-1',
+        worktreeId: 'workspace-1',
+        contentType: 'agent-session',
+        label: 'Codex Chat',
+        customLabel: null,
+        color: null,
+        sortOrder,
+        createdAt: 1
+      }))
+    }
+  }
+}
+
+let legacyDirectory: string | null = null
+afterEach(async () => {
+  if (legacyDirectory) {
+    await rm(legacyDirectory, { recursive: true, force: true })
+    legacyDirectory = null
+  }
+})
+
+/** A real store written by a build that kept chat tabs only in the saved workspace session. */
+async function legacyIndexProfile(saved: readonly string[]) {
+  legacyDirectory = await mkdtemp(join(tmpdir(), 'orca-startup-tabs-'))
+  await writeFile(
+    agentSessionStorePath(legacyDirectory),
+    JSON.stringify({
+      schemaVersion: 2,
+      hostId: 'local',
+      records: Object.fromEntries(
+        saved.map((sessionId) => [
+          sessionId,
+          agentSessionRecordFixture(agentSessionLeaseFixture({ sessionId }))
+        ])
+      ),
+      operations: {},
+      retiredClaimKeys: [],
+      unusableRecords: {}
+    })
+  )
+  const store = await AgentSessionRecordStore.open({
+    directory: legacyDirectory,
+    hostId: 'local',
+    savedTabSessionIds: () => saved
+  })
+  const runtime = restartedRuntime({
+    store: { getRepo: () => undefined, getWorkspaceSession: () => savedSession(saved) }
+  })
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore and close read only the host members stubbed here.
+  setStructuredAgentSessionHost({
+    listSessionTabs: () => [],
+    getPersistedVisibleSessionTabIndex: () => store.getVisibleSessionTabIndex(),
+    setSessionTabVisibility: (sessionId: string, visible: boolean) =>
+      store.setSessionTabVisibility(sessionId, visible),
+    close: async () => undefined,
+    reconcileRestartLeases: async () => undefined,
+    restoreReadableSessions: async () => undefined,
+    deps: { store, adapter: { supportsCreate: () => true } }
+  } as never)
+  return { store, runtime }
 }
 
 async function publishedChatIds(runtime: OrcaRuntimeService, workspaceId: string) {
@@ -233,6 +313,31 @@ describe('restored chat tabs come from durable state', () => {
 
     expect(await publishedChatIds(runtime, 'workspace-1')).toEqual(['agent-session:new'])
   })
+
+  it.each([
+    ['publishing alone', null],
+    ['a close landing before publication', 'saved-chat-b']
+  ])(
+    'restores every saved chat on a profile whose store predates the tab index, after %s',
+    async (_case, closedFirst) => {
+      const saved = ['saved-chat-a', 'saved-chat-b', 'saved-chat-c']
+      const { store, runtime } = await legacyIndexProfile(saved)
+      if (closedFirst) {
+        // The first write to the index; it must drop only its own tab.
+        await runtime.closeMobileSessionTab('id:workspace-1', `agent-session:${closedFirst}`, {
+          reason: 'user'
+        })
+      }
+
+      await runtime.restoreStructuredAgentSessionTabs()
+
+      const kept = saved.filter((sessionId) => sessionId !== closedFirst)
+      expect(await publishedChatIds(runtime, 'workspace-1')).toEqual(
+        kept.map((sessionId) => `agent-session:${sessionId}`)
+      )
+      expect(store.getVisibleSessionTabIndex()).toEqual({ present: true, sessionIds: kept })
+    }
+  )
 
   it('runs the journal sweep again on the next restore after its reconcile failed', async () => {
     const runtime = restartedRuntime()

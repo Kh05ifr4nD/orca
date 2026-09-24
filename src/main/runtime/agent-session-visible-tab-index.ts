@@ -24,8 +24,18 @@ export function parseVisibleSessionIds(
 export function setVisibleSessionId(
   state: AgentSessionStoreState,
   sessionId: string,
-  visible: boolean
+  visible: boolean,
+  savedTabSessionIds: () => readonly string[] = () => []
 ): void {
+  if (!state.visibleSessionIdsIndexPresent) {
+    // Until now the saved workspace session listed these tabs; the index that replaces it must
+    // start with all of them, or the first write would leave it listing only this one.
+    for (const savedId of savedTabSessionIds()) {
+      if (state.records.has(savedId)) {
+        state.visibleSessionIds.add(savedId)
+      }
+    }
+  }
   if (visible) {
     if (!state.records.has(sessionId)) {
       throw new Error('agent_session_identity_required')

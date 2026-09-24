@@ -257,7 +257,7 @@ describe('structured agent-session runtime install', () => {
     await ensureStructuredAgentSessionHost({
       stateDirectory,
       hostId: HOST_ID,
-      storeOwnership: 'exclusive',
+      recordStore: { ownership: 'exclusive' },
       claimKeyId: 'key-1',
       resolveWorkspacePath: async () => stateDirectory!,
       resolveClaudeAuthPolicy: () => ({ stripAuthEnv: true }),
