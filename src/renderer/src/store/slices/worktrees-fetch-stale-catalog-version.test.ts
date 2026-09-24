@@ -9,7 +9,8 @@ import {
   createTestStore,
   mockApi,
   resetRemoteRuntimeMocks,
-  resetWorktreeSliceModuleMemory
+  resetWorktreeSliceModuleMemory,
+  runtimeEnvironmentCall
 } from './worktrees-slice-test-harness'
 
 vi.mock('sonner', () => ({
@@ -95,6 +96,111 @@ describe('fetchWorktrees with a listing versioned before an applied create', () 
     expect(
       store.getState().worktreeCatalogVersionByRepoHost[worktreeCatalogVersionKey('repo1', 'local')]
     ).toBe(APPLIED_BY_CREATE)
+  })
+
+  it('lists again at most once, even when the second listing is also stale', async () => {
+    const store = createTestStore()
+    const { created, surviving } = seed(store)
+    const staleListing = async (args: Parameters<typeof qualifyDetectedResult>[0]) =>
+      qualifyDetectedResult(
+        args,
+        makeDetectedResult('repo1', [surviving], { catalogVersion: { epoch: HOST, sequence: 6 } })
+      )
+    mockApi.worktrees.listDetected
+      .mockImplementationOnce(staleListing)
+      .mockImplementationOnce(staleListing)
+      .mockImplementationOnce(async (args) =>
+        qualifyDetectedResult(
+          args,
+          makeDetectedResult('repo1', [created, surviving], {
+            catalogVersion: { epoch: HOST, sequence: 7 }
+          })
+        )
+      )
+
+    await expect(store.getState().fetchWorktrees('repo1')).resolves.toBe(false)
+
+    expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(2)
+    expect(store.getState().worktreesByRepo.repo1?.map((w) => w.id)).toEqual([
+      created.id,
+      surviving.id
+    ])
+  })
+
+  it('fetchAllWorktrees neither tears down nor purges on a listing older than the create', async () => {
+    const store = createTestStore()
+    const { created, surviving } = seed(store)
+    store.setState({ hasHydratedWorktreePurge: true })
+    mockApi.worktrees.listDetected.mockImplementationOnce(async (args) =>
+      qualifyDetectedResult(
+        args,
+        makeDetectedResult('repo1', [surviving], { catalogVersion: { epoch: HOST, sequence: 6 } })
+      )
+    )
+
+    await store.getState().fetchAllWorktrees()
+
+    expect(mockApi.worktrees.listDetected).toHaveBeenCalledOnce()
+    expect(mockApi.runtime.call).not.toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'worktree.teardownMissingTerminals' })
+    )
+    expect(store.getState().worktreesByRepo.repo1?.map((w) => w.id)).toEqual([
+      created.id,
+      surviving.id
+    ])
+  })
+
+  it("a paired runtime's listing older than the create stops no terminals", async () => {
+    const store = createTestStore()
+    const runtimeHost = 'runtime:env-1'
+    const created = makeWorktree({ id: 'repo1::/r/created', repoId: 'repo1', hostId: runtimeHost })
+    const surviving = makeWorktree({
+      id: 'repo1::/r/surviving',
+      repoId: 'repo1',
+      hostId: runtimeHost
+    })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the fixture settings carry only the field runtime routing reads.
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' },
+      repos: [
+        {
+          id: 'repo1',
+          path: '/r/repo1',
+          displayName: 'Repo 1',
+          badgeColor: '#000',
+          addedAt: 0,
+          executionHostId: runtimeHost
+        }
+      ],
+      worktreesByRepo: { repo1: [created, surviving] },
+      worktreeCatalogVersionByRepoHost: {
+        [worktreeCatalogVersionKey('repo1', runtimeHost)]: APPLIED_BY_CREATE
+      }
+    } as unknown as Partial<AppState>)
+    runtimeEnvironmentCall.mockImplementation(async ({ method }: { method: string }) => ({
+      id: 'rpc',
+      ok: true,
+      result:
+        method === 'worktree.detectedList'
+          ? makeDetectedResult('repo1', [surviving], {
+              catalogVersion: { epoch: HOST, sequence: 6 }
+            })
+          : {},
+      _meta: { runtimeId: 'runtime-remote' }
+    }))
+
+    await store.getState().fetchWorktrees('repo1')
+
+    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'worktree.detectedList' })
+    )
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'worktree.teardownMissingTerminals' })
+    )
+    expect(store.getState().worktreesByRepo.repo1?.map((w) => w.id)).toEqual([
+      created.id,
+      surviving.id
+    ])
   })
 
   it('control: a listing versioned after the create tears down and purges as before', async () => {
