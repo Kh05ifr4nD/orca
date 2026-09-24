@@ -51,10 +51,18 @@ export function createCodexJournalTranslator(
     activeTurns.current(threadId)
   )
   const goals = new CodexJournalGoals(deps.sink)
+  const subagents = new CodexSubagentRoster({
+    sink: deps.sink,
+    primaryThreadId: () => deps.primaryThreadId?.() ?? null,
+    activeTurn: (threadId) => activeTurns.current(threadId),
+    ...(deps.subagentExecutions ? { executions: deps.subagentExecutions } : {})
+  })
   const items = new CodexJournalItems(
     deps,
     (threadId) => activeTurns.current(threadId),
-    (threadId, turnId) => genericFrames.suppress(threadId, turnId)
+    (threadId, turnId) => genericFrames.suppress(threadId, turnId),
+    // A collab call's row names its helpers the way the roster does.
+    (threadId) => subagents.helperLabel(threadId)
   )
   const settleOversizedNotification = createCodexOversizedNotificationSettler(deps, items)
   const prompts = new CodexJournalPrompts(
@@ -62,12 +70,6 @@ export function createCodexJournalTranslator(
     (threadId, itemId) => items.detailFor(threadId, itemId),
     (threadId) => activeTurns.current(threadId)
   )
-  const subagents = new CodexSubagentRoster({
-    sink: deps.sink,
-    primaryThreadId: () => deps.primaryThreadId?.() ?? null,
-    activeTurn: (threadId) => activeTurns.current(threadId),
-    ...(deps.subagentExecutions ? { executions: deps.subagentExecutions } : {})
-  })
   const flushStreams = (): CodexJournalTranslationAdmission =>
     items.streams.flush() ? CODEX_JOURNAL_ADMITTED : { accepted: false, reason: 'backpressure' }
   let readActivity = createCodexProviderActivityReader()
