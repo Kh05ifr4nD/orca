@@ -25,6 +25,7 @@ import {
 import { createRelayInstallMarkerFileName } from './ssh-relay-install-marker'
 import { resolveRemoteNodePath } from './ssh-remote-node-resolution'
 import { ensureRemoteBundledRipgrep, remoteRipgrepLayout } from './ssh-relay-ripgrep-install'
+import { gcRemoteRipgrepCache } from './ssh-relay-ripgrep-cache-gc'
 import {
   readLocalFullVersion,
   computeRemoteRelayDir,
@@ -609,8 +610,10 @@ async function deployAndLaunchRelayAttempt(
   // different trees (`ripgrep/` is owned by no version GC), and neither delays connect.
   // Why deploySignal is safe on a fire-and-forget call: the controller aborts only on the deploy
   // timeout, never on success, so this cancels a still-running upload when the deploy gives up.
+  const ripgrepEntry = remoteRipgrepLayout(hostPlatform, remoteHome)?.entryName
   void ensureRemoteBundledRipgrep(conn, hostPlatform, remoteHome, {
-    signal: deploySignal
+    signal: deploySignal,
+    relayDir: remoteRelayDir
   }).catch(() => {})
 
   void execHostCommand(
@@ -656,6 +659,10 @@ async function deployAndLaunchRelayAttempt(
         ].filter((key): key is string => key !== null)
       })
     )
+    // Why after the version GC and not beside it: that pass is what removes the relay directories
+    // holding the references, so running second is what lets a superseded build become collectable
+    // in the same connect rather than the next one.
+    .then(() => gcRemoteRipgrepCache(conn, hostPlatform, remoteHome, { pinnedEntry: ripgrepEntry }))
     .catch(() => {})
 
   return {

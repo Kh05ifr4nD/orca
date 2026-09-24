@@ -42,8 +42,47 @@ import {
   type BundledRipgrepPlatform
 } from '../../shared/bundled-ripgrep'
 
-/** Sibling of `relay-<version>`, `orcad-<version>` and `native/`; owned by no version GC. */
+/** Sibling of `relay-<version>`, `orcad-<version>` and `native/`. */
 export const REMOTE_RIPGREP_CACHE_DIR_NAME = 'ripgrep'
+
+/**
+ * Marker a relay directory carries naming the ripgrep entry it was launched against.
+ *
+ * Why a recorded reference and not an age heuristic: the cache GC has to tell "no one uses this"
+ * from "no one has touched the directory lately", and only the first is a licence to delete. A
+ * relay directory without this file is an older Orca's, so the GC treats it as unaccountable and
+ * declines to collect anything -- see `ssh-relay-ripgrep-cache-gc.ts`.
+ */
+export function remoteRipgrepRefFileName(): string {
+  return '.ripgrep-ref'
+}
+
+/** Record which ripgrep build a relay directory runs against. Best-effort: never fails a deploy. */
+export async function recordRemoteRipgrepReference(
+  conn: SshConnection,
+  host: RemoteHostPlatform,
+  relayDir: string,
+  entryName: string
+): Promise<void> {
+  const refPath = joinRemotePath(host, relayDir, remoteRipgrepRefFileName())
+  try {
+    assertSafeRemotePathSegment(entryName, host.pathFlavor)
+    await execCommand(
+      conn,
+      isWindowsRemoteHost(host)
+        ? powerShellCommand(
+            `Set-Content -LiteralPath ${powerShellLiteral(refPath)} -Value ${powerShellLiteral(entryName)} -NoNewline -Encoding ascii`
+          )
+        : `printf %s ${shellEscape(entryName)} > ${shellEscape(refPath)}`,
+      { wrapCommand: !isWindowsRemoteHost(host) }
+    )
+  } catch (error) {
+    console.warn(
+      '[ssh-relay] Could not record the ripgrep reference; its build stays uncollectable:',
+      error instanceof Error ? error.message : String(error)
+    )
+  }
+}
 const UPLOAD_STAGE_PREFIX = '.upload-'
 // Why an hour: long enough that no live upload of ~5 MB is still writing, short enough to drain crashes.
 const STALE_UPLOAD_STAGE_MINUTES = 60
@@ -83,6 +122,23 @@ export function remoteRipgrepLayout(
 
 /** Make sure the host has Orca's ripgrep at `remoteRipgrepLayout().binaryPath`; never throws. */
 export async function ensureRemoteBundledRipgrep(
+  conn: SshConnection,
+  host: RemoteHostPlatform,
+  remoteHome: string,
+  options: { signal?: AbortSignal; relayDir?: string } = {}
+): Promise<RemoteRipgrepInstallOutcome> {
+  const outcome = await installOrReport(conn, host, remoteHome, options)
+  // Why here and not at the call site: recording which build a relay runs against is the same
+  // concern as putting it there, and keeping them together leaves the deploy one ripgrep call to
+  // mock rather than three that drain its queued exec responses.
+  const entryName = remoteRipgrepLayout(host, remoteHome)?.entryName
+  if (options.relayDir && entryName && (outcome === 'present' || outcome === 'installed')) {
+    await recordRemoteRipgrepReference(conn, host, options.relayDir, entryName)
+  }
+  return outcome
+}
+
+async function installOrReport(
   conn: SshConnection,
   host: RemoteHostPlatform,
   remoteHome: string,
