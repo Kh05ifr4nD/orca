@@ -15964,6 +15964,13 @@
         "expiredCompact": "Expiré",
         "typeMarkdown": "Markdown",
         "typeHtml": "HTML"
+      },
+      "native": {
+        "chat": {
+          "NativeChatStructuredSessionStatus": {
+            "starting": "{{value0}} est encore en cours de démarrage. Les messages attendent qu'il soit prêt ; fermez ce chat pour y renoncer."
+          }
+        }
       }
     },
     "i18n": {

@@ -14617,6 +14617,13 @@
           "delete": "削除"
         }
       },
+      "native": {
+        "chat": {
+          "NativeChatStructuredSessionStatus": {
+            "starting": "{{value0}} はまだ起動中です。準備ができるまでメッセージは待機します。中止するには、このチャットを閉じてください。"
+          }
+        }
+      },
       "ComposerParentWorktreePicker": {
         "label": "親ワークツリー",
         "noParent": "親なし",

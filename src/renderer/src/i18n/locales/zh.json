@@ -14697,6 +14697,13 @@
           "delete": "删除"
         }
       },
+      "native": {
+        "chat": {
+          "NativeChatStructuredSessionStatus": {
+            "starting": "{{value0}} 仍在启动中。消息会等它就绪后再发送；关闭此聊天即可放弃。"
+          }
+        }
+      },
       "ComposerParentWorktreePicker": {
         "label": "父工作树",
         "noParent": "无父工作树",

@@ -14617,6 +14617,13 @@
           "delete": "Eliminar"
         }
       },
+      "native": {
+        "chat": {
+          "NativeChatStructuredSessionStatus": {
+            "starting": "{{value0}} todavía se está iniciando. Los mensajes esperan hasta que esté listo; cierra este chat para abandonarlo."
+          }
+        }
+      },
       "ComposerParentWorktreePicker": {
         "label": "Worktree padre",
         "noParent": "Sin worktree padre",
