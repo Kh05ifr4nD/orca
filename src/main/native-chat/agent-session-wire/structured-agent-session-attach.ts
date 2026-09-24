@@ -5,6 +5,7 @@
 // the record store's compare-and-swap, which also owns the idempotency row, so
 // a retried attach replays instead of reserving a second owner.
 
+import { randomUUID } from 'node:crypto'
 import type {
   AgentSessionJournalIdentity,
   AgentSessionProviderHandle
@@ -63,6 +64,9 @@ export type AgentSessionAttachParams = {
   runtimeKind: AgentSessionOwnerRuntimeKind
   /** Host-resolved defaults for a create-by-intent; remote attach schemas do not accept them. */
   options?: Readonly<Record<string, string>>
+  /** The tab id a create reserves for this chat; absent lets the host mint one. Never on the
+   *  attach fingerprint: which tab shows the chat is not which conversation this attaches to. */
+  surfaceTabId?: string
   launchArgs?: string[]
   /** Omitted only for create-by-intent; the adapter proves the durable handle. */
   providerHandle?: Exclude<AgentSessionProviderHandle, { kind: 'opaque' }>
@@ -313,6 +317,10 @@ export function reserveRequestFor(input: {
     provider: params.provider,
     accountHome: params.accountHome,
     ...(params.options ? { options: params.options } : {}),
+    // Minted here, on the create path only: a record that already exists keeps its own tab id.
+    ...(params.envelope.expectedRuntimeFence === null
+      ? { surfaceTabId: params.surfaceTabId ?? randomUUID() }
+      : {}),
     ...(authority.launchArgs ? { launchArgs: authority.launchArgs } : {}),
     ...(authority.launchEnv ? { launchEnv: authority.launchEnv } : {}),
     runtimeKind: params.runtimeKind,

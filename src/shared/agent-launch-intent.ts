@@ -94,7 +94,15 @@ export type AgentLaunchIntent = {
 
 /** The surface the host actually created. */
 export type AgentLaunchOutcome =
-  | { kind: 'structured'; sessionId: string; handle: string }
+  | {
+      kind: 'structured'
+      sessionId: string
+      handle: string
+      /** The host-owned id of the tab that shows this chat: the tab half of the reserved `paneKey`
+       *  when one was sent, else host-minted. Identity, not placement, like the terminal arm's
+       *  `paneKey`. Absent from hosts that predate it. */
+      tabId?: string
+    }
   | {
       kind: 'terminal'
       handle: string

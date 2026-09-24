@@ -432,6 +432,72 @@ describe('method routing', () => {
     )
   })
 
+  it('records the tab id a client reserved for its chat', async () => {
+    const worktree = 'id:workspace-1'
+    const fields = { worktree, agent: 'codex', tabId: 'chat-tab-1' }
+    const params = {
+      envelope: envelope({
+        expectedRuntimeFence: null,
+        payloadFingerprint: computeAgentSessionPayloadFingerprint({
+          method: 'agentSession.create',
+          sessionId: SESSION,
+          fields
+        })
+      }),
+      ...fields
+    }
+    expect(await call('agentSession.create', params, STRUCTURED_CLIENT)).toMatchObject({
+      ok: true,
+      result: { ok: true }
+    })
+    // Beside `options`, after the attach fingerprint: which tab shows the chat is not which
+    // conversation this attaches to.
+    expect(hostCalls.attach).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ surfaceTabId: 'chat-tab-1' })
+    )
+  })
+
+  it('treats a create that reserved a different tab as a different request', async () => {
+    // The tab id is part of the intent fingerprint, so a payload whose declared digest omits it
+    // is refused rather than replayed as the blank create it looks like.
+    const worktree = 'id:workspace-1'
+    const params = {
+      envelope: envelope({
+        expectedRuntimeFence: null,
+        payloadFingerprint: computeAgentSessionPayloadFingerprint({
+          method: 'agentSession.create',
+          sessionId: SESSION,
+          fields: { worktree, agent: 'codex' }
+        })
+      }),
+      worktree,
+      agent: 'codex',
+      tabId: 'chat-tab-1'
+    }
+    expect(await call('agentSession.create', params, STRUCTURED_CLIENT)).toMatchObject({
+      ok: true,
+      result: { ok: false, refusal: { code: 'agent_session_operation_conflict' } }
+    })
+    expect(hostCalls.attach).not.toHaveBeenCalled()
+  })
+
+  it('refuses a reserved tab id that could not prefix a pane key', async () => {
+    const worktree = 'id:workspace-1'
+    const response = await call(
+      'agentSession.create',
+      {
+        envelope: envelope({ expectedRuntimeFence: null, payloadFingerprint: 'x'.repeat(64) }),
+        worktree,
+        agent: 'codex',
+        tabId: 'agent-session:with-colon'
+      },
+      STRUCTURED_CLIENT
+    )
+    expect(response.ok).toBe(false)
+    expect(hostCalls.attach).not.toHaveBeenCalled()
+  })
+
   it.each(['claude', 'codex'])(
     'forwards a %s history resume through create preparation',
     async (agent) => {
