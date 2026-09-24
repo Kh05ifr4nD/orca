@@ -5,7 +5,7 @@
 //
 // A child is published before it has proven its start, and it owns the send from that moment: the
 // message is admitted against it and the adapter holds it for the start. When the child exits
-// first, the exit settlement retires the message and writes the cause into the chat, once, and
+// first, the exit settlement rejects the message and writes the cause into the chat, once, and
 // the next send is a fresh restart.
 
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -188,9 +188,13 @@ describe('a send into a published session whose child ended before startup', () 
     const held = await send('still not signed in', releasedFence)
     await exitBeforeProof()
 
-    // The exit retires the message this host admitted, so nothing pins the session, and one row
-    // in the chat names the cause.
-    expect(submission(held)).toMatchObject({ dispatchState: 'unknown', recovered: true })
+    // The child never proved its start, so it accepted nothing: the exit rejects the message this
+    // host admitted, so nothing pins the session and Retry stays offered, and one row names the cause.
+    expect(submission(held)).toMatchObject({
+      dispatchState: 'rejected',
+      reason: expect.stringContaining(EXIT_REASON),
+      recovered: true
+    })
     expect(
       host.journalSnapshot(SESSION).submissions.filter((e) => e.dispatchState === 'pending')
     ).toEqual([])
@@ -230,7 +234,11 @@ describe('a send while the child of the first start is still proving itself', ()
 
     await exitBeforeProof()
 
-    expect(submission(held)).toMatchObject({ dispatchState: 'unknown', recovered: true })
+    expect(submission(held)).toMatchObject({
+      dispatchState: 'rejected',
+      reason: expect.stringContaining(EXIT_REASON),
+      recovered: true
+    })
     expect(acquire).toHaveBeenCalledOnce()
     expect(journalStatuses()).toEqual([
       expect.stringMatching(/stopped before it finished starting: .*not signed in/)
