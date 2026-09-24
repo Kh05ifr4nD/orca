@@ -44,12 +44,13 @@ function NativeChatMessageRailItems({
   const open = mode !== null
   // Reveal the lit row when the list opens or its rows shift — not when a hover
   // preview turns interactive, which a press on an item does: moving the list
-  // then slides the item out from under the pointer and the click is lost.
+  // then slides the item out from under the pointer and the click is lost. Nor
+  // while a picked item pages in: each landed page shifts the rows under it.
   useLayoutEffect(() => {
-    if (open && activeId !== null && items.length > 0) {
+    if (open && activeId !== null && items.length > 0 && pendingId === null) {
       currentItemRef.current?.scrollIntoView({ block: 'nearest' })
     }
-  }, [activeId, items, open])
+  }, [activeId, items, open, pendingId])
 
   // Entering interactive from the rail moves focus into the list; entering it by
   // focusing an item already put focus where the reader chose.
@@ -116,6 +117,13 @@ export const NativeChatMessageRail = memo(function NativeChatMessageRail({
 }): React.JSX.Element | null {
   // Hover preserves focus; activation enters the focus-managed prompt picker.
   const [mode, setMode] = useState<NativeChatMessageRailMode>(null)
+  // A pick that pages history in keeps the list open, its item pulsing, until the
+  // jump lands or is abandoned; then it closes as any pick does.
+  const [heldId, setHeldId] = useState<string | null>(null)
+  if (heldId !== null && (heldId !== pendingId || mode === null)) {
+    setHeldId(null)
+    setMode(null)
+  }
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const restoreFocus = useRef(false)
   const open = mode !== null
@@ -237,7 +245,11 @@ export const NativeChatMessageRail = memo(function NativeChatMessageRail({
           pendingId={pendingId}
           onSelect={(item) => {
             onSelect(item)
-            setMode(null)
+            if (item.slotIndex === null) {
+              setHeldId(item.id)
+            } else {
+              setMode(null)
+            }
           }}
         />
       </PopoverContent>
