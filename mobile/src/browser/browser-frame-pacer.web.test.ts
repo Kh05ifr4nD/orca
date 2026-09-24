@@ -93,20 +93,16 @@ function mountImageHost(): HTMLElement {
 function mountPacer() {
   const imageHosts = [mountImageHost(), mountImageHost()] as const
   const layerViews = [document.createElement('div'), document.createElement('div')] as const
-  /** Every render-triggering call the frame path makes. */
-  const stateWrites = { busy: 0, frameMetadata: 0, frameUri: 0 }
+  const frameUriWrites: (string | null)[] = []
+  /** Every frame the pacer reported on screen, by seq. */
+  const shownSeqs: number[] = []
   const pacer = createBrowserFramePacer({
-    busyRef: { current: true },
-    frameMetadataRef: { current: null },
     initialUri: null,
-    setBusy: () => {
-      stateWrites.busy += 1
+    setFrameUri: (uri) => {
+      frameUriWrites.push(uri)
     },
-    setFrameMetadata: () => {
-      stateWrites.frameMetadata += 1
-    },
-    setFrameUri: () => {
-      stateWrites.frameUri += 1
+    onShown: ({ frame }) => {
+      shownSeqs.push(frame.seq)
     }
   })
   for (const layer of [0, 1] as const) {
@@ -140,7 +136,7 @@ function mountPacer() {
       await Promise.resolve()
     })
   }
-  return { advance, background, pacer, push, shown, stateWrites }
+  return { advance, background, frameUriWrites, pacer, push, shown, shownSeqs }
 }
 
 describe('the browser frame pacer', () => {
@@ -151,33 +147,40 @@ describe('the browser frame pacer', () => {
 
     expect(pane.shown()).toContain('frame-1')
     expect(pane.background(1)).toContain('frame-1')
-    expect(decodes.pending).toEqual([])
+    expect(pane.frameUriWrites).toHaveLength(1)
+    expect(pane.shownSeqs).toEqual([1])
   })
 
   it('decodes the next frame offscreen and shows it only once it has decoded', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
 
     await pane.push(2)
     expect(pane.background(1)).toContain('frame-2')
     expect(pane.shown()).toContain('frame-1')
+    expect(pane.shownSeqs).toEqual([1])
 
     await finishDecodes()
     expect(pane.shown()).toContain('frame-2')
+    expect(pane.shownSeqs).toEqual([1, 2])
   })
 
-  it('keeps flipping frame after frame', async () => {
+  it('keeps flipping frame after frame, reporting each once and publishing one source', async () => {
     const pane = mountPacer()
-    for (let index = 1; index <= 4; index += 1) {
+    for (let index = 1; index <= 10; index += 1) {
       await pane.push(index)
       await finishDecodes()
       expect(pane.shown()).toContain(`frame-${index}`)
     }
+    expect(pane.shownSeqs).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    expect(pane.frameUriWrites).toHaveLength(1)
   })
 
   it('paints at most one frame per interval', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
     await pane.push(2)
     await finishDecodes()
 
@@ -188,45 +191,29 @@ describe('the browser frame pacer', () => {
     expect(pane.background(0)).toContain('frame-3')
   })
 
-  it('holds the newest frame while a layer decodes and shows it once that decode settles', async () => {
+  it('never re-points a decoding layer, and shows the newest frame once it settles', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
     await pane.push(2)
     await pane.push(3)
     await pane.push(4)
 
+    await pane.advance(10_000)
     expect(pane.background(1)).toContain('frame-2')
 
     await settleDecode('frame-2', true)
     expect(pane.shown()).toContain('frame-2')
-
     await pane.advance(MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS)
     expect(pane.background(0)).toContain('frame-4')
     await settleDecode('frame-4', true)
     expect(pane.shown()).toContain('frame-4')
-    expect(decodes.pending).toEqual([])
-  })
-
-  it('waits out a slow decode, then shows the frame and the newest one waiting', async () => {
-    const pane = mountPacer()
-    await pane.push(1)
-    await pane.push(2)
-    await pane.push(3)
-
-    await pane.advance(10_000)
-    expect(pane.background(1)).toContain('frame-2')
-    expect(pane.shown()).toContain('frame-1')
-
-    await settleDecode('frame-2', true)
-    expect(pane.shown()).toContain('frame-2')
-    await pane.advance(MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS)
-    await settleDecode('frame-3', true)
-    expect(pane.shown()).toContain('frame-3')
   })
 
   it('shows a slow last frame when nothing newer waits', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
     await pane.push(2)
 
     await pane.advance(10_000)
@@ -238,6 +225,7 @@ describe('the browser frame pacer', () => {
   it('flips straight to a layer that already holds the frame, which reloads nothing', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
     await pane.push(2)
     await finishDecodes()
 
@@ -248,22 +236,26 @@ describe('the browser frame pacer', () => {
     expect(decodes.pending).toEqual([])
   })
 
-  it('decodes a frame again after it failed, rather than flipping to it', async () => {
+  it('skips a frame sent again after it failed to decode, and keeps streaming', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
     await pane.push(2)
     await settleDecode('frame-2', false)
 
     await pane.push(2)
     expect(pane.shown()).toContain('frame-1')
+    expect(decodes.pending).toEqual([])
 
-    await settleDecode('frame-2', true)
-    expect(pane.shown()).toContain('frame-2')
+    await pane.push(3)
+    await finishDecodes()
+    expect(pane.shown()).toContain('frame-3')
   })
 
   it('hands the layer of an undecodable frame to the newest waiting frame', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
     await pane.push(2)
     await pane.push(3)
 
@@ -274,9 +266,10 @@ describe('the browser frame pacer', () => {
     expect(pane.shown()).toContain('frame-3')
   })
 
-  it('flips on a native load only for the source the layer holds now', async () => {
+  it('settles a layer on a native load only for the source it holds', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
     await pane.push(2)
     const nativeLoad = (index: number): ImageLoadEvent =>
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the pacer reads only nativeEvent.source.uri.
@@ -284,33 +277,56 @@ describe('the browser frame pacer', () => {
         nativeEvent: { source: { uri: createBrowserFrameDataUri(frameAt(index)) } }
       }) as ImageLoadEvent
 
+    await pane.push(3)
     pane.pacer.layers[1].onLoad(nativeLoad(1))
+    await pane.advance(MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS)
     expect(pane.shown()).toContain('frame-1')
+    expect(pane.background(1)).toContain('frame-2')
 
     pane.pacer.layers[1].onLoad(nativeLoad(2))
     expect(pane.shown()).toContain('frame-2')
   })
 
-  it('does not flip a decode that settles after a stream reset', async () => {
+  it('keeps streaming after a layer remounts its Image', async () => {
     const pane = mountPacer()
     await pane.push(1)
+    await finishDecodes()
+
+    pane.pacer.layers[1].attachImage(null)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: on RN Web a ref is the DOM node the writers take.
+    pane.pacer.layers[1].attachImage(mountImageHost() as unknown as Image)
+    await finishDecodes()
+    await pane.push(2)
+    await finishDecodes()
+
+    expect(pane.shownSeqs).toEqual([1, 2])
+  })
+
+  it('does not flip a decode that settles after a reset, but flips to it when it is sent again', async () => {
+    const pane = mountPacer()
+    await pane.push(1)
+    await finishDecodes()
     await pane.push(2)
 
     pane.pacer.reset()
     await settleDecode('frame-2', true)
-
     expect(pane.shown()).toContain('frame-1')
+
+    await pane.push(2)
+    expect(pane.shown()).toContain('frame-2')
   })
 
-  it('writes no React state after the first frame', async () => {
+  it('holds a frame sent again after a reset until the earlier decode of it settles', async () => {
     const pane = mountPacer()
+    await pane.push(1)
+    await finishDecodes()
+    await pane.push(2)
 
-    for (let index = 1; index <= 10; index += 1) {
-      await pane.push(index)
-      await finishDecodes()
-    }
+    pane.pacer.reset()
+    await pane.push(2)
+    expect(pane.shown()).toContain('frame-1')
 
-    expect(pane.stateWrites).toEqual({ busy: 1, frameMetadata: 1, frameUri: 1 })
-    expect(pane.shown()).toContain('frame-10')
+    await settleDecode('frame-2', true)
+    expect(pane.shown()).toContain('frame-2')
   })
 })

@@ -1,15 +1,7 @@
-import type { Dispatch, SetStateAction } from 'react'
 import type { Image, ImageLoadEvent, View } from 'react-native'
-import type {
-  BrowserScreencastFrame,
-  BrowserScreencastFrameMetadata
-} from '../transport/browser-screencast-protocol'
+import type { BrowserScreencastFrame } from '../transport/browser-screencast-protocol'
 import { MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS } from './browser-screencast-request'
-import {
-  browserFrameMetadataEqual,
-  cacheBrowserFrame,
-  type FrameLayer
-} from './mobile-browser-frame-state'
+import type { FrameLayer } from './mobile-browser-frame-state'
 import { createBrowserFrameDataUri } from './browser-frame-data-uri'
 import {
   updateBrowserImageSource,
@@ -18,14 +10,16 @@ import {
 } from './browser-frame-layer-paint'
 
 type QueuedFrame = { frame: BrowserScreencastFrame; cacheKey: string }
+export type ShownBrowserFrame = QueuedFrame & { uri: string }
+
+/** What a layer's Image holds natively, and whether that source has answered yet. */
+type LayerState = { uri: string | null; status: 'loading' | 'ready' | 'failed' }
 
 type BrowserFramePacerDeps = {
-  busyRef: { current: boolean }
-  frameMetadataRef: { current: BrowserScreencastFrameMetadata | null }
   initialUri: string | null
-  setBusy: Dispatch<SetStateAction<boolean>>
-  setFrameMetadata: Dispatch<SetStateAction<BrowserScreencastFrameMetadata | null>>
-  setFrameUri: Dispatch<SetStateAction<string | null>>
+  /** The source the layers mount with; later frames are written natively. */
+  setFrameUri: (uri: string | null) => void
+  onShown: (shown: ShownBrowserFrame) => void
 }
 
 /** What one layer's `<View>` and `<Image>` hand the pacer. Stable, so binding them re-renders nothing. */
@@ -40,90 +34,101 @@ export type BrowserFramePacer = ReturnType<typeof createBrowserFramePacer>
 
 /**
  * Owns the pane's double buffer: each frame decodes on the hidden layer and is shown by flipping
- * opacity once it has, at most one frame per interval, and never re-points a layer mid-decode.
+ * opacity once it has, at most one frame per interval.
+ *
+ * A layer is written only when it is not loading and only with a different source, so every write
+ * gets exactly one native answer: an unchanged source reloads nothing on Android or iOS.
  */
 export function createBrowserFramePacer(deps: BrowserFramePacerDeps) {
   const views: [View | null, View | null] = [null, null]
   const images: [Image | null, Image | null] = [null, null]
-  // The source each layer's Image holds; null for none, or for a load that failed or was dropped.
-  const layerUris: [string | null, string | null] = [deps.initialUri, deps.initialUri]
+  const layers: [LayerState, LayerState] = [
+    { uri: deps.initialUri, status: 'ready' },
+    { uri: deps.initialUri, status: 'ready' }
+  ]
+  let mountedUri = deps.initialUri
   let visible: FrameLayer = 0
-  let decoding: FrameLayer | null = null
+  // The frame to show once the hidden layer has decoded it.
+  let target: ShownBrowserFrame | null = null
   let queued: QueuedFrame | null = null
   let lastAppliedAt = 0
   let timer: ReturnType<typeof setTimeout> | null = null
 
-  function paint(layer: FrameLayer, uri: string | null): void {
-    layerUris[layer] = uri
-    if (uri !== null) {
-      updateBrowserImageSource(images[layer], uri)
-    }
-  }
+  const hiddenLayer = (): FrameLayer => (visible === 0 ? 1 : 0)
 
-  function abandonDecode(): void {
-    if (decoding !== null) {
-      layerUris[decoding] = null
-      decoding = null
-    }
-  }
-
-  function flip(layer: FrameLayer, uri: string | undefined): void {
-    // Why: a load for a source the layer has since moved off must not show the newer one early.
-    if (decoding !== layer || layerUris[layer] !== uri) {
+  function write(layer: FrameLayer, uri: string): void {
+    if (layers[layer].uri === uri) {
       return
     }
-    decoding = null
-    visible = layer
-    updateBrowserLayerVisibility(views, layer)
-    drain()
+    layers[layer] = { uri, status: 'loading' }
+    updateBrowserImageSource(images[layer], uri)
+    awaitDecode(layer, uri)
   }
 
-  function fail(layer: FrameLayer): void {
-    if (decoding === layer) {
-      abandonDecode()
-      drain()
-    }
-  }
-
-  function show({ frame, cacheKey }: QueuedFrame): void {
-    if (!browserFrameMetadataEqual(deps.frameMetadataRef.current, frame.metadata)) {
-      deps.frameMetadataRef.current = frame.metadata
-      deps.setFrameMetadata(frame.metadata)
-    }
-    if (deps.busyRef.current) {
-      deps.busyRef.current = false
-      deps.setBusy(false)
-    }
-    const uri = createBrowserFrameDataUri(frame)
-    cacheBrowserFrame(cacheKey, { uri, metadata: frame.metadata })
-    if (layerUris[visible] === null) {
-      paint(0, uri)
-      paint(1, uri)
-      deps.setFrameUri(uri)
-      return
-    }
-    const hidden: FrameLayer = visible === 0 ? 1 : 0
-    decoding = hidden
-    if (layerUris[hidden] === uri) {
-      // Why: an unchanged source reloads nothing, so no onLoad would ever flip it (caret blink).
-      flip(hidden, uri)
-      return
-    }
-    paint(hidden, uri)
-    // Why: a web `background-image` write fires no load event; native answers through onLoad.
+  // Why: a web `background-image` write fires no load event; native answers through onLoad.
+  function awaitDecode(layer: FrameLayer, uri: string): void {
     whenBrowserFrameDisplayable(uri, {
-      onDisplayable: () => flip(hidden, uri),
+      onDisplayable: () => settle(layer, uri),
       onUndecodable: () => {
-        if (layerUris[hidden] === uri) {
-          fail(hidden)
+        if (layers[layer].uri === uri) {
+          fail(layer)
         }
       }
     })
   }
 
+  function flip(layer: FrameLayer, shown: ShownBrowserFrame): void {
+    target = null
+    visible = layer
+    updateBrowserLayerVisibility(views, layer)
+    deps.onShown(shown)
+  }
+
+  function settle(layer: FrameLayer, uri: string | undefined): void {
+    if (layers[layer].uri !== uri) {
+      return
+    }
+    layers[layer].status = 'ready'
+    if (target?.uri === uri && layer !== visible) {
+      flip(layer, target)
+    }
+    drain()
+  }
+
+  function fail(layer: FrameLayer): void {
+    layers[layer].status = 'failed'
+    if (target?.uri === layers[layer].uri) {
+      target = null
+    }
+    drain()
+  }
+
+  function show({ frame, cacheKey }: QueuedFrame): void {
+    const shown = { frame, cacheKey, uri: createBrowserFrameDataUri(frame) }
+    if (mountedUri === null) {
+      mountedUri = shown.uri
+      deps.setFrameUri(shown.uri)
+      write(0, shown.uri)
+      write(1, shown.uri)
+      deps.onShown(shown)
+      return
+    }
+    const hidden = hiddenLayer()
+    const layer = layers[hidden]
+    if (layer.uri !== shown.uri) {
+      target = shown
+      write(hidden, shown.uri)
+    } else if (layer.status === 'ready') {
+      // Why: an unchanged source reloads nothing, so it flips now (caret blink).
+      flip(hidden, shown)
+    }
+    // A frame that already failed to decode is skipped rather than retried.
+  }
+
   // Why: never cut a decode short; re-pointing an Android layer mid-decode stalls flips under load.
   function drain(): void {
-    if (timer !== null || queued === null || decoding !== null) {
+    const decoding = mountedUri !== null && layers[hiddenLayer()].status === 'loading'
+    if (timer !== null || queued === null || decoding) {
       return
     }
     const wait = lastAppliedAt + MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS - Date.now()
@@ -146,25 +151,31 @@ export function createBrowserFramePacer(deps: BrowserFramePacerDeps) {
     drain()
   }
 
-  /** Drops every queued, timed or decoding frame and keeps the one on screen. */
+  /** Drops every queued or timed frame; a load already under way still answers for its layer. */
   function reset(): void {
     if (timer !== null) {
       clearTimeout(timer)
       timer = null
     }
     queued = null
+    target = null
     lastAppliedAt = 0
-    abandonDecode()
   }
 
-  /** Resets and puts `uri` on both layers, or clears them. */
+  /** Resets and puts `uri` on both layers, or unmounts them. */
   function replace(uri: string | null): void {
     reset()
-    paint(0, uri)
-    paint(1, uri)
     visible = 0
     updateBrowserLayerVisibility(views, visible)
+    mountedUri = uri
     deps.setFrameUri(uri)
+    if (uri === null) {
+      layers[0] = { uri: null, status: 'ready' }
+      layers[1] = { uri: null, status: 'ready' }
+      return
+    }
+    write(0, uri)
+    write(1, uri)
   }
 
   function bindLayer(layer: FrameLayer): BrowserFrameLayerBinding {
@@ -175,16 +186,27 @@ export function createBrowserFramePacer(deps: BrowserFramePacerDeps) {
       },
       attachImage: (image) => {
         images[layer] = image
-        paint(layer, layerUris[layer])
+        if (image === null) {
+          return
+        }
+        // A fresh Image holds the source it mounted with; put back the one this layer held.
+        const held = layers[layer].uri
+        if (mountedUri !== null) {
+          layers[layer] = { uri: mountedUri, status: 'loading' }
+          awaitDecode(layer, mountedUri)
+        }
+        if (held !== null) {
+          write(layer, held)
+        }
       },
-      // Why: RN Web's own load event carries no source, so the web flips only through its probe.
-      onLoad: (event) => flip(layer, event.nativeEvent.source?.uri),
+      // Why: RN Web's own load event carries no source, so the web settles only through its probe.
+      onLoad: (event) => settle(layer, event.nativeEvent.source?.uri),
       onError: () => fail(layer)
     }
   }
 
   return {
-    hasFrame: (): boolean => layerUris[visible] !== null,
+    hasFrame: (): boolean => mountedUri !== null,
     layers: [bindLayer(0), bindLayer(1)] as const,
     push,
     replace,

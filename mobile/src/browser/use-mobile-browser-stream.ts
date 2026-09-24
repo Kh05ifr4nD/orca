@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { PixelRatio } from 'react-native'
 import type { RpcClient } from '../transport/rpc-client'
 import type { BrowserScreencastFrameMetadata } from '../transport/browser-screencast-protocol'
@@ -6,7 +6,13 @@ import {
   buildMobileBrowserScreencastRequest,
   type MobileBrowserViewMode
 } from './browser-screencast-request'
-import { MAX_ZOOM, MIN_ZOOM, getCachedBrowserFrame } from './mobile-browser-frame-state'
+import {
+  MAX_ZOOM,
+  MIN_ZOOM,
+  browserFrameMetadataEqual,
+  cacheBrowserFrame,
+  getCachedBrowserFrame
+} from './mobile-browser-frame-state'
 import {
   clampBrowserZoomState,
   computeBrowserFrameGeometry,
@@ -19,7 +25,7 @@ import {
   type BrowserDialogState,
   type ScreencastEvent
 } from './mobile-browser-stream-events'
-import type { BrowserFramePacer } from './browser-frame-pacer'
+import { createBrowserFramePacer } from './browser-frame-pacer'
 import { useMobileBrowserRequest } from './use-mobile-browser-request'
 
 type MobileBrowserStreamArgs = {
@@ -31,7 +37,7 @@ type MobileBrowserStreamArgs = {
   client: RpcClient | null
   frameMetadata: BrowserScreencastFrameMetadata | null
   frameMetadataRef: { current: BrowserScreencastFrameMetadata | null }
-  framePacer: BrowserFramePacer
+  initialFrameUri: string | null
   lastStreamCacheKeyRef: { current: string | null }
   lastZoomResetUrlRef: { current: string }
   layout: BrowserTouchLayout | null
@@ -42,6 +48,7 @@ type MobileBrowserStreamArgs = {
   setDialog: Dispatch<SetStateAction<BrowserDialogState | null>>
   setError: Dispatch<SetStateAction<string | null>>
   setFrameMetadata: Dispatch<SetStateAction<BrowserScreencastFrameMetadata | null>>
+  setFrameUri: Dispatch<SetStateAction<string | null>>
   setZoom: Dispatch<SetStateAction<BrowserZoomState>>
   streamGenerationRef: { current: number }
   tab: MobileBrowserTab
@@ -59,7 +66,7 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     client,
     frameMetadata,
     frameMetadataRef,
-    framePacer,
+    initialFrameUri,
     lastStreamCacheKeyRef,
     lastZoomResetUrlRef,
     layout,
@@ -70,6 +77,7 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     setDialog,
     setError,
     setFrameMetadata,
+    setFrameUri,
     setZoom,
     streamGenerationRef,
     tab,
@@ -85,6 +93,25 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     setError,
     worktreeId
   })
+
+  const [framePacer] = useState(() =>
+    createBrowserFramePacer({
+      initialUri: initialFrameUri,
+      setFrameUri,
+      // Why: at the flip, so touch mapping uses the geometry of the frame on screen.
+      onShown: ({ frame, cacheKey: shownCacheKey, uri }) => {
+        cacheBrowserFrame(shownCacheKey, { uri, metadata: frame.metadata })
+        if (!browserFrameMetadataEqual(frameMetadataRef.current, frame.metadata)) {
+          frameMetadataRef.current = frame.metadata
+          setFrameMetadata(frame.metadata)
+        }
+        if (busyRef.current) {
+          busyRef.current = false
+          setBusy(false)
+        }
+      }
+    })
+  )
 
   const streamRequest = useMemo(
     () => buildMobileBrowserScreencastRequest(layout, PixelRatio.get(), browserViewMode),
@@ -224,5 +251,5 @@ export function useMobileBrowserStream(args: MobileBrowserStreamArgs) {
     worktreeId
   ])
 
-  return { frameGeometry, pageParams, sendBrowserRequest }
+  return { frameGeometry, frameLayers: framePacer.layers, pageParams, sendBrowserRequest }
 }

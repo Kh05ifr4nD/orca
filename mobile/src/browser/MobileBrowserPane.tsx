@@ -29,7 +29,6 @@ import { MobileBrowserPaneView } from './MobileBrowserPaneView'
 import { useMobileBrowserInteractions } from './use-mobile-browser-interactions'
 import { useMobileBrowserStream } from './use-mobile-browser-stream'
 import { useBrowserBinaryScreencastGrant } from './use-browser-binary-screencast-grant'
-import { createBrowserFramePacer } from './browser-frame-pacer'
 
 export type MobileBrowserTab = {
   type: 'browser'
@@ -101,16 +100,6 @@ export function MobileBrowserPane({
     cachedInitialFrame?.metadata ?? null
   )
   const busyRef = useRef(false)
-  const [framePacer] = useState(() =>
-    createBrowserFramePacer({
-      busyRef,
-      frameMetadataRef,
-      initialUri: cachedInitialFrame?.uri ?? null,
-      setBusy,
-      setFrameMetadata,
-      setFrameUri
-    })
-  )
   const dialogRef = useRef<BrowserDialogState | null>(null)
   const lastStreamCacheKeyRef = useRef<string | null>(cacheKey)
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -195,7 +184,7 @@ export function MobileBrowserPane({
 
   const binaryScreencastGranted = useBrowserBinaryScreencastGrant()
 
-  const { frameGeometry, pageParams, sendBrowserRequest } = useMobileBrowserStream({
+  const { frameGeometry, frameLayers, pageParams, sendBrowserRequest } = useMobileBrowserStream({
     appActive,
     binaryScreencastGranted,
     browserViewMode,
@@ -204,7 +193,7 @@ export function MobileBrowserPane({
     client,
     frameMetadata,
     frameMetadataRef,
-    framePacer,
+    initialFrameUri: cachedInitialFrame?.uri ?? null,
     lastStreamCacheKeyRef,
     lastZoomResetUrlRef,
     layout,
@@ -215,6 +204,7 @@ export function MobileBrowserPane({
     setDialog,
     setError,
     setFrameMetadata,
+    setFrameUri,
     setZoom,
     streamGenerationRef,
     tab,
@@ -325,7 +315,7 @@ export function MobileBrowserPane({
       dialog={dialog}
       error={error}
       frameGeometry={frameGeometry}
-      frameLayers={framePacer.layers}
+      frameLayers={frameLayers}
       goBack={goBack}
       goForward={goForward}
       keyboardLift={keyboardLift}

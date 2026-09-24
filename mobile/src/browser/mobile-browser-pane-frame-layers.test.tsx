@@ -17,9 +17,17 @@ vi.mock('./use-browser-binary-screencast-grant', () => ({
   useBrowserBinaryScreencastGrant: vi.fn(() => true)
 }))
 
+const appState = vi.hoisted(() => ({ listener: null as ((state: string) => void) | null }))
+
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
-  AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) },
+  AppState: {
+    currentState: 'active',
+    addEventListener: (_event: string, listener: (state: string) => void) => {
+      appState.listener = listener
+      return { remove: () => {} }
+    }
+  },
   Image: 'Image',
   PanResponder: { create: () => ({ panHandlers: {} }) },
   PixelRatio: { get: () => 2 },
@@ -44,13 +52,16 @@ vi.mock('lucide-react-native', () => ({
 }))
 
 /**
- * One layer's native state, and the last value a render sent for each prop it models.
+ * One layer's native state, and the last value a render sent for each prop it models. A source
+ * write that changes nothing loads nothing, as on Android and iOS; one that changes it owes one
+ * answer, which reports the layer's current source, as Android's does.
  *
  * Keyed by the layer's `onLoad`, which is stable per layer: react-test-renderer builds a fresh mock
  * on every ref read, so the mock itself cannot hold state.
  */
 type NativeLayer = {
   source: string | undefined
+  loading: boolean
   opacity: number
   rendered: { source?: string; opacity?: number }
 }
@@ -62,7 +73,7 @@ function nativeLayer(onLoad: unknown): NativeLayer {
   if (existing) {
     return existing
   }
-  const created: NativeLayer = { source: undefined, opacity: 1, rendered: {} }
+  const created: NativeLayer = { source: undefined, loading: false, opacity: 1, rendered: {} }
   nativeLayers.set(onLoad, created)
   return created
 }
@@ -90,12 +101,19 @@ function createNodeMock(element: ReactElement) {
       }
       const layer = nativeLayer(key)
       if (props.source?.[0]) {
-        layer.source = props.source[0].uri
+        setSource(layer, props.source[0].uri)
       }
       if (props.style?.opacity !== undefined) {
         layer.opacity = props.style.opacity
       }
     }
+  }
+}
+
+function setSource(layer: NativeLayer, source: string | undefined): void {
+  if (source !== layer.source) {
+    layer.source = source
+    layer.loading = source !== undefined
   }
 }
 
@@ -128,7 +146,7 @@ function commitRenderedProps(renderer: ReactTestRenderer): void {
     const source = typeof uri === 'string' ? uri : undefined
     if (source !== layer.rendered.source) {
       layer.rendered.source = source
-      layer.source = source
+      setSource(layer, source)
     }
     const opacity = flatOpacity(image.parent?.props.style) ?? 1
     if (opacity !== layer.rendered.opacity) {
@@ -147,6 +165,9 @@ function frame(seq: number, bytes: number[]): BrowserScreencastFrame {
     image: new Uint8Array(bytes)
   }
 }
+
+const uriOf = (next: BrowserScreencastFrame): string =>
+  `data:image/jpeg;base64,${Buffer.from(next.image).toString('base64')}`
 
 const CARET_ON = frame(1, [1, 1, 1])
 const CARET_OFF = frame(2, [2, 2, 2])
@@ -222,14 +243,29 @@ async function renderPane() {
     })
     commitRenderedProps(mounted)
   }
-  /** Native decodes every layer whose source changed and reports it, as Fresco does. */
-  const decodeAll = (): void => {
+  /** Native answers every load still owed, with a load or, for `failing`, an error. */
+  const decodeAll = (failing?: BrowserScreencastFrame): void => {
     for (const image of frameImages(mounted)) {
-      const uri = nativeLayer(image.props.onLoad).source
+      const layer = nativeLayer(image.props.onLoad)
+      if (!layer.loading) {
+        continue
+      }
+      layer.loading = false
+      const uri = layer.source
       act(() => {
-        image.props.onLoad?.({ nativeEvent: { source: { uri, width: 360, height: 640 } } })
+        if (failing && uri === uriOf(failing)) {
+          image.props.onError?.({ nativeEvent: { error: 'decode failed' } })
+        } else {
+          image.props.onLoad?.({ nativeEvent: { source: { uri, width: 360, height: 640 } } })
+        }
       })
     }
+    commitRenderedProps(mounted)
+  }
+  const setAppState = (state: string): void => {
+    act(() => {
+      appState.listener?.(state)
+    })
     commitRenderedProps(mounted)
   }
   /** A render from state the frame path does not own, as a pinch or an address edit makes. */
@@ -241,11 +277,8 @@ async function renderPane() {
     commitRenderedProps(mounted)
   }
   commitRenderedProps(mounted)
-  return { decodeAll, push, rerender, shown }
+  return { decodeAll, push, rerender, setAppState, shown }
 }
-
-const uriOf = (next: BrowserScreencastFrame): string =>
-  `data:image/jpeg;base64,${Buffer.from(next.image).toString('base64')}`
 
 describe('the pane frame layers', () => {
   beforeEach(() => {
@@ -258,6 +291,7 @@ describe('the pane frame layers', () => {
   it('keeps a blinking caret blinking across a render the frame path did not make', async () => {
     const pane = await renderPane()
     pane.push(CARET_ON)
+    pane.decodeAll()
     pane.push(CARET_OFF)
     pane.decodeAll()
     expect(pane.shown()).toBe(uriOf(CARET_OFF))
@@ -269,5 +303,38 @@ describe('the pane frame layers', () => {
     expect(pane.shown()).toBe(uriOf(CARET_ON))
     pane.push(CARET_OFF)
     expect(pane.shown()).toBe(uriOf(CARET_OFF))
+  })
+
+  it('shows a frame that was decoding when the app went to the background, sent again on return', async () => {
+    const pane = await renderPane()
+    pane.push(CARET_ON)
+    pane.decodeAll()
+    pane.push(CARET_OFF)
+
+    pane.setAppState('background')
+    pane.decodeAll()
+    pane.setAppState('active')
+    pane.push(CARET_OFF)
+    pane.decodeAll()
+
+    expect(pane.shown()).toBe(uriOf(CARET_OFF))
+  })
+
+  it('keeps streaming after a frame fails to decode and is sent again', async () => {
+    const pane = await renderPane()
+    pane.push(CARET_ON)
+    pane.decodeAll()
+    pane.push(CARET_OFF)
+    pane.decodeAll(CARET_OFF)
+
+    pane.push(CARET_OFF)
+    pane.decodeAll()
+    pane.push(CARET_ON)
+    pane.decodeAll()
+    const NEXT = frame(3, [3, 3, 3])
+    pane.push(NEXT)
+    pane.decodeAll()
+
+    expect(pane.shown()).toBe(uriOf(NEXT))
   })
 })
