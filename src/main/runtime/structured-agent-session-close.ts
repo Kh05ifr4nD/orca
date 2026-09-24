@@ -103,7 +103,7 @@ export async function closeStructuredAgentSessionChild(
 
 function readPersistedTabVisibility(host: StructuredAgentSessionHost, sessionId: string): boolean {
   try {
-    return host.getPersistedVisibleSessionTabIndex?.().sessionIds.includes(sessionId) ?? false
+    return host.isSessionTabVisible?.(sessionId) ?? false
   } catch {
     // Unreadable index: claim nothing. A rollback that cannot prove the tab was visible must not
     // publish one, for the same reason the read exists at all.

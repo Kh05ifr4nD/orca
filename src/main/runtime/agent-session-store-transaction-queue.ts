@@ -12,6 +12,7 @@ import {
 import { withFileTransactionLock } from '../file-transaction-lock'
 import type { UserDataOwnership } from '../startup/single-instance-lock'
 import { agentSessionLeaseEndedWithPreviousAppRun } from './agent-session-restart-reconciliation'
+import { adoptSavedTabsIntoLegacyIndex } from './agent-session-visible-tab-index'
 
 function markLoadedLeasesUnreconciled(state: AgentSessionStoreState): void {
   for (const [sessionId, record] of state.records) {
@@ -40,14 +41,12 @@ function agentSessionStoreStateChanged(
   operations: ReadonlyMap<string, AgentSessionOperationRow>,
   retiredClaimKeys: AgentSessionStoreState['retiredClaimKeys'],
   unreadableRecords: AgentSessionStoreState['unreadableRecords'],
-  visibleSessionIds: AgentSessionStoreState['visibleSessionIds'],
-  visibleSessionIdsIndexPresent: AgentSessionStoreState['visibleSessionIdsIndexPresent']
+  visibleSessionIds: AgentSessionStoreState['visibleSessionIds']
 ): boolean {
   return (
     !mapEntriesMatch(state.records, records) ||
     !mapEntriesMatch(state.operations, operations) ||
     !mapEntriesMatch(state.unreadableRecords, unreadableRecords) ||
-    state.visibleSessionIdsIndexPresent !== visibleSessionIdsIndexPresent ||
     state.visibleSessionIds.size !== visibleSessionIds.size ||
     [...state.visibleSessionIds].some((id) => !visibleSessionIds.has(id)) ||
     state.retiredClaimKeys.length !== retiredClaimKeys.length ||
@@ -59,7 +58,7 @@ function agentSessionStoreStateChanged(
 export type AgentSessionStoreOpenOptions = {
   /** Absent means shared: nothing proves the leases on disk were left by a previous run. */
   ownership?: UserDataOwnership
-  /** The chat tabs a profile saved before this store kept a visible-tab index. */
+  /** The chat tabs a profile saved before this store kept a visible-tab index; read only at load. */
   savedTabSessionIds?: () => readonly string[]
 }
 
@@ -70,7 +69,7 @@ export class AgentSessionStoreTransactionQueue {
    *  process holds the store alone — with a live peer, a loaded lease may be the peer's — and
    *  emptied when another writer's state replaces it. */
   private readonly fencesLoadedAtOpen: Map<string, number>
-  readonly savedTabSessionIds: () => readonly string[]
+  private readonly savedTabSessionIds: () => readonly string[]
 
   constructor(
     private readonly filePath: string,
@@ -106,6 +105,7 @@ export class AgentSessionStoreTransactionQueue {
     diskRevision: string,
     options: AgentSessionStoreOpenOptions
   ): AgentSessionStoreTransactionQueue {
+    adoptSavedTabsIntoLegacyIndex(loaded, options.savedTabSessionIds ?? (() => []))
     return new AgentSessionStoreTransactionQueue(
       filePath,
       hostId,
@@ -131,7 +131,6 @@ export class AgentSessionStoreTransactionQueue {
         const retiredClaimKeys = [...this.state.retiredClaimKeys]
         const unreadableRecords = new Map(this.state.unreadableRecords)
         const visibleSessionIds = new Set(this.state.visibleSessionIds)
-        const visibleSessionIdsIndexPresent = this.state.visibleSessionIdsIndexPresent
         try {
           // The lost commit may have granted a higher fence than the backup records show. Rather
           // than refuse forever, raise every recovered fence clear of anything that commit could
@@ -150,8 +149,7 @@ export class AgentSessionStoreTransactionQueue {
               operations,
               retiredClaimKeys,
               unreadableRecords,
-              visibleSessionIds,
-              visibleSessionIdsIndexPresent
+              visibleSessionIds
             )
           ) {
             return result
@@ -171,7 +169,6 @@ export class AgentSessionStoreTransactionQueue {
           this.state.retiredClaimKeys = retiredClaimKeys
           this.state.unreadableRecords = unreadableRecords
           this.state.visibleSessionIds = visibleSessionIds
-          this.state.visibleSessionIdsIndexPresent = visibleSessionIdsIndexPresent
           throw error
         }
       })
@@ -190,7 +187,9 @@ export class AgentSessionStoreTransactionQueue {
       throw new Error('agent_session_store_corrupt')
     }
     this.diskStoreFound ||= loaded.storeFound
+    // Hashed before adoption, like open()'s: the revision names what the file holds.
     const diskRevision = agentSessionStoreRevision(loaded.state)
+    adoptSavedTabsIntoLegacyIndex(loaded, this.savedTabSessionIds)
     this.diskRecoveredFromBackup = loaded.recoveredFromBackup
     if (diskRevision === this.diskRevision) {
       this.needsRewrite ||= loaded.needsRewrite

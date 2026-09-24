@@ -87,11 +87,11 @@ function installHost(options: HostOptions = {}) {
   hostRef.current = {
     deps: { store: { getRecord: (id: string) => (id === SESSION ? entry : null) } },
     hasSession: (sessionId: string) => held.has(sessionId),
-    getPersistedVisibleSessionTabIndex: () => {
+    isSessionTabVisible: (sessionId: string) => {
       if (options.indexThrows) {
         throw new Error('visible tab index unreadable')
       }
-      return { present: true, sessionIds: [...visible] }
+      return visible.has(sessionId)
     },
     setSessionTabVisibility,
     close

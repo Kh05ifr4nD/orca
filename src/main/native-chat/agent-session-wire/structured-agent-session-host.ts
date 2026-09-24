@@ -215,7 +215,7 @@ export class StructuredAgentSessionHost {
     providerSupport.adapterSupportsCreate(this.deps.adapter, location, agent)
 
   listSessionTabs = () => listStructuredAgentSessionTabs(this.sessions)
-  getPersistedVisibleSessionTabIndex = () => this.deps.store.getVisibleSessionTabIndex()
+  isSessionTabVisible = (sessionId: string) => this.deps.store.isSessionTabVisible(sessionId)
 
   setSessionTabVisibility = (sessionId: string, visible: boolean): Promise<void> =>
     this.deps.store.setSessionTabVisibility(sessionId, visible)

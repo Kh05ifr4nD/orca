@@ -22,6 +22,5 @@ export function commitConversationCommandRecord(
     }
     state.visibleSessionIds.delete(sessionId)
     state.visibleSessionIds.add(command.replacementSessionId)
-    state.visibleSessionIdsIndexPresent = true
   }
 }

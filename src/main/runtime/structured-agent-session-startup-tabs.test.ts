@@ -50,17 +50,11 @@ function chat(
 }
 
 /** A restarted host's durable state: its visible index and the records behind it. */
-function persistedHost(
-  chats: ReturnType<typeof chat>[],
-  options: { visible?: (sessionId: string) => boolean } = {}
-) {
+function persistedHost(chats: ReturnType<typeof chat>[], listed?: ReadonlySet<string>) {
+  const index = listed ?? new Set(chats.map((entry) => entry.sessionId))
   return {
     // No journal has opened yet, so the host holds no loaded session to list.
     listSessionTabs: () => [],
-    getPersistedVisibleSessionTabIndex: () => ({
-      present: true,
-      sessionIds: chats.map((entry) => entry.sessionId)
-    }),
     deps: {
       store: {
         getRecord: (sessionId: string) => {
@@ -77,7 +71,8 @@ function persistedHost(
               }
             : null
         },
-        isSessionTabVisible: options.visible ?? (() => true)
+        listVisibleSessionIds: () => [...index],
+        isSessionTabVisible: (sessionId: string) => index.has(sessionId)
       },
       adapter: { supportsCreate: () => true }
     }
@@ -148,7 +143,6 @@ async function legacyIndexProfile(saved: readonly string[]) {
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore and close read only the host members stubbed here.
   setStructuredAgentSessionHost({
     listSessionTabs: () => [],
-    getPersistedVisibleSessionTabIndex: () => store.getVisibleSessionTabIndex(),
     setSessionTabVisibility: (sessionId: string, visible: boolean) =>
       store.setSessionTabVisibility(sessionId, visible),
     close: async () => undefined,
@@ -213,14 +207,12 @@ describe('restored chat tabs come from durable state', () => {
     expect(await publishedChatIds(runtime, 'workspace-1')).toEqual(['agent-session:unreadable'])
   })
 
-  it('writes the visibility index only for a chat it does not already list', async () => {
+  it('writes no visibility for the chats it restores from the index', async () => {
     const runtime = restartedRuntime()
     const setSessionTabVisibility = vi.fn(async () => undefined)
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
-      ...persistedHost([chat('listed', 'workspace-1'), chat('new', 'workspace-1')], {
-        visible: (sessionId) => sessionId === 'listed'
-      }),
+      ...persistedHost([chat('listed', 'workspace-1'), chat('also-listed', 'workspace-1')]),
       setSessionTabVisibility,
       reconcileRestartLeases: async () => undefined,
       restoreReadableSessions: async () => undefined
@@ -228,7 +220,7 @@ describe('restored chat tabs come from durable state', () => {
 
     await runtime.restoreStructuredAgentSessionTabs()
 
-    expect(setSessionTabVisibility.mock.calls).toEqual([['new', true]])
+    expect(setSessionTabVisibility).not.toHaveBeenCalled()
   })
 
   it('drops a chat whose workspace is gone and keeps folder-workspace chats', async () => {
@@ -295,19 +287,16 @@ describe('restored chat tabs come from durable state', () => {
     const listed = new Set(['new', 'closed-mid'])
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
-      ...persistedHost([chat('new', 'workspace-1'), chat('closed-mid', 'workspace-1')], {
-        visible: (sessionId) => sessionId !== 'new'
-      }),
-      getPersistedVisibleSessionTabIndex: () => ({ present: true, sessionIds: [...listed] }),
-      // Publishing the first tab writes the index; the user's close of the second lands meanwhile.
-      setSessionTabVisibility: vi.fn(async (sessionId: string) => {
-        if (sessionId === 'new') {
-          listed.delete('closed-mid')
-        }
-      }),
+      ...persistedHost([chat('new', 'workspace-1'), chat('closed-mid', 'workspace-1')], listed),
       reconcileRestartLeases: async () => undefined,
       restoreReadableSessions: async () => undefined
     } as never)
+    const publish = runtime.publishStructuredAgentSessionTab.bind(runtime)
+    // The user's close of the second chat lands while the first one publishes.
+    vi.spyOn(runtime, 'publishStructuredAgentSessionTab').mockImplementation(async (input) => {
+      listed.delete('closed-mid')
+      await publish(input)
+    })
 
     await runtime.restoreStructuredAgentSessionTabs()
 
@@ -335,7 +324,7 @@ describe('restored chat tabs come from durable state', () => {
       expect(await publishedChatIds(runtime, 'workspace-1')).toEqual(
         kept.map((sessionId) => `agent-session:${sessionId}`)
       )
-      expect(store.getVisibleSessionTabIndex()).toEqual({ present: true, sessionIds: kept })
+      expect(store.listVisibleSessionIds()).toEqual(kept)
     }
   )
 

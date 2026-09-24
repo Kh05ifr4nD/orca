@@ -1,4 +1,7 @@
-import type { AgentSessionStoreState } from './agent-session-record-store-file'
+import type {
+  AgentSessionStoreState,
+  LoadedAgentSessionStore
+} from './agent-session-record-store-file'
 export function parseVisibleSessionIds(
   raw: unknown,
   schemaVersion: number,
@@ -21,21 +24,28 @@ export function parseVisibleSessionIds(
   return { ids, present: true, valid: true }
 }
 
+/** A file that predates the index lists its chat tabs only in the saved workspace session; the
+ *  index starts from those whenever such a file loads, so no later write can start it smaller. */
+export function adoptSavedTabsIntoLegacyIndex(
+  loaded: LoadedAgentSessionStore,
+  savedTabSessionIds: () => readonly string[]
+): void {
+  if (!loaded.storeFound || loaded.visibleTabIndexFound) {
+    return
+  }
+  for (const savedId of savedTabSessionIds()) {
+    if (loaded.state.records.has(savedId)) {
+      loaded.state.visibleSessionIds.add(savedId)
+    }
+  }
+  loaded.needsRewrite = true
+}
+
 export function setVisibleSessionId(
   state: AgentSessionStoreState,
   sessionId: string,
-  visible: boolean,
-  savedTabSessionIds: () => readonly string[] = () => []
+  visible: boolean
 ): void {
-  if (!state.visibleSessionIdsIndexPresent) {
-    // Until now the saved workspace session listed these tabs; the index that replaces it must
-    // start with all of them, or the first write would leave it listing only this one.
-    for (const savedId of savedTabSessionIds()) {
-      if (state.records.has(savedId)) {
-        state.visibleSessionIds.add(savedId)
-      }
-    }
-  }
   if (visible) {
     if (!state.records.has(sessionId)) {
       throw new Error('agent_session_identity_required')
@@ -44,5 +54,4 @@ export function setVisibleSessionId(
   } else {
     state.visibleSessionIds.delete(sessionId)
   }
-  state.visibleSessionIdsIndexPresent = true
 }

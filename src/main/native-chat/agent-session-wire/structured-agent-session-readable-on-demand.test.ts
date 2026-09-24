@@ -20,7 +20,7 @@ const readable = { journal: {}, params: {}, fence: 1 } as never
 
 function harness(options: {
   records: AgentSessionRecord[]
-  visible?: { present: boolean; sessionIds: string[] }
+  visible?: string[]
   supports?: (record: AgentSessionRecord) => boolean
   reconcile?: (live: Map<string, unknown>) => Promise<null>
 }) {
@@ -34,11 +34,8 @@ function harness(options: {
       getRecord: (sessionId: string) =>
         options.records.find((record) => record.sessionId === sessionId) ?? null,
       listRecords: () => options.records,
-      getVisibleSessionTabIndex: () =>
-        options.visible ?? {
-          present: true,
-          sessionIds: options.records.map((record) => record.sessionId)
-        }
+      isSessionTabVisible: (sessionId: string) =>
+        (options.visible ?? options.records.map((record) => record.sessionId)).includes(sessionId)
     } as unknown as AgentSessionRecordStore,
     journalRoot: '/journals',
     supportsRecord: options.supports ?? (() => true),
@@ -132,7 +129,7 @@ describe('an on-demand read of a persisted chat', () => {
     // bring the chat back.
     const { restorer, live } = harness({
       records: [record('session-closed')],
-      visible: { present: true, sessionIds: [] }
+      visible: []
     })
 
     await expect(restorer.ensureReadable('session-closed')).resolves.toBe('unavailable')
@@ -143,7 +140,7 @@ describe('an on-demand read of a persisted chat', () => {
 
   it('does not reopen a chat closed while the read was already past its visibility check', async () => {
     // Close hides the tab, then queues its eviction; a read held up in reconcile queues after it.
-    const visible = { present: true, sessionIds: ['session-1'] }
+    const visible = ['session-1']
     const reconciled = Promise.withResolvers<null>()
     const { restorer, live, tasks } = harness({
       records: [record('session-1')],
@@ -152,7 +149,7 @@ describe('an on-demand read of a persisted chat', () => {
     })
 
     const read = restorer.ensureReadable('session-1')
-    visible.sessionIds = []
+    visible.length = 0
     const close = tasks.serialize('session-1', async () => undefined)
     reconciled.resolve(null)
 
@@ -162,17 +159,8 @@ describe('an on-demand read of a persisted chat', () => {
     expect(readRestore.restoreStructuredAgentSessionRead).not.toHaveBeenCalled()
   })
 
-  it('reads any supported record when the store keeps no visible-tab index', async () => {
-    const { restorer } = harness({
-      records: [record('session-1')],
-      visible: { present: false, sessionIds: [] }
-    })
-
-    await expect(restorer.ensureReadable('session-1')).resolves.toBe('readable')
-  })
-
   it('answers a live session without reopening it', async () => {
-    const { restorer, live } = harness({ records: [], visible: { present: true, sessionIds: [] } })
+    const { restorer, live } = harness({ records: [], visible: [] })
     live.set('session-live', readable)
 
     await expect(restorer.ensureReadable('session-live')).resolves.toBe('readable')

@@ -12,7 +12,11 @@ type PersistedChat = {
 }
 
 /** The host's durable state as restore reads it: records by id, every provider supported. */
-function persistedChats(chats: PersistedChat[] = []) {
+/** Durable state behind a restored host: its records and the tabs its index lists. */
+function persistedChats(
+  chats: PersistedChat[] = [],
+  visible: readonly string[] = chats.map((chat) => chat.sessionId)
+) {
   return {
     store: {
       getRecord: (sessionId: string) => {
@@ -25,7 +29,8 @@ function persistedChats(chats: PersistedChat[] = []) {
             }
           : null
       },
-      isSessionTabVisible: () => false
+      listVisibleSessionIds: () => visible,
+      isSessionTabVisible: (sessionId: string) => visible.includes(sessionId)
     },
     adapter: { supportsCreate: () => true }
   }
@@ -189,12 +194,8 @@ describe('structured session cold restoration', () => {
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
       reconcileRestartLeases: async () => undefined,
-      getPersistedVisibleSessionTabIndex: () => ({
-        present: true,
-        sessionIds: ['session-survives-rollback']
-      }),
       restoreReadableSessions,
-      deps: persistedChats()
+      deps: persistedChats([], ['session-survives-rollback'])
     } as never)
 
     await runtime.restoreStructuredAgentSessionTabs()
@@ -249,7 +250,6 @@ describe('structured session cold restoration', () => {
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only the host members stubbed here.
     setStructuredAgentSessionHost({
       reconcileRestartLeases: async () => undefined,
-      getPersistedVisibleSessionTabIndex: () => ({ present: true, sessionIds: [] }),
       restoreReadableSessions,
       deps: persistedChats()
     } as never)
@@ -286,10 +286,6 @@ describe('structured session cold restoration', () => {
       restoreReadableSessions: async () => undefined,
       close: closeStructuredSession,
       setSessionTabVisibility,
-      getPersistedVisibleSessionTabIndex: () => ({
-        present: true,
-        sessionIds: ['agent-session:agent-session:restored-session']
-      }),
       deps: persistedChats([
         {
           sessionId: 'agent-session:agent-session:restored-session',
@@ -407,10 +403,6 @@ describe('structured session cold restoration', () => {
     setStructuredAgentSessionHost({
       reconcileRestartLeases: async () => undefined,
       restoreReadableSessions: async () => undefined,
-      getPersistedVisibleSessionTabIndex: () => ({
-        present: true,
-        sessionIds: ['agent-session:agent-session:restored-claude']
-      }),
       deps: persistedChats([
         {
           sessionId: 'agent-session:agent-session:restored-claude',

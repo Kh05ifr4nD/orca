@@ -100,9 +100,13 @@ describe('structured session rollback compatibility', () => {
     await writeFile(join(journalDir, 'journal.log'), 'durable-journal-fixture\n')
 
     const target = await AgentSessionRecordStore.open({ directory: storeDir, hostId: 'local' })
-    expect(target.getVisibleSessionTabIndex()).toEqual({ present: false, sessionIds: [] })
+    // The file predates the tab index and no saved tab lists the chat: the load writes an empty one.
+    expect(target.listVisibleSessionIds()).toEqual([])
+    expect(
+      JSON.parse(await readFile(join(storeDir, AGENT_SESSION_STORE_FILE_NAME), 'utf8'))
+    ).toMatchObject({ visibleSessionIds: [] })
     await target.setSessionTabVisibility(SESSION, true)
-    expect(target.getVisibleSessionTabIndex()).toEqual({ present: true, sessionIds: [SESSION] })
+    expect(target.listVisibleSessionIds()).toEqual([SESSION])
 
     const targetProfile = profileWithStructuredTab()
     const targetParsed = safeParseWorkspaceSession(targetProfile)
@@ -138,7 +142,6 @@ describe('structured session rollback compatibility', () => {
 
     await reloaded.setSessionTabVisibility(SESSION, false)
     const afterClose = await AgentSessionRecordStore.open({ directory: storeDir, hostId: 'local' })
-    expect(afterClose.getVisibleSessionTabIndex()).toEqual({ present: true, sessionIds: [] })
     expect(afterClose.listVisibleSessionIds()).toEqual([])
     expect(afterClose.getRecord(SESSION)?.providerHandleChain).toHaveLength(1)
   })

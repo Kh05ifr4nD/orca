@@ -70,8 +70,7 @@ function storeState(records: readonly AgentSessionRecord[] = []): AgentSessionSt
     operations: new Map(),
     retiredClaimKeys: [],
     unreadableRecords: new Map(),
-    visibleSessionIds: new Set(),
-    visibleSessionIdsIndexPresent: true
+    visibleSessionIds: new Set()
   }
 }
 

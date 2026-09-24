@@ -6,9 +6,6 @@ import { listPersistedStructuredAgentSessionTabs } from '../native-chat/agent-se
 import { replaceConversationInSnapshot } from './structured-conversation-tab-replacement'
 import type { ConversationReplacement } from '../native-chat/agent-session-wire/structured-conversation-command'
 import {
-  localStructuredAgentSessionWorkspaceSession,
-  structuredAgentSessionStartupTabIds,
-  structuredAgentSessionTabStillListed,
   structuredAgentSessionWorkspaceCatalog,
   structuredAgentSessionWorkspaceExists
 } from './structured-agent-session-startup-tabs'
@@ -78,7 +75,7 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
         (session.agent !== 'codex' && session.agent !== 'claude') ||
         !structuredAgentSessionWorkspaceExists(session, workspaces) ||
         // Asked per tab: a close can land while the tabs before this one publish.
-        !structuredAgentSessionTabStillListed(host, session.sessionId)
+        !host.deps.store.isSessionTabVisible(session.sessionId)
       ) {
         continue
       }
@@ -113,12 +110,7 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
   }
 
   private persistedStructuredAgentSessionTabIds(host): readonly string[] {
-    return structuredAgentSessionStartupTabIds(
-      typeof host?.getPersistedVisibleSessionTabIndex === 'function'
-        ? host.getPersistedVisibleSessionTabIndex()
-        : { present: false, sessionIds: [] },
-      localStructuredAgentSessionWorkspaceSession(this.store)
-    )
+    return host?.deps?.store?.listVisibleSessionIds?.() ?? []
   }
 
   async publishStructuredAgentSessionTab(input: {

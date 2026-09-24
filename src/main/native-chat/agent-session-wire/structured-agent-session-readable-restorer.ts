@@ -63,7 +63,7 @@ export class StructuredAgentSessionReadableRestorer {
    * startup sweep. Read phase only: the handoff recovery stays the sweep's, which runs it once the
    * PTY census it depends on exists.
    *
-   * Only for a chat the user still has a tab for, when the store keeps that index: a read retry
+   * Only for a chat the user still has a tab for: a read retry
    * landing after a close must not reopen the chat it just closed. Asked again inside the task
    * queue, because a read already past this check can still queue behind that close.
    */
@@ -75,10 +75,7 @@ export class StructuredAgentSessionReadableRestorer {
     if (!record || !this.input.supportsRecord(record)) {
       return 'unavailable'
     }
-    const tabVisible = (): boolean => {
-      const visible = this.input.store.getVisibleSessionTabIndex()
-      return !visible.present || visible.sessionIds.includes(sessionId)
-    }
+    const tabVisible = (): boolean => this.input.store.isSessionTabVisible(sessionId)
     if (!tabVisible()) {
       return 'unavailable'
     }

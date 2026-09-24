@@ -25,6 +25,8 @@ import {
 async function runTurn(state: 'running' | 'completed'): Promise<void> {
   const previous = hostTestState()
   await attach()
+  // The chat has a tab, so the pane's read after the restart is one the host serves.
+  await previous.store.setSessionTabVisibility(SESSION, true)
   const events = previous.acquire.mock.calls.at(-1)?.[0].events
   if (!events) {
     throw new Error('missing provider event sink')

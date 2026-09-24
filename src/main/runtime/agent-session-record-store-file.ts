@@ -41,8 +41,6 @@ export type AgentSessionStoreState = {
   unreadableRecords: Map<string, { reason: string; raw: unknown }>
   /** Structured sessions that currently have a visible chat tab. */
   visibleSessionIds: Set<string>
-  /** True once this store has committed the visibility index field. */
-  visibleSessionIdsIndexPresent: boolean
 }
 
 export type LoadedAgentSessionStore = {
@@ -54,6 +52,8 @@ export type LoadedAgentSessionStore = {
   recoveredFromBackup: boolean
   /** True when the normalized current-schema quarantine must be persisted. */
   needsRewrite: boolean
+  /** False when the file predates the visible-tab index, or there is no file. */
+  visibleTabIndexFound: boolean
 }
 
 export function agentSessionStorePath(directory: string): string {
@@ -68,8 +68,7 @@ function emptyState(hostId: string): AgentSessionStoreState {
     operations: new Map(),
     retiredClaimKeys: [],
     unreadableRecords: new Map(),
-    visibleSessionIds: new Set(),
-    visibleSessionIdsIndexPresent: false
+    visibleSessionIds: new Set()
   }
 }
 
@@ -84,7 +83,7 @@ export function agentSessionStoreRevision(state: AgentSessionStoreState): string
 function parseState(
   raw: string,
   hostId: string
-): { state: AgentSessionStoreState; needsRewrite: boolean } | null {
+): { state: AgentSessionStoreState; needsRewrite: boolean; visibleTabIndexFound: boolean } | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
@@ -218,9 +217,8 @@ function parseState(
   if (!visibleSessionIds.valid) {
     return null
   }
-  state.visibleSessionIdsIndexPresent = visibleSessionIds.present
   visibleSessionIds.ids.forEach((sessionId) => state.visibleSessionIds.add(sessionId))
-  return { state, needsRewrite }
+  return { state, needsRewrite, visibleTabIndexFound: visibleSessionIds.present }
 }
 
 /** A record the primary retained as unreadable may still have a valid copy in the previous
@@ -292,7 +290,8 @@ export async function loadAgentSessionStore(
       storeFound: true,
       readOnly: parsed.state.schemaVersion > AGENT_SESSION_STORE_SCHEMA_VERSION,
       recoveredFromBackup,
-      needsRewrite: parsed.needsRewrite
+      needsRewrite: parsed.needsRewrite,
+      visibleTabIndexFound: parsed.visibleTabIndexFound
     }
   }
   if (unusableStoreFound) {
@@ -303,6 +302,7 @@ export async function loadAgentSessionStore(
     storeFound: false,
     readOnly: false,
     recoveredFromBackup: false,
-    needsRewrite: false
+    needsRewrite: false,
+    visibleTabIndexFound: false
   }
 }

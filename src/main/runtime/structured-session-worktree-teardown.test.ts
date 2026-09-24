@@ -91,7 +91,7 @@ function installHost(options: {
   hostRef.current = {
     deps: { store: { listRecords: () => options.records, getRecord: () => null } },
     hasSession: (sessionId: string) => held.has(sessionId),
-    getPersistedVisibleSessionTabIndex: () => ({ present: true, sessionIds: [...visible] }),
+    isSessionTabVisible: (sessionId: string) => visible.has(sessionId),
     setSessionTabVisibility: async (sessionId: string, isVisible: boolean) => {
       if (!isVisible) {
         visible.delete(sessionId)

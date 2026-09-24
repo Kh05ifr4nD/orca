@@ -5,29 +5,6 @@ import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import { parseWorkspaceKey } from '../../shared/workspace-scope'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree/id'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
-import { collectSavedStructuredAgentSessionIds } from './saved-structured-agent-session-restoration'
-
-/** The durable visible-tab index when the store keeps one; a profile that predates it falls back
- *  to the agent tabs its saved workspace session still lists. */
-export function structuredAgentSessionStartupTabIds(
-  visibleIndex: { present: boolean; sessionIds: readonly string[] },
-  workspaceSession: WorkspaceSessionState | null
-): readonly string[] {
-  return visibleIndex.present
-    ? visibleIndex.sessionIds
-    : collectSavedStructuredAgentSessionIds(workspaceSession)
-}
-
-/** False once a close has dropped the chat from a durable index; a profile without one lists all. */
-export function structuredAgentSessionTabStillListed(
-  host: {
-    getPersistedVisibleSessionTabIndex?: () => { present: boolean; sessionIds: readonly string[] }
-  } | null,
-  sessionId: string
-): boolean {
-  const index = host?.getPersistedVisibleSessionTabIndex?.()
-  return !index?.present || index.sessionIds.includes(sessionId)
-}
 
 export type StructuredAgentSessionWorkspaceCatalog = {
   /** Null when the store cannot report repos: an unknown list must not read as "every repo is gone". */
