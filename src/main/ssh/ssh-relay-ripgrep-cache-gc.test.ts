@@ -5,6 +5,7 @@ vi.mock('./ssh-relay-deploy-helpers', () => ({ execCommand: execCommandMock }))
 
 import type { SshConnection } from './ssh-connection'
 import { getRemoteHostPlatform } from './ssh-remote-platform'
+import { decodeRemotePowerShellScript } from './ssh-remote-powershell'
 import { gcRemoteRipgrepCache, supportsRipgrepCacheGc } from './ssh-relay-ripgrep-cache-gc'
 
 const LINUX = getRemoteHostPlatform('linux-x64')
@@ -156,11 +157,48 @@ describe('remote ripgrep cache GC', () => {
     expect(removedTrees()).toEqual([])
   })
 
-  it('has no pass on Windows remotes yet', async () => {
+  // Why Windows gets the same coverage and not a gate: leaving one dialect uncollected means the
+  // leak simply moves to Windows remotes, where a `.exe` is the larger of the two builds.
+  it('collects an unreferenced build on Windows remotes too', async () => {
+    const WIN_CURRENT = 'c0ffee0123456789-win32-x64'
+    const WIN_OLD = 'dead000000000000-win32-x64'
     execCommandMock.mockReset()
+    execCommandMock.mockImplementation((_conn: unknown, command: string) => {
+      const text = decodeRemotePowerShellScript(String(command)) ?? String(command)
+      if (text.includes("'ENTRY '")) {
+        return Promise.resolve(`ENTRY ${WIN_CURRENT}\nENTRY ${WIN_OLD}\n__ORCA_RG_CACHE__LIST_OK`)
+      }
+      if (text.includes("'REF '")) {
+        return Promise.resolve(`REF ${WIN_CURRENT}\n__ORCA_RG_CACHE__REFS_OK`)
+      }
+      if (text.includes('MOVED')) {
+        return Promise.resolve('MOVED')
+      }
+      return Promise.resolve('')
+    })
 
-    expect(supportsRipgrepCacheGc(WINDOWS)).toBe(false)
+    expect(supportsRipgrepCacheGc(WINDOWS)).toBe(true)
+    await gcRemoteRipgrepCache(conn, WINDOWS, 'C:/Users/me', { pinnedEntry: WIN_CURRENT })
+
+    const removals = scripts()
+      .map((s) => decodeRemotePowerShellScript(s) ?? s)
+      .filter(
+        (s) => s.includes('Remove-Item') && s.includes('.rg-gc-') && !s.includes('AddMinutes')
+      )
+    expect(removals).toHaveLength(1)
+    expect(removals[0]).toContain(WIN_OLD)
+  })
+
+  // Why: PowerShell writes every uncaptured value to stdout, so a listing that forgot its token
+  // prefix would mix cmdlet output into the entry list and feed `Remove-Item` a foreign name.
+  it('prefixes every Windows listing line with its token', async () => {
+    execCommandMock.mockReset()
+    execCommandMock.mockResolvedValue('__ORCA_RG_CACHE__LIST_OK')
+
     await gcRemoteRipgrepCache(conn, WINDOWS, 'C:/Users/me', {})
-    expect(execCommandMock).not.toHaveBeenCalled()
+
+    const listing = decodeRemotePowerShellScript(scripts()[0]) ?? ''
+    expect(listing).toContain("'ENTRY ' + $_.Name")
+    expect(listing).toContain('__ORCA_RG_CACHE__LIST_OK')
   })
 })

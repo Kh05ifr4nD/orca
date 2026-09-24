@@ -27,6 +27,7 @@ import {
 } from './ssh-relay-ripgrep-install'
 import { RELAY_REMOTE_DIR } from './relay-protocol'
 import { moveRemoteTreeCommand, removeRemoteTreeCommand } from './ssh-remote-commands'
+import { powerShellCommand, powerShellLiteral } from './ssh-remote-powershell'
 import { isWindowsRemoteHost, joinRemotePath, type RemoteHostPlatform } from './ssh-remote-platform'
 
 const LIST_OK = '__ORCA_RG_CACHE__LIST_OK'
@@ -36,11 +37,12 @@ const TOMBSTONE_PREFIX = '.rg-gc-'
 /** Bounds every listing, the way MAX_RELAY_GC_LISTING_ENTRIES bounds version dirs. */
 const MAX_LISTING_ENTRIES = 64
 /** An entry name is `<16-hex-content-hash>-<os>-<arch>`; only names this client mints are eligible. */
+const RIPGREP_REF_FILE_NAME = remoteRipgrepRefFileName()
 const ENTRY_NAME = /^[0-9a-f]{16}-(?:linux|darwin|win32)-(?:x64|arm64)$/
 
-/** Windows remotes have no pass yet, matching the native-deps cache's own POSIX gate. */
-export function supportsRipgrepCacheGc(host: RemoteHostPlatform): boolean {
-  return !isWindowsRemoteHost(host)
+/** Both dialects are implemented; the export stays so callers can ask rather than assume. */
+export function supportsRipgrepCacheGc(_host: RemoteHostPlatform): boolean {
+  return true
 }
 
 function cacheDir(host: RemoteHostPlatform, remoteHome: string): string {
@@ -52,6 +54,19 @@ function exec(conn: SshConnection, host: RemoteHostPlatform, command: string): P
 }
 
 function listEntriesCommand(host: RemoteHostPlatform, remoteHome: string): string {
+  if (isWindowsRemoteHost(host)) {
+    const dir = powerShellLiteral(cacheDir(host, remoteHome))
+    return powerShellCommand(
+      [
+        `if (-not (Test-Path -LiteralPath ${dir})) { '${LIST_OK}'; exit 0 }`,
+        `Get-ChildItem -LiteralPath ${dir} -Directory -Filter '${TOMBSTONE_PREFIX}*' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddMinutes(-30) } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue`,
+        // Why the ENTRY prefix and not bare names: PowerShell writes every uncaptured value to
+        // stdout, so the token is what separates this listing from anything else a cmdlet emits.
+        `Get-ChildItem -LiteralPath ${dir} -Directory -ErrorAction SilentlyContinue | ForEach-Object { 'ENTRY ' + $_.Name }`,
+        `'${LIST_OK}'`
+      ].join('\n')
+    )
+  }
   const dir = shellEscape(cacheDir(host, remoteHome))
   return [
     `d=${dir}`,
@@ -73,6 +88,24 @@ function listEntriesCommand(host: RemoteHostPlatform, remoteHome: string): strin
  * running right now against a binary it never recorded.
  */
 function listReferencesCommand(host: RemoteHostPlatform, remoteHome: string): string {
+  if (isWindowsRemoteHost(host)) {
+    const root = powerShellLiteral(joinRemotePath(host, remoteHome, RELAY_REMOTE_DIR))
+    return powerShellCommand(
+      [
+        `if (-not (Test-Path -LiteralPath ${root})) { '${REFS_OK}'; exit 0 }`,
+        `$dirs = @(Get-ChildItem -LiteralPath ${root} -Directory -Filter 'relay-*' -ErrorAction SilentlyContinue)`,
+        `if ($dirs.Count -ge ${MAX_LISTING_ENTRIES}) { '${REFS_ERR}'; exit 0 }`,
+        'foreach ($d in $dirs) {',
+        `  $f = Join-Path $d.FullName '${RIPGREP_REF_FILE_NAME}'`,
+        `  if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { '${REFS_ERR}'; exit 0 }`,
+        '  $t = (Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue)',
+        `  if ([string]::IsNullOrWhiteSpace($t)) { '${REFS_ERR}'; exit 0 }`,
+        "  'REF ' + $t.Trim()",
+        '}',
+        `'${REFS_OK}'`
+      ].join('\n')
+    )
+  }
   const root = shellEscape(joinRemotePath(host, remoteHome, RELAY_REMOTE_DIR))
   return [
     `root=${root}`,
