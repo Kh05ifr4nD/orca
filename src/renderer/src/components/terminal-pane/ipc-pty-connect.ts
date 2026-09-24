@@ -15,6 +15,11 @@ import type { IpcPtySessionHandlers } from './ipc-pty-session-handlers'
 import { isSshSessionGoneError } from './pty-connection/pty-connect-limits'
 import { spawnIpcPty } from './ipc-pty-spawn-request'
 import type { IpcPtyTransportOptions, PtyConnectResult, PtyTransport } from './pty-transport-types'
+import {
+  type FreshSpawnRetirementPath,
+  notePtySpawnedForBreadcrumbs,
+  recordFreshSpawnRetirementBreadcrumb
+} from '@/lib/terminal-tab-lifecycle-breadcrumbs'
 
 const SSH_PTY_CONNECTION_MISMATCH_MARKER = 'belongs to SSH connection'
 
@@ -39,7 +44,7 @@ export async function connectIpcPty(
   context: IpcPtyConnectContext
 ): Promise<void | string | PtyConnectResult> {
   const { transportOptions, handlers } = context
-  const { onPtySpawn } = transportOptions
+  const { onPtySpawn, retainDisposedSpawn } = transportOptions
   context.setCallbacks(options.callbacks)
   ensurePtyDispatcher()
 
@@ -88,37 +93,49 @@ export async function connectIpcPty(
     // this spawn can be handed an id a dead PTY used to own. State dated at or below this fence was
     // recorded before we asked for a PTY, so it belongs to that earlier owner, not to us.
     const priorIncarnationFence = currentPreHandlerPtySequence()
+    const spawnRequestedAtMs = Date.now()
     const spawnResult = await spawnIpcPty(transportOptions, options, admittedSessionId)
-    const retireFreshSpawn = async (): Promise<void> => {
+    const retireFreshSpawn = async (path: FreshSpawnRetirementPath): Promise<void> => {
       if (context.handleExplicitlyClosedConnect?.(spawnResult.id)) {
         return
       }
       // A newer generation may already own a recycled id; an id-only kill would retire its PTY.
-      if (
-        !spawnResult.isReattach &&
-        !spawnResult.coldRestore &&
-        !context.ownsPtyId(spawnResult.id)
-      ) {
+      if (spawnResult.isReattach || spawnResult.coldRestore || context.ownsPtyId(spawnResult.id)) {
+        return
+      }
+      // A pane remounted mid-spawn is handed this same id by main's pane-spawn reservation, so only
+      // the surface owner can say the PTY is ownerless. A live transport refusing the id
+      // (`admitPtyId`) is the pane's only transport, so that path always kills (#11003).
+      const retained = path === 'disposed' && retainDisposedSpawn?.() === true
+      recordFreshSpawnRetirementBreadcrumb({
+        path,
+        outcome: retained ? 'retained' : 'killed',
+        ptyId: spawnResult.id,
+        tabId: transportOptions.tabId,
+        isSsh: Boolean(transportOptions.connectionId),
+        spawnWaitMs: Date.now() - spawnRequestedAtMs
+      })
+      if (!retained) {
         await window.api.pty.kill(spawnResult.id)
       }
     }
 
     if (context.isDestroyed()) {
-      await retireFreshSpawn()
+      await retireFreshSpawn('disposed')
       return
     }
     if (options.admitPtyId && !options.admitPtyId(spawnResult.id)) {
-      await retireFreshSpawn()
+      await retireFreshSpawn('refused')
       return context.isDestroyed() ? undefined : spawnResult
     }
     if (context.isDestroyed()) {
-      await retireFreshSpawn()
+      await retireFreshSpawn('disposed')
       return
     }
     if (spawnResult.isReattach && !admittedSessionId) {
       context.getCallbacks().onReattachDetermined?.()
       if (context.isDestroyed()) {
-        await retireFreshSpawn()
+        await retireFreshSpawn('disposed')
         return
       }
     }
@@ -134,6 +151,7 @@ export async function connectIpcPty(
     }
     context.bind(spawnResult.id)
     if (!spawnResult.isReattach && !spawnResult.coldRestore) {
+      notePtySpawnedForBreadcrumbs(spawnResult.id)
       onPtySpawn?.(spawnResult.id)
       if (context.isDestroyed()) {
         return

@@ -16,6 +16,7 @@ import {
   updateGroup
 } from '../slices/tab-group-state'
 import { createBrowserUuid } from '@/lib/browser-uuid'
+import { recordActiveTerminalTabAutoMoveBreadcrumb } from '@/lib/terminal-tab-lifecycle-breadcrumbs'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import type { TerminalSlice, TerminalStoreGet, TerminalStoreSet } from './terminal-state'
 import {
@@ -59,6 +60,14 @@ export function createTerminalTabCreationActions(
   return {
     createTab: (worktreeId, targetGroupId, shellOverride, options) => {
       let tab!: TerminalTab
+      const sweptOrphans: {
+        current: {
+          sweptCount: number
+          fromTabId: string | null
+          toTabId: string | null
+          tabCount: number
+        } | null
+      } = { current: null }
       set((s) => {
         const orphanTerminalIds = getOrphanTerminalIds(s, worktreeId)
         const orphanCleanupPatch = buildOrphanTerminalCleanupPatch(s, worktreeId, orphanTerminalIds)
@@ -214,6 +223,15 @@ export function createTerminalTabCreationActions(
         const nextActiveTabIdForWorktree = shouldActivate
           ? tab.id
           : (cleanedActiveTabIdForWorktree ?? cleanedGroupActiveTabId ?? tab.id)
+        // Swept tabs vanish without a close event, so record them even when focus stays put.
+        if (orphanTerminalIds.size > 0) {
+          sweptOrphans.current = {
+            sweptCount: orphanTerminalIds.size,
+            fromTabId: s.activeTabIdByWorktree[worktreeId] ?? null,
+            toTabId: nextActiveTabIdForWorktree,
+            tabCount: existing.length + 1
+          }
+        }
         return {
           ...orphanCleanupPatch,
           tabsByWorktree: {
@@ -272,6 +290,12 @@ export function createTerminalTabCreationActions(
           }
         }
       })
+      if (sweptOrphans.current) {
+        recordActiveTerminalTabAutoMoveBreadcrumb({
+          reason: 'create-tab-orphan-sweep',
+          ...sweptOrphans.current
+        })
+      }
       if (options?.initialPtyId) {
         // Why: a tab born with a live PTY (CLI/runtime create) wakes the workspace like any other bind.
         clearWorktreeSleepIntent(worktreeId)
