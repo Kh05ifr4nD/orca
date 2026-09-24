@@ -8,23 +8,55 @@
 export const ORCA_DISPATCH_STATUS_PREAMBLE_PREFIX =
   'You are working inside Orca, a multi-agent IDE.'
 export const ORCA_DISPATCH_STATUS_TASK_MARKER = '=== TASK ==='
+// Why: typed (not pasted) ahead of the preamble. Claude Code wraps a paste in
+// <pasted_content> and follows it only where the user's own words ask it to;
+// a bare paste reads as prompt injection and workers refuse it (STA-8200).
+export const ORCA_DISPATCH_PROMPT_LEAD_LINE =
+  'Please carry out this task from my Orca coordinator by following the brief I pasted below.'
 const ORCA_DISPATCH_STATUS_TASK_ID_MARKER = 'Your task ID is:'
 // Why: real preambles put === TASK === near the end (~4KB+). Scan past the
 // normal single-line budget so the task body is still reachable for compacting.
 const ORCA_DISPATCH_STATUS_SOURCE_SCAN_LIMIT = 24_576
+const PASTED_CONTENT_OPEN_TAG = '<pasted_content'
+// Why: Claude Code's tag carries only a short id; bound the search for `>`.
+const PASTED_CONTENT_OPEN_TAG_MAX_LENGTH = 64
 
 export function isOrcaDispatchStatusPrompt(value: string): boolean {
+  return findOrcaDispatchPreambleStart(value) !== -1
+}
+
+/**
+ * Index of the preamble prefix, or -1. Hook prompts may carry the typed lead
+ * line and Claude Code's `<pasted_content>` wrapper ahead of it, and hosts
+ * without the lead line still send the bare preamble.
+ */
+export function findOrcaDispatchPreambleStart(value: string): number {
   // Why: status payloads cross a trust boundary. Keep dispatch detection
   // bounded too, or leading whitespace can bypass the normalizer's scan cap.
   const scanEnd = Math.min(value.length, ORCA_DISPATCH_STATUS_SOURCE_SCAN_LIMIT)
-  let start = 0
-  while (start < scanEnd && isEcmaTrimWhitespace(value.charCodeAt(start))) {
-    start++
+  let start = skipTrimWhitespace(value, 0, scanEnd)
+  if (value.startsWith(ORCA_DISPATCH_PROMPT_LEAD_LINE, start)) {
+    start = skipTrimWhitespace(value, start + ORCA_DISPATCH_PROMPT_LEAD_LINE.length, scanEnd)
   }
-  return (
-    start + ORCA_DISPATCH_STATUS_PREAMBLE_PREFIX.length <= scanEnd &&
+  if (value.startsWith(PASTED_CONTENT_OPEN_TAG, start)) {
+    const tagEnd = value.indexOf('>', start + PASTED_CONTENT_OPEN_TAG.length)
+    if (tagEnd === -1 || tagEnd - start >= PASTED_CONTENT_OPEN_TAG_MAX_LENGTH) {
+      return -1
+    }
+    start = skipTrimWhitespace(value, tagEnd + 1, scanEnd)
+  }
+  return start + ORCA_DISPATCH_STATUS_PREAMBLE_PREFIX.length <= scanEnd &&
     value.startsWith(ORCA_DISPATCH_STATUS_PREAMBLE_PREFIX, start)
-  )
+    ? start
+    : -1
+}
+
+function skipTrimWhitespace(value: string, from: number, scanEnd: number): number {
+  let index = from
+  while (index < scanEnd && isEcmaTrimWhitespace(value.charCodeAt(index))) {
+    index++
+  }
+  return index
 }
 
 /**
@@ -40,10 +72,8 @@ export function compactDispatchPromptForStatus(
   const scanEnd = Math.min(value.length, ORCA_DISPATCH_STATUS_SOURCE_SCAN_LIMIT)
   // Bound leading trim to the scan window so a multi-MB paste of pure
   // whitespace cannot walk the entire string before we give up.
-  let start = 0
-  while (start < scanEnd && isEcmaTrimWhitespace(value.charCodeAt(start))) {
-    start++
-  }
+  const preambleStart = findOrcaDispatchPreambleStart(value)
+  const start = preambleStart === -1 ? skipTrimWhitespace(value, 0, scanEnd) : preambleStart
   const scan = value.slice(start, scanEnd)
 
   let taskId = ''
@@ -65,6 +95,9 @@ export function compactDispatchPromptForStatus(
     const body = scan.slice(taskMarkerIndex + ORCA_DISPATCH_STATUS_TASK_MARKER.length)
     for (const line of body.split(/\r?\n/)) {
       const preview = line.trim().replace(/\s+/g, ' ')
+      if (preview.startsWith('</pasted_content')) {
+        break
+      }
       if (preview) {
         taskBody = preview
         break

@@ -118,8 +118,11 @@ export function sanitizeAgentPromptText(text: string): string {
   return sanitized + text.slice(start)
 }
 
-export function buildAgentPromptPasteBytes(prompt: string): string {
-  return `${AGENT_PROMPT_BRACKETED_PASTE_START}${sanitizeAgentPromptText(prompt)}${AGENT_PROMPT_BRACKETED_PASTE_END}`
+/** `leadLine` is typed, not pasted, so the agent reads it as the user's own words about the
+ *  paste; it shares the frame's PTY write and is folded to one line so it cannot submit early. */
+export function buildAgentPromptPasteBytes(prompt: string, leadLine?: string): string {
+  const lead = leadLine ? `${sanitizeAgentPromptText(leadLine.replace(/[\r\n]+/g, ' '))} ` : ''
+  return `${lead}${AGENT_PROMPT_BRACKETED_PASTE_START}${sanitizeAgentPromptText(prompt)}${AGENT_PROMPT_BRACKETED_PASTE_END}`
 }
 
 export function buildAgentPromptSubmitBytes(): string {

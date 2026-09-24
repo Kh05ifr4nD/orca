@@ -8,6 +8,7 @@ import {
   parseAllowStaleBaseFromSpec
 } from './coordinator-stale-base-flag'
 import { isAgentPromptStalledError } from '../agent-prompt-submission-verification'
+import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../shared/orca-dispatch-status-prompt'
 
 /** `dispatched-unobserved`: the preamble landed but the worker's turn start was never observed. */
 export type TaskDispatchResult = 'dispatched' | 'dispatched-unobserved' | 'stale-base-refused'
@@ -137,6 +138,7 @@ export async function dispatchTaskToWorker(params: {
 
   try {
     await runtime.sendTerminalAgentPrompt(targetHandle, preamble + gateContext, {
+      leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
       acceptQueued: true,
       observationTimeoutMs: 0,
       requestId: dispatch.id

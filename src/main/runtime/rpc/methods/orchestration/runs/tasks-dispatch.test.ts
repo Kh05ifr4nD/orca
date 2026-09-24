@@ -5,6 +5,7 @@ import type { OrchestrationDb } from '../../../../orchestration/db'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { buildInjectRejectionMessage } from '../../../../../../shared/orchestration-dispatch-refusal-contract'
 import { createRootDispatch } from '../../../../orchestration/db/root-dispatch-test-fixture'
+import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../../../../shared/orca-dispatch-status-prompt'
 
 describe('orchestration RPC methods', () => {
   const h = createOrchestrationRpcHarness()
@@ -349,6 +350,7 @@ describe('orchestration RPC methods', () => {
         'term_a',
         expect.stringContaining('orca-dev orchestration send'),
         expect.objectContaining({
+          leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
           acceptQueued: true,
           observationTimeoutMs: 0,
           requestId: expect.any(String)

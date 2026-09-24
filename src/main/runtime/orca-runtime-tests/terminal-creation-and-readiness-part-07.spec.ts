@@ -509,6 +509,39 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
+  it('types a lead line in the same write as the paste frame, then submits', async () => {
+    vi.useFakeTimers()
+    try {
+      const writes: string[] = []
+      const runtime = new OrcaRuntimeService(store)
+      runtime.setPtyController({
+        spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+        write: (_ptyId, data) => {
+          writes.push(data)
+          acknowledgeAgentPromptSubmit(runtime, 'pty-bg', data)
+          return true
+        },
+        kill: () => true,
+        getForegroundProcess: async () => null
+      })
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+
+      const sendPromise = runtime.sendTerminalAgentPrompt(handle, 'the brief', {
+        leadLine: 'Please follow\rthe brief'
+      })
+      await vi.runAllTimersAsync()
+      await sendPromise
+
+      // Why: a CR in the typed lead would submit before the paste lands.
+      expect(writes).toEqual([
+        `Please follow the brief ${AGENT_PROMPT_BRACKETED_PASTE_START}the brief${AGENT_PROMPT_BRACKETED_PASTE_END}`,
+        '\r'
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each(['claude', 'codex'] as const)(
     'waits for %s composer output frames to settle before one submit',
     async (agent) => {

@@ -205,6 +205,8 @@ export type RuntimeProviderSnapshotReadOptions = {
 export type RuntimeAgentPromptWriteOptions = RuntimeTerminalWriteOptions & {
   /** Raw prompt text for submit scheduling; not written, only used for line-aware delays. */
   promptForSchedule?: string
+  /** Typed ahead of the paste frame; see buildAgentPromptPasteBytes. */
+  leadLine?: string
   /** Return an accepted receipt as soon as input lands, instead of waiting for the turn. */
   acceptQueued?: boolean
   observationTimeoutMs?: number

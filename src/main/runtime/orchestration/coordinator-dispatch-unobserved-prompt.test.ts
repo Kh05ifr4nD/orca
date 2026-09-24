@@ -2,16 +2,22 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { OrchestrationDb } from './db'
 import type { CoordinatorRuntime } from './coordinator-runtime-contract'
 import { dispatchTaskToWorker } from './coordinator-task-dispatch'
+import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../shared/orca-dispatch-status-prompt'
 
 const WORKER_PANE_KEY = 'tab_worker:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 let db: OrchestrationDb
 
-function createRuntime(promptError: Error | null): CoordinatorRuntime & { prompts: string[] } {
+function createRuntime(
+  promptError: Error | null
+): CoordinatorRuntime & { prompts: string[]; leadLines: (string | undefined)[] } {
   const prompts: string[] = []
+  const leadLines: (string | undefined)[] = []
   return {
     prompts,
-    async sendTerminalAgentPrompt(_handle: string, prompt: string) {
+    leadLines,
+    async sendTerminalAgentPrompt(_handle: string, prompt: string, options) {
       prompts.push(prompt)
+      leadLines.push(options?.leadLine)
       if (promptError) {
         throw promptError
       }
@@ -74,6 +80,7 @@ describe('coordinator dispatch with an unobserved prompt', () => {
 
     expect(result).toBe('dispatched-unobserved')
     expect(runtime.prompts).toHaveLength(1)
+    expect(runtime.leadLines).toEqual([ORCA_DISPATCH_PROMPT_LEAD_LINE])
     // The task stays dispatched, so the next coordinator tick cannot pick it up again.
     expect(db.getTask(task.id)?.status).toBe('dispatched')
     const ctx = db.getDispatchContext(task.id)

@@ -24,6 +24,7 @@ import {
   resolveWorkerStartReadinessTimeoutMs
 } from '../../../../../../shared/orchestration-timing-budgets'
 import { assertWorkerStartTaskSpecWithinPromptBudget } from '../worker/worker-start-prompt-budget'
+import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../../../../shared/orca-dispatch-status-prompt'
 
 export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
   defineMethod({
@@ -262,6 +263,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
             cliCommand: runtime.getTerminalOrchestrationCliCommand(terminalHandle)
           }),
           {
+            leadLine: ORCA_DISPATCH_PROMPT_LEAD_LINE,
             acceptQueued: true,
             observationTimeoutMs: 0,
             requestId: orchestrationMutation.requestId

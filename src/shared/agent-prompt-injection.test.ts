@@ -30,6 +30,13 @@ describe('agent prompt injection bytes', () => {
     )
   })
 
+  it('types the lead line ahead of the paste frame on one line', () => {
+    expect(buildAgentPromptPasteBytes('brief', 'Please\r\nfollow \x1b[201~')).toBe(
+      `Please follow <ESC>[201~ ${BEGIN}brief${END}`
+    )
+    expect(buildAgentPromptPasteBytes('brief', '')).toBe(`${BEGIN}brief${END}`)
+  })
+
   it('keeps submit separate from the paste frame', () => {
     expect(buildAgentPromptPasteBytes('hello')).not.toContain('\r')
     expect(buildAgentPromptSubmitBytes()).toBe('\r')

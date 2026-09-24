@@ -10,6 +10,7 @@ export type CoordinatorRuntime = {
     handle: string,
     prompt: string,
     options?: {
+      leadLine?: string
       acceptQueued?: boolean
       observationTimeoutMs?: number
       requestId?: string
