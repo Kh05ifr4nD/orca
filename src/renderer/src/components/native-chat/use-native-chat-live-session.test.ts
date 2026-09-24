@@ -206,6 +206,16 @@ describe('useNativeChatLiveSession — transport routing', () => {
     expect(transport.subscribe).toHaveBeenCalledOnce()
   })
 
+  // A failed older page belongs to one paging generation; a reconnect snapshot must start another.
+  it('starts a new older-history generation on each snapshot', async () => {
+    const transport = getMockTransport('env-1')
+    await render({ paneKey: PANE, agent: AGENT, sessionId: SESSION, runtimeEnvironmentId: 'env-1' })
+    await act(async () => transport.emit({ type: 'snapshot', messages: [], hasMore: false }))
+    const before = latest?.olderHistoryGeneration ?? 0
+    await act(async () => transport.emit({ type: 'snapshot', messages: [], hasMore: false }))
+    expect(latest?.olderHistoryGeneration).toBeGreaterThan(before)
+  })
+
   it('discards a load-earlier resolve from the previous owner after a flip', async () => {
     // Fill the initial window so hasMore is true and load-earlier can fire.
     const many = Array.from({ length: NATIVE_CHAT_INITIAL_LIMIT }, (_unused, n) =>
@@ -283,6 +293,43 @@ describe('useNativeChatLiveSession — transport routing', () => {
     expect(latest?.messages.map((message) => message.id)).toEqual(['replacement'])
   })
 
+  it('shares one in-flight older page, and its result, with every caller', async () => {
+    const transport = getMockTransport('env-1')
+    const many = Array.from({ length: NATIVE_CHAT_INITIAL_LIMIT }, (_unused, n) =>
+      assistant(`old-${n}`, 'old')
+    )
+    await render({
+      paneKey: PANE,
+      agent: AGENT,
+      sessionId: SESSION,
+      runtimeEnvironmentId: 'env-1'
+    })
+    await act(async () => transport.emit({ type: 'snapshot', messages: many, hasMore: true }))
+    let resolveEarlier: (result: { messages: NativeChatMessage[] }) => void = () => {}
+    transport.readSession.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveEarlier = resolve))
+    )
+    const readsBefore = transport.readSession.mock.calls.length
+
+    let first: Promise<string> | undefined
+    let second: Promise<string> | undefined
+    await act(async () => {
+      first = latest?.loadEarlier()
+    })
+    await act(async () => {
+      second = latest?.loadEarlier()
+    })
+    expect(second).toBe(first)
+    await act(async () => {
+      resolveEarlier({ messages: [assistant('older', 'older'), ...many] })
+      await first
+    })
+
+    await expect(second).resolves.toBe('applied')
+    expect(transport.readSession.mock.calls.length).toBe(readsBefore + 1)
+    expect(latest?.loadingEarlier).toBe(false)
+  })
+
   it('discards a load-earlier resolve from before a reconnect snapshot', async () => {
     const transport = getMockTransport('env-1')
     const many = Array.from({ length: NATIVE_CHAT_INITIAL_LIMIT }, (_unused, n) =>
@@ -354,127 +401,6 @@ describe('useNativeChatLiveSession — transport routing', () => {
     })
 
     expect(latest?.messages.map((message) => message.id)).not.toContain('stale-old-path')
-  })
-
-  // The list pages automatically; a page that did not land must reject or it
-  // would look like progress and be asked for again.
-  it.each([
-    ['an error result', () => Promise.resolve({ error: 'unreadable transcript' })],
-    ['a rejected read', () => Promise.reject(new Error('host unreachable'))]
-  ])('rejects load-earlier on %s and keeps the loaded transcript', async (_case, read) => {
-    const transport = getMockTransport('env-1')
-    const many = Array.from({ length: NATIVE_CHAT_INITIAL_LIMIT }, (_unused, n) =>
-      assistant(`kept-${n}`, 'kept')
-    )
-    await render({ paneKey: PANE, agent: AGENT, sessionId: SESSION, runtimeEnvironmentId: 'env-1' })
-    await act(async () => transport.emit({ type: 'snapshot', messages: many, hasMore: true }))
-    transport.readSession.mockImplementationOnce(read)
-
-    let outcome: unknown = 'pending'
-    await act(async () => {
-      outcome = await latest?.loadEarlier().then(
-        () => 'resolved',
-        () => 'rejected'
-      )
-    })
-
-    expect(outcome).toBe('rejected')
-    expect(latest?.loadingEarlier).toBe(false)
-    expect(latest?.hasMore).toBe(true)
-    expect(latest?.messages).toHaveLength(NATIVE_CHAT_INITIAL_LIMIT)
-  })
-
-  // The reconnect already replaced that read; failing it would stop the current
-  // transcript's auto-load for a connection that no longer exists.
-  it('resolves, not rejects, when a read from before a reconnect snapshot fails', async () => {
-    const transport = getMockTransport('env-1')
-    const many = Array.from({ length: NATIVE_CHAT_INITIAL_LIMIT }, (_unused, n) =>
-      assistant(`old-${n}`, 'old')
-    )
-    await render({ paneKey: PANE, agent: AGENT, sessionId: SESSION, runtimeEnvironmentId: 'env-1' })
-    await act(async () => transport.emit({ type: 'snapshot', messages: many, hasMore: true }))
-    let rejectEarlier: (error: Error) => void = () => {}
-    transport.readSession.mockImplementationOnce(
-      () => new Promise((_resolve, reject) => (rejectEarlier = reject))
-    )
-    let outcome: unknown = 'pending'
-    await act(async () => {
-      void latest?.loadEarlier().then(
-        () => (outcome = 'resolved'),
-        () => (outcome = 'rejected')
-      )
-    })
-
-    await act(async () => transport.emit({ type: 'snapshot', messages: many, hasMore: true }))
-    await act(async () => {
-      rejectEarlier(new Error('connection closed'))
-    })
-
-    expect(outcome).toBe('resolved')
-    expect(latest?.loadingEarlier).toBe(false)
-  })
-
-  // The list may ask again before loading renders; the lane alone dedupes.
-  it('reads one older page when load-earlier is called twice before a render', async () => {
-    const transport = getMockTransport('env-1')
-    const many = Array.from({ length: NATIVE_CHAT_INITIAL_LIMIT }, (_unused, n) =>
-      assistant(`dup-${n}`, 'dup')
-    )
-    await render({ paneKey: PANE, agent: AGENT, sessionId: SESSION, runtimeEnvironmentId: 'env-1' })
-    await act(async () => transport.emit({ type: 'snapshot', messages: many, hasMore: true }))
-    const readsBefore = transport.readSession.mock.calls.length
-    transport.readSession.mockImplementation(() => new Promise(() => {}))
-    const loadEarlier = latest?.loadEarlier
-
-    await act(async () => {
-      void loadEarlier?.()
-      void loadEarlier?.()
-    })
-
-    expect(transport.readSession).toHaveBeenCalledTimes(readsBefore + 1)
-  })
-
-  // A reconnect snapshot abandons the outstanding read; one that never settles
-  // must not hold off the next page.
-  it('reads the next older page after a snapshot abandons one that never settles', async () => {
-    const transport = getMockTransport('env-1')
-    const many = Array.from({ length: NATIVE_CHAT_INITIAL_LIMIT }, (_unused, n) =>
-      assistant(`hung-${n}`, 'hung')
-    )
-    await render({ paneKey: PANE, agent: AGENT, sessionId: SESSION, runtimeEnvironmentId: 'env-1' })
-    await act(async () => transport.emit({ type: 'snapshot', messages: many, hasMore: true }))
-    const readsBefore = transport.readSession.mock.calls.length
-    transport.readSession.mockImplementation(() => new Promise(() => {}))
-    await act(async () => {
-      void latest?.loadEarlier()
-    })
-    await act(async () => transport.emit({ type: 'snapshot', messages: many, hasMore: true }))
-    expect(latest?.loadingEarlier).toBe(false)
-
-    await act(async () => {
-      void latest?.loadEarlier()
-    })
-
-    expect(transport.readSession).toHaveBeenCalledTimes(readsBefore + 2)
-  })
-
-  it('resolves load-earlier once the older page lands', async () => {
-    const transport = getMockTransport('env-1')
-    const many = Array.from({ length: NATIVE_CHAT_INITIAL_LIMIT }, (_unused, n) =>
-      assistant(`page-${n}`, 'page')
-    )
-    await render({ paneKey: PANE, agent: AGENT, sessionId: SESSION, runtimeEnvironmentId: 'env-1' })
-    await act(async () => transport.emit({ type: 'snapshot', messages: many, hasMore: true }))
-    transport.readSession.mockResolvedValueOnce({
-      messages: [assistant('older', 'older'), ...many]
-    })
-
-    await act(async () => {
-      await latest?.loadEarlier()
-    })
-
-    expect(latest?.messages[0]?.id).toBe('older')
-    expect(latest?.hasMore).toBe(false)
   })
 
   it('seeds ready from readSession when the subscription never delivers a frame', async () => {

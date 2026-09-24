@@ -18,6 +18,7 @@ import { useStructuredAgentSessionTransportState } from './use-structured-agent-
 import { useStructuredAgentSessionTransport } from './use-structured-agent-session-transport'
 import { useStructuredAgentSessionOptions } from './use-structured-agent-session-options'
 import { useStructuredAgentSessionThreadGoal } from './use-structured-agent-session-thread-goal'
+import { useStructuredAgentSessionRailOutline } from './use-structured-agent-session-rail-outline'
 
 export type { StructuredPromptItem } from './structured-agent-session-message-projection'
 
@@ -31,13 +32,20 @@ export function useStructuredAgentSession(args: {
   transportEnabled?: boolean
 }) {
   const { agent, isVisible, sessionId, target, transportEnabled = true } = args
-  const { state, loadingOlder, loadOlder, mutate, writeError, providerVisible } =
-    useStructuredAgentSessionTransport({
-      sessionId,
-      target,
-      isVisible,
-      enabled: transportEnabled
-    })
+  const {
+    state,
+    loadingOlder,
+    olderHistoryGeneration,
+    loadOlder,
+    mutate,
+    writeError,
+    providerVisible
+  } = useStructuredAgentSessionTransport({
+    sessionId,
+    target,
+    isVisible,
+    enabled: transportEnabled
+  })
   const commandPending = useRef(false)
   const transportState = useStructuredAgentSessionTransportState(state, transportEnabled)
   const {
@@ -67,6 +75,13 @@ export function useStructuredAgentSession(args: {
     journalItems: transportState.journalItems,
     support: threadGoalSupport,
     mutate
+  })
+
+  const railOutline = useStructuredAgentSessionRailOutline({
+    sessionId,
+    target,
+    state,
+    enabled: providerVisible
   })
 
   const prompts = pendingStructuredSessionPrompts(transportState.journalItems)
@@ -102,7 +117,9 @@ export function useStructuredAgentSession(args: {
       ? (state.error ?? writeError ?? outboxController.error)
       : outboxController.error,
     hasOlder: transportEnabled && state.hasOlder,
+    railOutline: transportEnabled ? railOutline : null,
     loadingOlder: transportEnabled && loadingOlder,
+    olderHistoryGeneration,
     loadOlder,
     prompts,
     outbox,

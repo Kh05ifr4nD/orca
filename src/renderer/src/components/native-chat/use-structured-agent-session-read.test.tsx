@@ -172,27 +172,69 @@ describe('useStructuredAgentSessionRead history window', () => {
     expect(result.current.state.items[0]?.itemId).toBe('oldest')
   })
 
-  // The list may ask again before loading renders; the owner alone dedupes.
-  it('reads one older page when asked twice before it lands', async () => {
+  it('shares one in-flight older page, and its result, with every caller', async () => {
+    const tailItems = Array.from({ length: 300 }, (_, index) =>
+      message(`tail-${index}`, 301 + index, 'assistant')
+    )
+    let deliver = (): void => {}
+    mocks.call
+      .mockResolvedValueOnce({ ok: true, page: page('tail', tailItems, true) })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            deliver = () =>
+              resolve({ ok: true, page: page('before', [message('older', 1, 'user')], false) })
+          })
+      )
+    const { result } = renderHook(() =>
+      useStructuredAgentSessionRead({ sessionId: 'session-a', target: LOCAL_TARGET })
+    )
+    await waitFor(() => expect(result.current.state.hasOlder).toBe(true))
+
+    let first!: Promise<string>
+    let second!: Promise<string>
+    act(() => {
+      first = result.current.loadOlder()
+    })
+    expect(result.current.loadingOlder).toBe(true)
+    // A rail jump asking while scroll-to-top's page is in flight joins it.
+    act(() => {
+      second = result.current.loadOlder()
+    })
+    expect(second).toBe(first)
+    await act(async () => {
+      deliver()
+      await first
+    })
+
+    await expect(first).resolves.toBe('applied')
+    await expect(second).resolves.toBe('applied')
+    expect(mocks.call).toHaveBeenCalledTimes(2)
+    expect(result.current.loadingOlder).toBe(false)
+    expect(result.current.state.items[0]?.itemId).toBe('older')
+    await expect(result.current.loadOlder()).resolves.toBe('exhausted')
+    expect(mocks.call).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports an older page the host refused as failed, not applied', async () => {
     const tailItems = Array.from({ length: 300 }, (_, index) =>
       message(`tail-${index}`, 301 + index, 'assistant')
     )
     mocks.call
       .mockResolvedValueOnce({ ok: true, page: page('tail', tailItems, true) })
-      .mockImplementation(() => new Promise(() => {}))
+      .mockResolvedValueOnce({ ok: false, reset: 'expired', page: page('tail', [], true) })
     const { result } = renderHook(() =>
       useStructuredAgentSessionRead({ sessionId: 'session-a', target: LOCAL_TARGET })
     )
     await waitFor(() => expect(result.current.state.hasOlder).toBe(true))
-    const callsBefore = mocks.call.mock.calls.length
-    const loadOlder = result.current.loadOlder
 
+    let outcome: Promise<string> = Promise.resolve('')
     await act(async () => {
-      void loadOlder()
-      void loadOlder()
+      outcome = result.current.loadOlder()
+      await outcome
     })
-
-    expect(mocks.call).toHaveBeenCalledTimes(callsBefore + 1)
+    await expect(outcome).resolves.toBe('failed')
+    expect(result.current.loadingOlder).toBe(false)
   })
 
   it('does no host work when the app regains focus', async () => {
@@ -301,7 +343,7 @@ describe('useStructuredAgentSessionRead history window', () => {
 // A workspace delete closes its structured chats while the pane is still mounted, so every read
 // against that session refuses `agent_session_ownership_unknown` until the tab retires. A page that
 // lost that race must not leave the pane holding an error the live transport is about to clear.
-describe('useStructuredAgentSessionRead unattached page refusals', () => {
+describe('useStructuredAgentSessionRead older page failures', () => {
   afterEach(cleanup)
 
   beforeEach(() => {
@@ -317,10 +359,12 @@ describe('useStructuredAgentSessionRead unattached page refusals', () => {
     return error
   }
 
+  const tailItems = Array.from({ length: 300 }, (_, index) =>
+    message(`tail-${index}`, 301 + index, 'assistant')
+  )
+
   async function loadedTailThatRefusesOlder(error: Error) {
-    const tailItems = Array.from({ length: 300 }, (_, index) =>
-      message(`tail-${index}`, 301 + index, 'assistant')
-    )
+    let outcome = ''
     mocks.call
       .mockResolvedValueOnce({ ok: true, page: page('tail', tailItems, true) })
       .mockRejectedValueOnce(error)
@@ -328,61 +372,40 @@ describe('useStructuredAgentSessionRead unattached page refusals', () => {
       useStructuredAgentSessionRead({ sessionId: 'session-a', target: LOCAL_TARGET })
     )
     await waitFor(() => expect(result.current.state.hasOlder).toBe(true))
-    let rejection: unknown = null
     await act(async () => {
-      await result.current.loadOlder().catch((reason: unknown) => {
-        rejection = reason
-      })
+      outcome = await result.current.loadOlder()
     })
-    return { result, rejection }
+    return { result, outcome }
   }
 
-  it('leaves the transcript alone when an older page hits a closed session', async () => {
-    const closed = refusal('agent_session_ownership_unknown')
-    const { result, rejection } = await loadedTailThatRefusesOlder(closed)
-    expect(result.current.state.status).not.toBe('error')
-    expect(result.current.state.error).toBeUndefined()
-    expect(result.current.state.items).toHaveLength(300)
-    expect(result.current.loadingOlder).toBe(false)
-    // Still a page that did not land, so automatic paging stops.
-    expect(rejection).toBe(closed)
-  })
+  // A failed older page is the list's to retry; it must never replace the loaded conversation.
+  it.each([
+    ['a closed session', refusal('agent_session_ownership_unknown')],
+    ['any other reason', new Error('journal read failed')]
+  ])(
+    'keeps the conversation and reports failed when an older page fails for %s',
+    async (_case, error) => {
+      const { result, outcome } = await loadedTailThatRefusesOlder(error)
+      expect(outcome).toBe('failed')
+      expect(result.current.state.status).not.toBe('error')
+      expect(result.current.state.error).toBeUndefined()
+      expect(result.current.state.items).toHaveLength(300)
+      expect(result.current.loadingOlder).toBe(false)
+    }
+  )
 
-  it('still reports an older page that failed for any other reason', async () => {
-    const failure = new Error('journal read failed')
-    const { result, rejection } = await loadedTailThatRefusesOlder(failure)
-    expect(result.current.state.status).toBe('error')
-    expect(result.current.state.error).toBe('Error: journal read failed')
-    expect(rejection).toBe(failure)
-  })
-
-  it('rejects an older page the host answered with a reset, without failing the pane', async () => {
-    const tailItems = Array.from({ length: 300 }, (_, index) =>
-      message(`tail-${index}`, 301 + index, 'assistant')
-    )
-    mocks.call
-      .mockResolvedValueOnce({ ok: true, page: page('tail', tailItems, true) })
-      .mockResolvedValueOnce({
-        ok: false,
-        reset: 'cursor_compacted',
-        page: page('tail', tailItems, true)
+  it('starts a new paging generation when the host re-sends its snapshot', async () => {
+    const { result } = await loadedTailThatRefusesOlder(new Error('journal read failed'))
+    const before = result.current.olderHistoryGeneration
+    const onEvent = mocks.subscribe.mock.calls.at(-1)?.[2]
+    act(() => {
+      onEvent?.({
+        type: 'snapshot',
+        sessionId: 'session-a',
+        page: page('tail', tailItems, true),
+        fence: 0
       })
-    const { result } = renderHook(() =>
-      useStructuredAgentSessionRead({ sessionId: 'session-a', target: LOCAL_TARGET })
-    )
-    await waitFor(() => expect(result.current.state.hasOlder).toBe(true))
-
-    let outcome = 'pending'
-    await act(async () => {
-      outcome = await result.current.loadOlder().then(
-        () => 'resolved',
-        () => 'rejected'
-      )
     })
-
-    expect(outcome).toBe('rejected')
-    expect(result.current.state.status).not.toBe('error')
-    expect(result.current.state.items).toHaveLength(300)
-    expect(result.current.loadingOlder).toBe(false)
+    expect(result.current.olderHistoryGeneration).toBeGreaterThan(before)
   })
 })

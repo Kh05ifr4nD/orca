@@ -6,6 +6,8 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
 import { NativeChatMessageList } from './NativeChatMessageList'
+import type { NativeChatOlderPageResult } from './native-chat-pagination'
+import type { NativeChatLiveSession } from './use-native-chat-live-session'
 import { NATIVE_CHAT_OLDER_HISTORY_PREFETCH_PX } from './use-native-chat-older-history-autoload'
 import {
   deliverResizes,
@@ -117,22 +119,38 @@ function flowAboveSpacer(spacer: HTMLElement): number {
   return above
 }
 
+type LoadEarlier = () => Promise<NativeChatOlderPageResult>
+const lands = (): LoadEarlier => vi.fn(async (): Promise<NativeChatOlderPageResult> => 'applied')
+const neverSettles = (): LoadEarlier =>
+  vi.fn(() => new Promise<NativeChatOlderPageResult>(() => {}))
+
 function paging({
   messages,
   loadEarlier,
   hasMore = true,
   loadingEarlier = false,
-  isVisible = true
+  isVisible = true,
+  olderHistoryGeneration = 0,
+  readPhase = 'ready'
 }: {
   messages: NativeChatMessage[]
-  loadEarlier: () => Promise<void>
+  loadEarlier: LoadEarlier
   hasMore?: boolean
   loadingEarlier?: boolean
   isVisible?: boolean
+  olderHistoryGeneration?: number
+  readPhase?: NativeChatLiveSession['readPhase']
 }): React.JSX.Element {
   return (
     <NativeChatMessageList
-      session={{ ...session(messages), hasMore, loadingEarlier, loadEarlier }}
+      session={{
+        ...session(messages),
+        hasMore,
+        loadingEarlier,
+        loadEarlier,
+        olderHistoryGeneration,
+        readPhase
+      }}
       isVisible={isVisible}
       isWorking={false}
       expandSignal={false}
@@ -191,7 +209,7 @@ describe('older history auto-load', () => {
   })
 
   it('asks for a page once the top sentinel is within prefetch range of the scroller', () => {
-    const loadEarlier = vi.fn(async () => {})
+    const loadEarlier = lands()
     const { container } = render(paging({ messages: markers(100, 150), loadEarlier }))
     deliverIntersections()
     expect(loadEarlier).not.toHaveBeenCalled()
@@ -210,7 +228,7 @@ describe('older history auto-load', () => {
   // A page of rows the transcript hides leaves the row count unchanged; paging
   // must continue anyway while the reader is still near the top.
   it('keeps paging after each page while the sentinel stays in range', async () => {
-    const loadEarlier = vi.fn(async () => {})
+    const loadEarlier = lands()
     const base = markers(100, 150)
     const { container, rerender } = render(paging({ messages: base, loadEarlier }))
     sentinelInRange = true
@@ -238,7 +256,7 @@ describe('older history auto-load', () => {
   })
 
   it('stops once a page pushes the sentinel out of range', async () => {
-    const loadEarlier = vi.fn(async () => {})
+    const loadEarlier = lands()
     const base = markers(100, 150)
     const { container, rerender } = render(paging({ messages: base, loadEarlier }))
     sentinelInRange = true
@@ -259,7 +277,7 @@ describe('older history auto-load', () => {
   })
 
   it('stops, and shows neither status nor button, once history runs out', async () => {
-    const loadEarlier = vi.fn(async () => {})
+    const loadEarlier = lands()
     const base = markers(100, 150)
     const { rerender } = render(paging({ messages: base, loadEarlier }))
     sentinelInRange = true
@@ -276,7 +294,7 @@ describe('older history auto-load', () => {
   })
 
   it('stops observing while the lane reports a page loading', () => {
-    const loadEarlier = vi.fn(() => new Promise<void>(() => {}))
+    const loadEarlier = neverSettles()
     const base = markers(100, 150)
     const { container, rerender } = render(paging({ messages: base, loadEarlier }))
     sentinelInRange = true
@@ -297,7 +315,7 @@ describe('older history auto-load', () => {
   // ever rendered; the list cannot tell that from "not reported yet", so it must
   // not hold its own latch on the outstanding read. The lane dedupes instead.
   it('asks again when the lane never reports the outstanding page as loading', () => {
-    const loadEarlier = vi.fn(() => new Promise<void>(() => {}))
+    const loadEarlier = neverSettles()
     render(paging({ messages: markers(100, 150), loadEarlier }))
     sentinelInRange = true
     deliverIntersections()
@@ -312,7 +330,7 @@ describe('older history auto-load', () => {
   // A reconnect snapshot or a hide ends the lane's loading while its read is still
   // outstanding; the next page must not wait on a request the lane dropped.
   it('keeps paging when the lane abandons a page that never settles', async () => {
-    const loadEarlier = vi.fn(() => new Promise<void>(() => {}))
+    const loadEarlier = neverSettles()
     const base = markers(100, 150)
     const { rerender } = render(paging({ messages: base, loadEarlier }))
     sentinelInRange = true
@@ -328,7 +346,7 @@ describe('older history auto-load', () => {
   })
 
   it('does not observe a hidden transcript', () => {
-    const loadEarlier = vi.fn(async () => {})
+    const loadEarlier = lands()
     render(paging({ messages: markers(100, 150), loadEarlier, isVisible: false }))
     sentinelInRange = true
     deliverIntersections()
@@ -338,7 +356,7 @@ describe('older history auto-load', () => {
 
   it('shows a quiet status line, with a label only once a page is slow', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const loadEarlier = vi.fn(async () => {})
+    const loadEarlier = lands()
     const base = markers(100, 150)
     const { rerender } = render(paging({ messages: base, loadEarlier }))
     const status = screen.getByRole('status')
@@ -356,9 +374,9 @@ describe('older history auto-load', () => {
 
   it('offers a manual load after a failed page, and resumes auto-loading once it succeeds', async () => {
     const loadEarlier = vi
-      .fn<() => Promise<void>>()
-      .mockRejectedValueOnce(new Error('read failed'))
-      .mockResolvedValue(undefined)
+      .fn<LoadEarlier>()
+      .mockResolvedValueOnce('failed')
+      .mockResolvedValue('applied')
     const base = markers(100, 150)
     const { rerender } = render(paging({ messages: base, loadEarlier }))
     sentinelInRange = true
@@ -386,6 +404,61 @@ describe('older history auto-load', () => {
     expect(loadEarlier).toHaveBeenCalledTimes(3)
   })
 
+  // Without this the recreated observer would ask for the same stuck page forever.
+  it('stops auto-loading, and offers a manual load, when a page made no progress', async () => {
+    const loadEarlier = vi.fn<LoadEarlier>().mockResolvedValue('unchanged')
+    const base = markers(100, 150)
+    const { rerender } = render(paging({ messages: base, loadEarlier }))
+    sentinelInRange = true
+    deliverIntersections()
+    rerender(paging({ messages: base, loadEarlier, loadingEarlier: true }))
+    rerender(paging({ messages: base, loadEarlier }))
+    await settle()
+    deliverIntersections()
+
+    expect(loadEarlier).toHaveBeenCalledTimes(1)
+    expect(observations.size).toBe(0)
+    expect(screen.getByRole('button', { name: 'Load earlier messages' })).toBeInTheDocument()
+  })
+
+  // A failure belongs to one paging generation: a reconnect or reset gives the host
+  // another chance without the reader having to click.
+  it('resumes auto-loading, with no click, once the lane resets its paging generation', async () => {
+    const loadEarlier = vi
+      .fn<LoadEarlier>()
+      .mockResolvedValueOnce('failed')
+      .mockResolvedValue('applied')
+    const base = markers(100, 150)
+    const { rerender } = render(paging({ messages: base, loadEarlier }))
+    sentinelInRange = true
+    deliverIntersections()
+    await settle()
+    expect(screen.getByRole('button', { name: 'Load earlier messages' })).toBeInTheDocument()
+
+    rerender(paging({ messages: base, loadEarlier, olderHistoryGeneration: 1 }))
+    deliverIntersections()
+
+    expect(loadEarlier).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: /load earlier/i })).not.toBeInTheDocument()
+  })
+
+  it('shows no older-history row while the read is not ready, and re-checks once it is', () => {
+    const loadEarlier = lands()
+    const base = markers(100, 150)
+    const { rerender } = render(paging({ messages: base, loadEarlier, readPhase: 'error' }))
+    sentinelInRange = true
+    deliverIntersections()
+
+    expect(observations.size).toBe(0)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /load earlier/i })).not.toBeInTheDocument()
+    expect(loadEarlier).not.toHaveBeenCalled()
+
+    rerender(paging({ messages: base, loadEarlier }))
+    deliverIntersections()
+    expect(loadEarlier).toHaveBeenCalledTimes(1)
+  })
+
   /** Where a row's top sits in the scroll document. */
   function rowTop(container: HTMLElement, text: string): number {
     const row = screen.getByText(text).closest<HTMLElement>('[data-index]')
@@ -396,7 +469,7 @@ describe('older history auto-load', () => {
     return spacer.offsetTop + Number.parseFloat(row.style.top)
   }
 
-  async function readerAtMarker140(loadEarlier: () => Promise<void>) {
+  async function readerAtMarker140(loadEarlier: LoadEarlier) {
     const base = markers(100, 200)
     const view = render(paging({ messages: base, loadEarlier }))
     paint(view.container)
@@ -416,7 +489,7 @@ describe('older history auto-load', () => {
   }
 
   it('keeps the row the reader is looking at in place across an auto-loaded prepend', async () => {
-    const loadEarlier = vi.fn(async () => {})
+    const loadEarlier = lands()
     const { container, rerender, base, scroller } = await readerAtMarker140(loadEarlier)
 
     rerender(paging({ messages: [...markers(50, 100), ...base], loadEarlier }))
@@ -429,7 +502,7 @@ describe('older history auto-load', () => {
   // The last page takes the older-history row away with it. Anything that row
   // held in flow above the window would leave with it, and move every row.
   it('keeps the reader in place when the last page lands and the older-history row leaves', async () => {
-    const loadEarlier = vi.fn(async () => {})
+    const loadEarlier = lands()
     const { container, rerender, base, scroller } = await readerAtMarker140(loadEarlier)
 
     rerender(paging({ messages: [...markers(50, 100), ...base], loadEarlier, hasMore: false }))
