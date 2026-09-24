@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Tab } from '../../../shared/tab-types'
 import type { AgentSessionLaunchPlan } from '@/lib/agent-session-launch-plan'
 
-const holder = vi.hoisted(() => ({ store: null as unknown }))
+const holder = vi.hoisted(() => {
+  const state: { store: unknown } = { store: null }
+  return state
+})
 
 vi.mock('@/store', () => ({
   get useAppStore() {
@@ -95,6 +98,7 @@ describe('structured chat tab identity', () => {
   })
 
   it('seeds the launch draft under the same tab id the chat reads it by', () => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the launch only calls begin() on its plan; the other members are never read.
     const plan = {
       worktreeId: WT,
       agent: 'codex',

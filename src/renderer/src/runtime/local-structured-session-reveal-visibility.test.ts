@@ -69,6 +69,7 @@ function baseState(): SyncState {
 }
 
 function chatFrame(epoch: string, version: number): RuntimeMobileSessionTabsResult {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a minimal frame; the reveal path reads only the fields set here.
   return {
     worktree: WORKTREE,
     publicationEpoch: epoch,

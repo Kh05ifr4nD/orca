@@ -86,7 +86,7 @@ describe('useIpcEvents session tab close requests', () => {
     const listenerRef: { current: SessionTabCloseRequestListener | null } = { current: null }
     const closeUnifiedTab = vi.fn().mockReturnValue({ id: 'chat-tab-1' })
     const respondSessionTabClose = vi.fn()
-    const requestPinnedTabCloseConfirm = vi.fn()
+    const requestPinnedTabCloseConfirm = vi.fn<(request: { onConfirm: () => void }) => void>()
     await useIpcEventsForCloseRouting({
       sessionTabCloseRequestListenerRef: listenerRef,
       respondSessionTabClose,
@@ -111,7 +111,7 @@ describe('useIpcEvents session tab close requests', () => {
 
     listenerRef.current?.({ requestId: 'mobile-close', worktreeId: 'wt-1', tabId: 'session-1' })
     // The pin guard still sees the chat, and confirming closes it by its renderer-owned id.
-    const request = requestPinnedTabCloseConfirm.mock.calls[0]?.[0] as { onConfirm: () => void }
+    const request = requestPinnedTabCloseConfirm.mock.calls[0]?.[0]
     expect(closeUnifiedTab).not.toHaveBeenCalled()
     request.onConfirm()
 

@@ -186,6 +186,7 @@ describe('applyWebSessionTabsSnapshot', () => {
       hostMappingWorktrees: 1
     })
 
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the snapshot apply returns a patch of sync-state fields only, as the first patch above.
     const secondPatch = applyFreshWebSessionTabsSnapshot(
       afterFirstSnapshot,
       agentSnapshot('session-2', 'host-agent-2', 2),
