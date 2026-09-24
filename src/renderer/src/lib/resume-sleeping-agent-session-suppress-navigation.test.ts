@@ -137,4 +137,30 @@ describe('resumeSleepingAgentSessionsForWorktree navigation suppression', () => 
 
     expect(useAppStore.getState().activeTabType).toBe('terminal')
   })
+
+  it('leaves the current view alone when the user has left the resumed worktree', () => {
+    // Why: the activation gate resumes after async readiness checks, by which time the user may
+    // be viewing another worktree; the resume still lands selected when they return.
+    const record = makeRecord({ origin: 'quit' })
+    useAppStore.setState({
+      activeWorktreeId: 'wt-other',
+      activeTabId: 'other-tab',
+      activeTabType: 'browser',
+      activeTabIdByWorktree: { 'wt-other': 'other-tab' },
+      activeTabTypeByWorktree: { 'wt-other': 'browser' },
+      tabsByWorktree: { 'wt-1': [makeTerminalTab('tab-1', 'wt-1')] },
+      sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }
+    } as never)
+
+    resumeSleepingAgentSessionsForWorktree('wt-1')
+
+    const state = useAppStore.getState()
+    const resumedTab = state.tabsByWorktree['wt-1']?.find((tab) => tab.id !== 'tab-1')
+    expect(resumedTab).toBeDefined()
+    expect(state.activeTabId).toBe('other-tab')
+    expect(state.activeTabType).toBe('browser')
+    expect(state.activeTabTypeByWorktree['wt-other']).toBe('browser')
+    expect(state.activeTabIdByWorktree['wt-1']).toBe(resumedTab?.id)
+    expect(state.activeTabTypeByWorktree['wt-1']).toBe('terminal')
+  })
 })
