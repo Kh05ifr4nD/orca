@@ -2,6 +2,7 @@ import type { App } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 import {
   acquireSingleInstanceLock,
+  claimUserDataOwnership,
   logSingleInstanceLockBypass,
   logSingleInstanceLockFailure,
   shouldActivateDesktopForSecondInstance,
@@ -74,6 +75,32 @@ describe('acquireSingleInstanceLock', () => {
 
     expect(onSecondInstance).toHaveBeenCalledTimes(1)
     expect(onSecondInstance).toHaveBeenCalledWith(['/opt/orca/orca-linux.AppImage', '--serve'])
+  })
+})
+
+describe('claimUserDataOwnership', () => {
+  it('owns the profile exclusively only when this process acquired the lock', () => {
+    const fake = makeFakeApp(true)
+
+    expect(claimUserDataOwnership(fake.app, vi.fn(), { skip: false, bypass: false })).toBe(
+      'exclusive'
+    )
+    expect(fake.requestSingleInstanceLock).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares the profile when the lock is skipped or bypassed, without taking it', () => {
+    // Why: a parallel dev run or a bypassed launch may be live on the same userData.
+    const fake = makeFakeApp(true)
+
+    expect(claimUserDataOwnership(fake.app, vi.fn(), { skip: true, bypass: false })).toBe('shared')
+    expect(claimUserDataOwnership(fake.app, vi.fn(), { skip: false, bypass: true })).toBe('shared')
+    expect(fake.requestSingleInstanceLock).not.toHaveBeenCalled()
+  })
+
+  it('owns nothing when another instance holds the lock', () => {
+    const fake = makeFakeApp(false)
+
+    expect(claimUserDataOwnership(fake.app, vi.fn(), { skip: false, bypass: false })).toBeNull()
   })
 })
 

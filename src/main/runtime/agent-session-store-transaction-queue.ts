@@ -10,6 +10,8 @@ import {
   type LoadedAgentSessionStore
 } from './agent-session-record-store-file'
 import { withFileTransactionLock } from '../file-transaction-lock'
+import type { UserDataOwnership } from '../startup/single-instance-lock'
+import { agentSessionLeaseEndedWithPreviousAppRun } from './agent-session-restart-reconciliation'
 
 function markLoadedLeasesUnreconciled(state: AgentSessionStoreState): void {
   for (const [sessionId, record] of state.records) {
@@ -56,8 +58,9 @@ function agentSessionStoreStateChanged(
 export class AgentSessionStoreTransactionQueue {
   private queue: Promise<unknown> = Promise.resolve()
   private diskRecoveredFromBackup: boolean
-  /** Fence of every lease as open() loaded it — what the previous app run left. Emptied when
-   *  another writer's state replaces it, since those leases are not a previous run's. */
+  /** Fence of every lease the previous app run left, as open() loaded it. Known only when this
+   *  process holds the store alone — with a live peer, a loaded lease may be the peer's — and
+   *  emptied when another writer's state replaces it. */
   private readonly fencesLoadedAtOpen: Map<string, number>
 
   constructor(
@@ -68,23 +71,30 @@ export class AgentSessionStoreTransactionQueue {
     private diskStoreFound: boolean,
     public state: AgentSessionStoreState,
     private diskRevision: string,
-    private needsRewrite: boolean
+    private needsRewrite: boolean,
+    ownership: UserDataOwnership
   ) {
     this.diskRecoveredFromBackup = recoveredFromBackup
     this.fencesLoadedAtOpen = new Map(
-      [...state.records].map(([sessionId, record]) => [sessionId, record.lease.runtimeFence])
+      ownership === 'exclusive'
+        ? [...state.records].map(([sessionId, record]) => [sessionId, record.lease.runtimeFence])
+        : []
     )
   }
 
-  fenceLoadedAtOpen(sessionId: string): number | undefined {
-    return this.fencesLoadedAtOpen.get(sessionId)
-  }
+  endedWithPreviousAppRun = (record: AgentSessionRecord): boolean =>
+    agentSessionLeaseEndedWithPreviousAppRun(
+      record.lease,
+      this.fencesLoadedAtOpen.get(record.sessionId),
+      this.hostId
+    )
 
   static fromLoadedStore(
     filePath: string,
     hostId: string,
     loaded: LoadedAgentSessionStore,
-    diskRevision: string
+    diskRevision: string,
+    ownership: UserDataOwnership
   ): AgentSessionStoreTransactionQueue {
     return new AgentSessionStoreTransactionQueue(
       filePath,
@@ -94,7 +104,8 @@ export class AgentSessionStoreTransactionQueue {
       loaded.storeFound,
       loaded.state,
       diskRevision,
-      loaded.needsRewrite
+      loaded.needsRewrite,
+      ownership
     )
   }
 

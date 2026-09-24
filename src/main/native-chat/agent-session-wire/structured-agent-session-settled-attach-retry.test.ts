@@ -261,7 +261,11 @@ describe('settled attach retry', () => {
     })
 
     await host.flushAllStreamedEvents()
-    store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
+    store = await AgentSessionRecordStore.open({
+      directory: join(root, 'store'),
+      hostId: 'local',
+      ownership: 'exclusive'
+    })
     host = new StructuredAgentSessionHost({
       store,
       adapter: adapter(),
@@ -327,7 +331,11 @@ describe('settled attach retry', () => {
     expect(first).toMatchObject({ ok: true, value: { submission: { dispatchState: 'pending' } } })
 
     await host.flushAllStreamedEvents()
-    store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
+    store = await AgentSessionRecordStore.open({
+      directory: join(root, 'store'),
+      hostId: 'local',
+      ownership: 'exclusive'
+    })
     host = new StructuredAgentSessionHost({
       store,
       adapter: adapter(),

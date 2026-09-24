@@ -540,7 +540,11 @@ describe('structured session ownership recovery on restore', () => {
     })
     const interruptedFence = interrupted.lease.runtimeFence
 
-    store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
+    store = await AgentSessionRecordStore.open({
+      directory: join(root, 'store'),
+      hostId: 'local',
+      ownership: 'exclusive'
+    })
     await store.reconcileOnRestart({
       probe: async (record) =>
         record.sessionId === PLAIN_RESIDUE

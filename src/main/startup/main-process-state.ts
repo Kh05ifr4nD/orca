@@ -35,6 +35,7 @@ import type { ensureActiveOrcaProfile } from '../orca-profiles/profile-index-sto
 import type { createWindowsShellPathHydration } from './windows-shell-path-hydration'
 import type { ServeOptions } from './main-process-serve'
 import type { HangDetectionMarker } from '../hang-watchdog/hang-detection-marker'
+import type { UserDataOwnership } from './single-instance-lock'
 import { ServeReadinessPublisher } from '../server/serve-readiness'
 import { SkillShareDeepLinkState } from './skill-share-deep-link-state'
 import { OsOpenedMarkdownFileState } from './os-opened-markdown-files'
@@ -45,6 +46,11 @@ import {
 } from '../crash-reporting/gpu-crash-fallback-decision'
 import type { GpuCrashDiagnosticsRecorder } from '../crash-reporting/gpu-crash-diagnostics'
 import { createWebContentsTimedFlag } from './web-contents-timed-flag'
+
+/** Until the single-instance lock is taken, nothing proves this process holds the profile alone. */
+function unprovenUserDataOwnership(): UserDataOwnership {
+  return 'shared'
+}
 
 /** Mutable composition-root state shared by startup, window, serve, and quit phases. */
 export const mainProcessState = {
@@ -124,6 +130,7 @@ export const mainProcessState = {
   localPtyStartupReady: Promise.resolve(),
   localPtyProviderStartupReady: Promise.resolve(),
   isServeMode: false,
+  userDataOwnership: unprovenUserDataOwnership(),
   devInstanceIdentity: null as ReturnType<typeof getDevInstanceIdentity> | null,
   devAgentHookEndpointNamespace: undefined as string | undefined,
   startupDiagnosticsEnabled: false,

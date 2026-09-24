@@ -93,7 +93,12 @@ async function abandonHost(abandonedHost: StructuredAgentSessionHost): Promise<v
 
 async function reopenStore(): Promise<void> {
   await abandonHost(host)
-  store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
+  // A restart of the only process on the profile.
+  store = await AgentSessionRecordStore.open({
+    directory: join(root, 'store'),
+    hostId: 'local',
+    ownership: 'exclusive'
+  })
 }
 
 beforeEach(async () => {

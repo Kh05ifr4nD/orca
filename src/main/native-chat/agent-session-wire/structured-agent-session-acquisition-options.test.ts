@@ -514,7 +514,8 @@ describe('structured session acquisition options', () => {
 
       const reopened = await AgentSessionRecordStore.open({
         directory: storeDir,
-        hostId: 'local'
+        hostId: 'local',
+        ownership: 'exclusive'
       })
       const failedRecord = reopened.getRecord(SESSION)
       expectSettledAttachLease(failedRecord)

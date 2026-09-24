@@ -12,6 +12,7 @@ import type {
   AgentSessionRecord
 } from '../../shared/agent-session-record'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
+import { AgentSessionRecordStore } from './agent-session-record-store'
 import { __setWindowsProcessTreeLoaderForTests } from '../windows/windows-process-table'
 import {
   createStructuredAgentSessionOwnerProbe,
@@ -247,6 +248,24 @@ describe('structured agent-session runtime install', () => {
       })
     )
     expect(reapOrphanChildren).toHaveBeenCalledWith({ store: expect.anything() })
+  })
+
+  it('opens the record store with the ownership the app proved', async () => {
+    stateDirectory = await mkdtemp(join(tmpdir(), 'orca-structured-runtime-'))
+    const open = vi.spyOn(AgentSessionRecordStore, 'open')
+
+    await ensureStructuredAgentSessionHost({
+      stateDirectory,
+      hostId: HOST_ID,
+      storeOwnership: 'exclusive',
+      claimKeyId: 'key-1',
+      resolveWorkspacePath: async () => stateDirectory!,
+      resolveClaudeAuthPolicy: () => ({ stripAuthEnv: true }),
+      resolveEnvironment: async () => ({}),
+      reapOrphanChildren: async () => []
+    })
+
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ ownership: 'exclusive' }))
   })
 
   it('builds no host once the app has stopped the runtime', async () => {

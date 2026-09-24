@@ -50,7 +50,6 @@ import {
   type AgentSessionLeaseRenewal
 } from './agent-session-lease-renewal'
 import {
-  agentSessionLeaseEndedWithPreviousAppRun,
   applyAgentSessionRestartProbes,
   collectAgentSessionRestartProbes,
   type AgentSessionRestartProbeArgs
@@ -71,6 +70,7 @@ import {
   type AgentSessionStoreState
 } from './agent-session-record-store-file'
 import { loadProtectedAgentSessionStore } from './agent-session-record-store-security'
+import type { UserDataOwnership } from '../startup/single-instance-lock'
 import {
   AgentSessionStoreTransactionQueue,
   markAgentSessionStoreLeasesUnreconciled
@@ -82,7 +82,12 @@ export const AGENT_SESSION_LEASE_TTL_MS = 30_000,
 export class AgentSessionRecordStore {
   private constructor(private readonly transactions: AgentSessionStoreTransactionQueue) {}
 
-  static async open(args: { directory: string; hostId: string }): Promise<AgentSessionRecordStore> {
+  static async open(args: {
+    directory: string
+    hostId: string
+    /** Absent means shared: nothing proves the leases on disk were left by a previous run. */
+    ownership?: UserDataOwnership
+  }): Promise<AgentSessionRecordStore> {
     const filePath = agentSessionStorePath(args.directory)
     const loaded = await loadProtectedAgentSessionStore(filePath, args.hostId)
     // Why: every persisted lease is unreconciled until this host adjudicates it, so a restart
@@ -93,7 +98,8 @@ export class AgentSessionRecordStore {
       filePath,
       args.hostId,
       loaded,
-      diskRevision
+      diskRevision,
+      args.ownership ?? 'shared'
     )
     if (loaded.needsRewrite && !loaded.readOnly && !loaded.recoveredFromBackup) {
       await transactions.persistLoadedRewrite()
@@ -274,12 +280,7 @@ export class AgentSessionRecordStore {
     args: AgentSessionRestartProbeArgs
   ): Promise<Map<string, AgentSessionRecord>> {
     const pending = this.listRecords().filter((record) => record.lease.unreconciled)
-    const endedWithPreviousAppRun = (record: AgentSessionRecord): boolean =>
-      agentSessionLeaseEndedWithPreviousAppRun(
-        record.lease,
-        this.transactions.fenceLoadedAtOpen(record.sessionId),
-        this.hostId
-      )
+    const endedWithPreviousAppRun = this.transactions.endedWithPreviousAppRun
     const probes = await collectAgentSessionRestartProbes(pending, args, endedWithPreviousAppRun)
     return this.transact(() =>
       applyAgentSessionRestartProbes(this.state, probes, args.now, endedWithPreviousAppRun)

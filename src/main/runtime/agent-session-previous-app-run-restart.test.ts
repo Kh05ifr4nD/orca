@@ -8,6 +8,7 @@ import { setStoredAgentSessionHandoffStage } from './agent-session-handoff-recor
 import { AgentSessionRecordStore } from './agent-session-record-store'
 import { agentSessionStorePath } from './agent-session-record-store-file'
 import type { AgentSessionReserveRequest } from './agent-session-reservation-admission'
+import type { UserDataOwnership } from '../startup/single-instance-lock'
 
 const NOW = 1_800_000_000_000
 const SESSION = 'session-alpha'
@@ -21,8 +22,9 @@ function operationId(): string {
   return `${NOW}-${String(counter).padStart(32, '0')}`
 }
 
-function open(hostId = 'local'): Promise<AgentSessionRecordStore> {
-  return AgentSessionRecordStore.open({ directory, hostId })
+/** Exclusive unless a test says otherwise: a restart of the only process on the profile. */
+function open(ownership: UserDataOwnership = 'exclusive'): Promise<AgentSessionRecordStore> {
+  return AgentSessionRecordStore.open({ directory, hostId: 'local', ownership })
 }
 
 function reserve(
@@ -199,6 +201,32 @@ describe('restart assumes a native owner ended with the previous app run', () =>
       runtimeFence: 1,
       handoffStage: 'recovering'
     })
+  })
+
+  it('probes a native owner when another process may hold the same profile', async () => {
+    // A dev run or a bypassed launch took no single-instance lock, so a live peer may own this.
+    await establishOwner(await open())
+    const restarted = await open('shared')
+    const probe = vi.fn(async () => MATCHED)
+
+    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+
+    expect(probe).toHaveBeenCalledOnce()
+    expect(restarted.getRecord(SESSION)?.lease).toMatchObject({
+      runtimeFence: 1,
+      handoffStage: 'recovering',
+      deathEvidence: null
+    })
+  })
+
+  it('opens a store as shared unless its opener proves it holds the profile alone', async () => {
+    await establishOwner(await open())
+    const restarted = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
+    const probe = vi.fn(async () => MATCHED)
+
+    await restarted.reconcileOnRestart({ probe, now: NOW + 1_000 })
+
+    expect(probe).toHaveBeenCalledOnce()
   })
 
   it('probes leases from another writer once that state replaces the loaded one', async () => {

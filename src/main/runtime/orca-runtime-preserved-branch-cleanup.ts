@@ -19,6 +19,7 @@ import type {
   AiVaultPrepareSessionResumeResult
 } from '../../shared/ai-vault-resume-preparation'
 import type { AgentSessionClaimSigner } from './agent-session-claim-identity'
+import type { UserDataOwnership } from '../startup/single-instance-lock'
 import type { AgentStatus } from '../../shared/agent-detection'
 import { RuntimeLegacyWorkerTerminalRecoveryPersistence } from './runtime-legacy-worker-terminal-recovery-persistence'
 import { RuntimeLegacyWorkerTerminalRecoveryController } from './runtime-legacy-worker-terminal-recovery-controller'
@@ -97,6 +98,8 @@ export class OrcaRuntimeWithPreservedBranchCleanup extends OrcaRuntimeWithTermin
   protected readonly canRecoverPersistentLocalPtysFn: () => boolean
 
   protected readonly awaitLocalPtyProviderStartupFn: () => Promise<void>
+
+  protected readonly userDataOwnership: UserDataOwnership
 
   protected readonly getPairedDeviceNameFn: (pairedDeviceId: string) => string | null
 

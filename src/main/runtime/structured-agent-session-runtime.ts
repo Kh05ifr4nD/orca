@@ -38,6 +38,7 @@ import {
   type ClaudeManagedAccountGateSettings
 } from '../native-chat/claude-structured-managed-account-support'
 import { AgentSessionRecordStore } from './agent-session-record-store'
+import type { UserDataOwnership } from '../startup/single-instance-lock'
 import { agentSessionStorePath } from './agent-session-record-store-file'
 import { stopOrphanAgentSessionChildren } from './agent-session-orphan-child-reaper'
 import {
@@ -69,6 +70,9 @@ export type StructuredAgentSessionRuntimeDeps = {
   /** Execution host this runtime *is*. A record pinned elsewhere is not ours to
    *  probe and not ours to spawn for. */
   hostId: string
+  /** Whether this process holds the store alone; only then are the leases it loads a previous
+   *  run's. Absent means shared. */
+  storeOwnership?: UserDataOwnership
   /** Key id this host's claims are minted under. */
   claimKeyId: string
   resolveWorkspacePath: (workspaceId: string) => Promise<string>
@@ -206,7 +210,8 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
     createStructuredAgentEnvironmentResolvers(deps)
   const store = await AgentSessionRecordStore.open({
     directory: join(deps.stateDirectory, RECORD_STORE_DIR_NAME),
-    hostId: deps.hostId
+    hostId: deps.hostId,
+    ownership: deps.storeOwnership
   })
   agentSessionPtyWriteGate.attachRecordLookup((sessionId) => store.getRecord(sessionId))
   // Why: only the durable store can identify a provider child lost before record publication.

@@ -51,7 +51,8 @@ async function restart(how: 'quit' | 'crash'): Promise<StructuredAgentSessionHos
     : crash(previous.host))
   const store = await AgentSessionRecordStore.open({
     directory: join(previous.root, 'store'),
-    hostId: 'local'
+    hostId: 'local',
+    ownership: 'exclusive'
   })
   const host = new StructuredAgentSessionHost({
     store,

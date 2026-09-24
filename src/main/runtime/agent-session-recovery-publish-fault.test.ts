@@ -69,7 +69,8 @@ describe('backup recovery publication', () => {
       storePath,
       'local',
       recovered,
-      agentSessionStoreRevision(recovered.state)
+      agentSessionStoreRevision(recovered.state),
+      'shared'
     )
 
     publishFault.armed = true
