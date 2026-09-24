@@ -277,6 +277,14 @@ function IpynbMissingKernelDialog({
             type="button"
             variant="ghost"
             size="sm"
+            onClick={() => cancelPendingStart(filePath)}
+          >
+            {translate('auto.components.editor.IpynbViewer.7f0d7077c6', 'Cancel')}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => void window.api.ui.writeClipboardText(command)}
           >
             {translate('auto.components.editor.IpynbViewer.copyCommand', 'Copy command')}
