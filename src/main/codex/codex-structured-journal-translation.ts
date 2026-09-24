@@ -14,7 +14,10 @@ import {
 } from './codex-structured-journal-contracts'
 import { settleCodexJournalSession } from './codex-structured-journal-settlement'
 import { createCodexOversizedNotificationSettler } from './codex-structured-journal-translation-frames'
-import { restoreCodexJournalThread } from './codex-structured-journal-translation-restore'
+import {
+  restoreCodexHistoryItem,
+  restoreCodexJournalThread
+} from './codex-structured-journal-translation-restore'
 import { CodexJournalTurnBoundaries } from './codex-structured-journal-translation-turn-boundaries'
 import { CodexJournalActiveTurns } from './codex-structured-journal-translation-turn-state'
 import { publishCodexTurnLifecycle } from './codex-structured-journal-translation-turns'
@@ -62,7 +65,7 @@ export function createCodexJournalTranslator(
     (threadId) => activeTurns.current(threadId),
     (threadId, turnId) => genericFrames.suppress(threadId, turnId),
     // A collab call's row names its helpers the way the roster does.
-    (threadId) => subagents.helperLabel(threadId)
+    (threadId) => subagents.executions.label(threadId)
   )
   const settleOversizedNotification = createCodexOversizedNotificationSettler(deps, items)
   const prompts = new CodexJournalPrompts(
@@ -135,16 +138,13 @@ export function createCodexJournalTranslator(
         thread,
         currentTurnIds: activeTurns.byThread,
         ordinals: items.ordinals,
-        handleItem: (event) => {
-          const compaction = compactions.handle(event)
-          if (compaction) {
-            return compaction
-          }
-          const translated = items.handle(event, 'history')
-          return translated.handled
-            ? translated.admission
-            : { accepted: false, reason: 'untranslated' }
-        },
+        handleItem: (event) =>
+          restoreCodexHistoryItem(event, {
+            primaryThreadId: deps.primaryThreadId?.() ?? null,
+            compactions,
+            items,
+            executions: subagents.executions
+          }),
         ...(deps.sessionId !== undefined
           ? {
               restoreTurnLifecycle: (turnLifecycle) =>
