@@ -784,22 +784,4 @@ describe('Claude background task status', () => {
       mainAgent: { state: 'done', outcome: 'cancellation' }
     })
   })
-
-  it('folds an inferred cancel with the subagents the row itself evidences', () => {
-    const state = createHookListenerState()
-    claudeEvent(state, SOURCE_PANE, { hook_event_name: 'UserPromptSubmit', prompt: 'delegate' })
-
-    // Why: a relayed pane has no local roster, so the row's own snapshots are the agent-work
-    // evidence; a working child keeps the cancelled main agent's row working, an idle one does not.
-    expect(
-      markClaudeLeadTurnInterrupted(state, SOURCE_PANE, {
-        subagents: [{ id: 'child-1', state: 'working', startedAt: 1 }]
-      })
-    ).toMatchObject({ state: 'working', mainAgent: { state: 'done', outcome: 'cancellation' } })
-    expect(
-      markClaudeLeadTurnInterrupted(state, SOURCE_PANE, {
-        subagents: [{ id: 'child-1', state: 'idle', startedAt: 1 }]
-      })
-    ).toMatchObject({ state: 'done', mainAgent: { state: 'done', outcome: 'cancellation' } })
-  })
 })

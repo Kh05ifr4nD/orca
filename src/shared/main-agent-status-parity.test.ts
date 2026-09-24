@@ -342,7 +342,7 @@ describe('mainAgent status parity across lanes', () => {
     for (const payload of events) {
       if (payload === ORCA_INFERRED_INTERRUPT) {
         // What the server publishes for the cancel, shaped like the row the lane would build.
-        const folded = markClaudeLeadTurnInterrupted(state, PANE_KEY, last ?? {})
+        const folded = markClaudeLeadTurnInterrupted(state, PANE_KEY)
         last = { ...(last ?? { prompt: '' }), ...folded, interrupted: folded.state === 'done' }
         continue
       }

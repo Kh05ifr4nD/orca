@@ -8,12 +8,16 @@
 // The driver cancelled with Esc. Orca treats a bare Esc on a Claude pane as navigation (it also
 // closes the /btw composer) and infers a cancel only from Ctrl+C, so each `cancel` record is
 // replayed as the Ctrl+C inference the renderer would have sent.
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AGENT_INTERRUPT_SETTLE_MS } from '../../shared/agent-interrupt-intent'
 import { AgentHookServer, _internals } from './server'
 import { buildBody, PANE, postHookEvent } from './server.test-fixtures'
+import {
+  cancelLabelled,
+  hookAt,
+  hookSupersedesCancel,
+  loadCapture,
+  type CapturedHook
+} from './claude-cancel-capture.test-fixture'
 
 const { getCohortAtEmitMock, trackMock } = vi.hoisted(() => ({
   getCohortAtEmitMock: vi.fn(),
@@ -38,58 +42,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks()
 })
-
-type CapturedHook = {
-  kind: 'hook'
-  t: number
-  index: number
-  /** `ps` rows for the rig's sleep processes, taken inside the hook. */
-  sleep_procs: string[]
-  payload: Record<string, unknown>
-}
-type CapturedCancel = {
-  kind: 'cancel'
-  t: number
-  label: string
-  interrupted_painted: boolean
-  /** Hook indices between the cancel key and the next prompt the driver typed. */
-  hooks_before_next_typed_prompt: number[]
-}
-type CapturedKill = { kind: 'kill'; t: number; needle: string }
-type CapturedRecord = CapturedHook | CapturedCancel | CapturedKill
-
-function loadCapture(name: string): CapturedRecord[] {
-  return readFileSync(
-    join(__dirname, '..', '..', 'shared', '__fixtures__', `${name}.jsonl`),
-    'utf8'
-  )
-    .trim()
-    .split('\n')
-    .map((line) => {
-      // JSON.parse returns any; the kind check below is what proves the record shape.
-      const parsed: CapturedRecord = JSON.parse(line)
-      if (parsed.kind !== 'hook' && parsed.kind !== 'cancel' && parsed.kind !== 'kill') {
-        throw new Error(`Unknown capture record: ${line}`)
-      }
-      return parsed
-    })
-}
-
-function hookAt(records: CapturedRecord[], index: number): CapturedHook {
-  const hook = records.find((record) => record.kind === 'hook' && record.index === index)
-  if (hook?.kind !== 'hook') {
-    throw new Error(`Captured hook ${index} not found`)
-  }
-  return hook
-}
-
-function cancelLabelled(records: CapturedRecord[], label: string): CapturedCancel {
-  const cancel = records.find((record) => record.kind === 'cancel' && record.label === label)
-  if (cancel?.kind !== 'cancel') {
-    throw new Error(`Captured cancel ${label} not found`)
-  }
-  return cancel
-}
 
 async function startServer(): Promise<AgentHookServer> {
   const server = new AgentHookServer()
@@ -123,17 +75,6 @@ function pressCtrlC(server: AgentHookServer): boolean {
     baselineAgentType: 'claude',
     intent: 'ctrl-c'
   })
-}
-
-/** Whether a hook landed inside the settle window on the capture's own clock, which is when the
- *  renderer's baseline check drops the inference instead of sending it. */
-function hookSupersedesCancel(records: CapturedRecord[], cancel: CapturedCancel): boolean {
-  return records.some(
-    (record) =>
-      record.kind === 'hook' &&
-      record.t > cancel.t &&
-      (record.t - cancel.t) * 1000 < AGENT_INTERRUPT_SETTLE_MS
-  )
 }
 
 describe('a Claude cancel with a background shell (captured)', () => {

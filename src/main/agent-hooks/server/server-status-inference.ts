@@ -16,6 +16,7 @@ import { AGENT_STATUS_STALE_AFTER_MS, type AgentType } from '../../../shared/age
 import type { EnrichedAgentHookEventPayload } from './server-types'
 import { equivalentInterruptAgentType, isValidPaneKey } from './server-status-identity'
 import { AgentHookServerRowOwnership } from './server-row-ownership'
+import { foldMainAgentWithRowChildWork } from './server-row-child-work-fold'
 
 export abstract class AgentHookServerStatusInference extends AgentHookServerRowOwnership {
   inferInterrupt(request: AgentInterruptInferenceRequest): boolean {
@@ -92,16 +93,22 @@ export abstract class AgentHookServerStatusInference extends AgentHookServerRowO
     ) {
       return false
     }
-    const cancelledMainAgentFolds = agentType === 'claude' && payload.mainAgent !== undefined
-    // Why: keep the provider's main agent-turn record in sync, or a later child event re-emits the stale
-    // 'working' state and resurrects the cancelled pane.
-    const folded = cancelledMainAgentFolds
-      ? markClaudeLeadTurnInterrupted(this.state, existing.paneKey, payload)
-      : undefined
+    // Why: whoever owns the provider records folds the cancel with the child work the turn left
+    // running. A local pane's listener record must learn it too, or a later child event re-emits the
+    // stale 'working' state; a relayed pane's records live on the relay, so only its row is evidence.
+    const local =
+      agentType === 'claude' && !existing.connectionId
+        ? markClaudeLeadTurnInterrupted(this.state, existing.paneKey)
+        : undefined
+    const relayed =
+      agentType === 'claude' && existing.connectionId
+        ? foldMainAgentWithRowChildWork('done', existing)
+        : undefined
     if (agentType === 'codex') {
       markCodexLeadTurnInterrupted(this.state, existing.paneKey)
     }
-    const state = folded?.state ?? 'done'
+    const state = local?.state ?? relayed?.stateName ?? 'done'
+    const workingMode = local?.workingMode ?? relayed?.workingMode
     const inferred = this.applyNormalizedStatus({
       paneKey: existing.paneKey,
       tabId: existing.tabId,
@@ -115,7 +122,7 @@ export abstract class AgentHookServerStatusInference extends AgentHookServerRowO
         : {}),
       payload: {
         state,
-        ...(folded?.workingMode ? { workingMode: folded.workingMode } : {}),
+        ...(workingMode ? { workingMode } : {}),
         prompt: payload.prompt,
         agentType,
         ...(payload.model ? { model: payload.model } : {}),
@@ -124,7 +131,7 @@ export abstract class AgentHookServerStatusInference extends AgentHookServerRowO
         ...(state === 'done' ? { interrupted: true } : {}),
         // Why: idle children are display state; dropping them on an inferred interrupt blanks rows a later hook would restore.
         ...(payload.subagents ? { subagents: payload.subagents } : {}),
-        mainAgent: folded?.mainAgent ?? {
+        mainAgent: local?.mainAgent ?? {
           state: 'done',
           outcome: 'cancellation',
           stateStartedAt: Date.now()

@@ -172,17 +172,14 @@ export function claudeMainAgentStatusForPayload(
 export function resolveClaudePaneStatus(
   state: HookListenerState,
   paneKey: string,
-  lead: Pick<ClaudeLeadTurnState, 'state'>,
-  /** Agent work the row itself evidences. A relayed pane has no local roster, so the server's
-   *  inferred cancel passes the row's snapshots; every hook path leaves this empty. */
-  rowSubagents: readonly AgentSubagentSnapshot[] = []
+  lead: Pick<ClaudeLeadTurnState, 'state'>
 ): ClaudePaneStatusResolution {
   return foldAgentLeadStatus({
     leadState: lead.state,
     childWorkLiveness: agentChildWorkLivenessFromEvidence({
-      hasLiveAgentWork:
-        claudeRosterHasWorkingSubagent(state.claudeSubagentRosterByPaneKey.get(paneKey)) ||
-        rowSubagents.some((child) => child.state === 'working'),
+      hasLiveAgentWork: claudeRosterHasWorkingSubagent(
+        state.claudeSubagentRosterByPaneKey.get(paneKey)
+      ),
       hasLiveNonAgentWork:
         state.claudeRunningNonAgentTaskPaneKeys.has(paneKey) ||
         state.claudeActiveSessionCronPaneKeys.has(paneKey)
@@ -190,26 +187,22 @@ export function resolveClaudePaneStatus(
   })
 }
 
-/** The SERVER inferred a cancel outside the hook stream (Ctrl+C with no Stop; current Claude sends
- *  no hook on a cancel, and a bare Esc is never inferred for Claude): record the main agent's
- *  verdict and fold it with the child work the turn left running, exactly as a Stop would be.
- *  This is the primary source of
- *  `mainAgent.outcome: 'cancellation'` in the CLI lane, and the record is what keeps a later child
- *  lifecycle event from resurrecting the cancelled main agent. Nothing here retires a shell, cron
- *  or subagent: they outlive the cancel and leave only when their inventory says so. */
+/** The SERVER inferred a cancel of a LOCAL pane outside the hook stream (Ctrl+C with no Stop;
+ *  current Claude sends no hook on a cancel, and a bare Esc is never inferred for Claude): record
+ *  the main agent's verdict and fold it with the child work the turn left running, exactly as a
+ *  Stop would be. This is the primary source of `mainAgent.outcome: 'cancellation'` in the CLI
+ *  lane, and the record is what keeps a later child lifecycle event from resurrecting the
+ *  cancelled main agent. Nothing here retires a shell, cron or subagent: they outlive the cancel
+ *  and leave only when their inventory says so. */
 export function markClaudeLeadTurnInterrupted(
   state: HookListenerState,
-  paneKey: string,
-  row: { subagents?: readonly AgentSubagentSnapshot[] } = {}
+  paneKey: string
 ): { state: AgentStatusState; workingMode?: AgentWorkingMode; mainAgent?: AgentMainAgentStatus } {
-  // Why: the caller admits only a working main agent, so the cancel always starts a done clock; a
-  // relayed pane's local record is not the relay's and may still hold an earlier cancel.
   const record = setClaudeMainAgentTurnState(state, paneKey, {
     state: 'done',
-    outcome: 'cancellation',
-    stateStartedAt: Date.now()
+    outcome: 'cancellation'
   })
-  const resolved = resolveClaudePaneStatus(state, paneKey, record, row.subagents)
+  const resolved = resolveClaudePaneStatus(state, paneKey, record)
   const mainAgent = claudeMainAgentStatusForPayload(record)
   return {
     state: resolved.stateName,
