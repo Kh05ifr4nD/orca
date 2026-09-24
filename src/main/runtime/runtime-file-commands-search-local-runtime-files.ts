@@ -138,7 +138,8 @@ export class RuntimeFileCommandsWithSearchLocalRuntimeFiles extends RuntimeFileC
           // Why the cwd check first: spawn reports a missing cwd as ENOENT too, and blaming the
           // binary for it tells the user to reinstall Orca over a workspace that simply moved.
           // Why detach close first: a failed spawn emits error THEN close(code < 0), and close
-          // settles synchronously -- it would beat this threadpool round-trip every time.
+          // settles synchronously, so this probe would otherwise race it on a sub-millisecond
+          // margin -- two measurements disagreed on which wins. Detaching makes it deterministic.
           child.off('close', onClose)
           // Why catch: a failed probe must not strand the search; fall back to the prior verdict.
           void isRipgrepSpawnCwdUsable(authorizedRootPath)
