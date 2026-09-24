@@ -157,6 +157,29 @@ describe('RuntimeFileCommands', () => {
     }
   )
 
+  // Why close(97): the WSL wrapper's "cd failed" code. It is above rg's own 0/1/2, so a handler
+  // that checks it after the unavailable branch reports a broken install instead.
+  it('names the unreachable root when the WSL wrapper cannot enter it', async () => {
+    const resolveRuntimeFileTarget = vi.fn(async () => ({
+      worktree: { id: 'wt-1', repoId: 'repo-1', path: '/repo' },
+      executionHostId: 'local'
+    }))
+    const { commands } = createRuntimeFileCommands({ resolveRuntimeFileTarget })
+    const child = createRuntimeSearchChild()
+    Object.defineProperty(child, 'pid', { value: 1 })
+    resolveAuthorizedPathMock.mockResolvedValue('/repo')
+    wslAwareSpawnMock.mockReturnValue(child)
+
+    const resultPromise = commands.searchRuntimeFiles('id:wt-1', {
+      query: 'needle',
+      maxResults: 10
+    })
+    await flushRuntimeSearchMicrotasks()
+    child.emit('close', 97, null)
+
+    await expect(resultPromise).rejects.toThrow('Search root is not reachable: /repo')
+  })
+
   it("rejects when a runtime native launcher exits outside ripgrep's contract", async () => {
     const resolveRuntimeFileTarget = vi.fn(async () => ({
       worktree: { id: 'wt-1', repoId: 'repo-1', path: '/repo' },

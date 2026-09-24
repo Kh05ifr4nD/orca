@@ -197,6 +197,24 @@ describe('filesystem rg search timeout', () => {
     await expect(promise).resolves.toMatchObject({ files: [] })
   })
 
+  // Why close(97): the WSL wrapper's "cd failed" code. It is above rg's own 0/1/2, so a handler
+  // that checks it after the unavailable branch reports a broken install instead.
+  it('names the unreachable root when the WSL wrapper cannot enter it', async () => {
+    const child = createMockProcess()
+    Object.defineProperty(child, 'pid', { value: 1 })
+    wslAwareSpawnMock.mockReturnValue(child)
+    registerFilesystemHandlers({} as never)
+
+    const promise = handlers.get('fs:search')!(
+      { sender: { id: 7 } },
+      { rootPath: '/repo', query: 'ok' }
+    ) as Promise<unknown>
+    await flushMicrotasks()
+    child.emit('close', 97, null)
+
+    await expect(promise).rejects.toThrow('Search root is not reachable: /repo')
+  })
+
   it("rejects when a native launcher exits outside ripgrep's contract", async () => {
     const child = createMockProcess()
     Object.defineProperty(child, 'pid', { value: 1 })

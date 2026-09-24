@@ -14,8 +14,10 @@ async function shellExitCode(script: string): Promise<number> {
     await execFileAsync('bash', ['-c', script])
     return 0
   } catch (error) {
-    const code: unknown = error instanceof Error ? Reflect.get(error, 'code') : undefined
-    return typeof code === 'number' ? code : -1
+    if (error instanceof Error && 'code' in error && typeof error.code === 'number') {
+      return error.code
+    }
+    return -1
   }
 }
 

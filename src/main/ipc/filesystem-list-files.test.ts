@@ -87,6 +87,19 @@ describe('filesystem-list-files', () => {
     )
   })
 
+  // Why close(97) and not a spawn error: this is the WSL wrapper's "cd failed" code. It is above
+  // rg's own 0/1/2, so a handler that checks it after the unavailable branch reports a broken
+  // install instead -- a regression this file would otherwise not catch.
+  it('names the unreachable root when the WSL wrapper cannot enter it', async () => {
+    const child = createMockProcess()
+    spawnMock.mockReturnValue(child)
+
+    const promise = listQuickOpenFiles('/mock/root', {} as unknown as Store)
+    setTimeout(() => child.emit('close', 97, null), 0)
+
+    await expect(promise).rejects.toThrow('Search root is not reachable: /mock/root')
+  })
+
   it('stops after the primary rg pass fills the result budget', async () => {
     const p1 = createMockProcess()
     const p2 = createMockProcess()
