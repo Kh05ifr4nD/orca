@@ -17,9 +17,6 @@ import {
   whenBrowserFrameDisplayable
 } from './browser-frame-layer-paint'
 
-// Why: a decode that never reports (a missed onLoad) must not hold a newer frame back forever.
-export const BROWSER_FRAME_DECODE_WATCHDOG_MS = 1_500
-
 type QueuedFrame = { frame: BrowserScreencastFrame; cacheKey: string }
 
 type BrowserFramePacerDeps = {
@@ -48,7 +45,7 @@ export type BrowserFramePacer = ReturnType<typeof createBrowserFramePacer>
 export function createBrowserFramePacer(deps: BrowserFramePacerDeps) {
   const views: [View | null, View | null] = [null, null]
   const images: [Image | null, Image | null] = [null, null]
-  // The source each layer's Image holds; null for none, or for a decode given up on.
+  // The source each layer's Image holds; null for none, or for a load that failed or was dropped.
   const layerUris: [string | null, string | null] = [deps.initialUri, deps.initialUri]
   let visible: FrameLayer = 0
   let decoding: FrameLayer | null = null
@@ -124,26 +121,19 @@ export function createBrowserFramePacer(deps: BrowserFramePacerDeps) {
     })
   }
 
-  /** Shows the queued frame once the interval has passed and no decode is running, or overdue. */
+  // Why: never cut a decode short; re-pointing an Android layer mid-decode stalls flips under load.
   function drain(): void {
-    if (timer !== null) {
-      clearTimeout(timer)
-      timer = null
-    }
-    if (queued === null) {
+    if (timer !== null || queued === null || decoding !== null) {
       return
     }
-    const wait =
-      lastAppliedAt +
-      (decoding === null
-        ? MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS
-        : BROWSER_FRAME_DECODE_WATCHDOG_MS) -
-      Date.now()
+    const wait = lastAppliedAt + MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS - Date.now()
     if (wait > 0) {
-      timer = setTimeout(drain, wait)
+      timer = setTimeout(() => {
+        timer = null
+        drain()
+      }, wait)
       return
     }
-    abandonDecode()
     const next = queued
     queued = null
     lastAppliedAt = Date.now()

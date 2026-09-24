@@ -10,7 +10,7 @@ import {
   BrowserScreencastOpcode,
   type BrowserScreencastFrame
 } from '../transport/browser-screencast-protocol'
-import { BROWSER_FRAME_DECODE_WATCHDOG_MS, createBrowserFramePacer } from './browser-frame-pacer'
+import { createBrowserFramePacer } from './browser-frame-pacer'
 import { createBrowserFrameDataUri } from './browser-frame-data-uri'
 import { MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS } from './browser-screencast-request'
 
@@ -195,7 +195,6 @@ describe('the browser frame pacer', () => {
     await pane.push(3)
     await pane.push(4)
 
-    // A decoding layer is never re-pointed: its replaced load's onLoad is usually lost on Android.
     expect(pane.background(1)).toContain('frame-2')
 
     await settleDecode('frame-2', true)
@@ -208,33 +207,32 @@ describe('the browser frame pacer', () => {
     expect(decodes.pending).toEqual([])
   })
 
-  it('shows a slow last frame, however long it takes, when nothing newer waits', async () => {
-    const pane = mountPacer()
-    await pane.push(1)
-    await pane.push(2)
-
-    await pane.advance(BROWSER_FRAME_DECODE_WATCHDOG_MS * 2)
-    expect(pane.shown()).toContain('frame-1')
-
-    await settleDecode('frame-2', true)
-    expect(pane.shown()).toContain('frame-2')
-  })
-
-  it('gives up on a decode that never reports once a newer frame waits', async () => {
+  it('waits out a slow decode, then shows the frame and the newest one waiting', async () => {
     const pane = mountPacer()
     await pane.push(1)
     await pane.push(2)
     await pane.push(3)
 
-    await pane.advance(BROWSER_FRAME_DECODE_WATCHDOG_MS)
-    expect(pane.background(1)).toContain('frame-3')
+    await pane.advance(10_000)
+    expect(pane.background(1)).toContain('frame-2')
     expect(pane.shown()).toContain('frame-1')
 
-    // The abandoned decode landing late must not flip the layer frame 3 now holds.
     await settleDecode('frame-2', true)
-    expect(pane.shown()).toContain('frame-1')
+    expect(pane.shown()).toContain('frame-2')
+    await pane.advance(MOBILE_BROWSER_FRAME_MIN_INTERVAL_MS)
     await settleDecode('frame-3', true)
     expect(pane.shown()).toContain('frame-3')
+  })
+
+  it('shows a slow last frame when nothing newer waits', async () => {
+    const pane = mountPacer()
+    await pane.push(1)
+    await pane.push(2)
+
+    await pane.advance(10_000)
+    await settleDecode('frame-2', true)
+
+    expect(pane.shown()).toContain('frame-2')
   })
 
   it('flips straight to a layer that already holds the frame, which reloads nothing', async () => {
@@ -280,19 +278,17 @@ describe('the browser frame pacer', () => {
     const pane = mountPacer()
     await pane.push(1)
     await pane.push(2)
-    await pane.push(3)
-    await pane.advance(BROWSER_FRAME_DECODE_WATCHDOG_MS)
     const nativeLoad = (index: number): ImageLoadEvent =>
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the pacer reads only nativeEvent.source.uri.
       ({
         nativeEvent: { source: { uri: createBrowserFrameDataUri(frameAt(index)) } }
       }) as ImageLoadEvent
 
-    pane.pacer.layers[1].onLoad(nativeLoad(2))
+    pane.pacer.layers[1].onLoad(nativeLoad(1))
     expect(pane.shown()).toContain('frame-1')
 
-    pane.pacer.layers[1].onLoad(nativeLoad(3))
-    expect(pane.shown()).toContain('frame-3')
+    pane.pacer.layers[1].onLoad(nativeLoad(2))
+    expect(pane.shown()).toContain('frame-2')
   })
 
   it('does not flip a decode that settles after a stream reset', async () => {
