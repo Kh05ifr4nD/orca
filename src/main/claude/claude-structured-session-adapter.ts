@@ -11,7 +11,10 @@ import { releaseClaudeAcquisition } from './claude-structured-acquisition-releas
 import { acquireClaudeSession } from './claude-structured-session-acquisition'
 import { failClaudeStartupGate } from './claude-structured-session-startup-gate'
 import { supportsClaudeStructuredLocation } from './claude-structured-location-support'
-import { setClaudeStructuredSessionOption } from './claude-structured-options'
+import {
+  claudeRestoreUnansweredOptions,
+  setClaudeStructuredSessionOption
+} from './claude-structured-options'
 import { readClaudeStructuredSessionOptions } from './claude-structured-session-options'
 import {
   ClaudeAcquisitionRegistry,
@@ -56,8 +59,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   private readonly sessions = new Map<string, ClaudeSession>()
   private readonly acquisitions = new ClaudeAcquisitionRegistry()
   private readonly exits = new Map<string, ClaudeSessionExit>()
-  /** The diagnostic of a settled exit, until the id is acquired or closed again: the host learns
-   *  of the exit only after its settlement, and a send already past admission must name it. */
+  /** A settled exit's diagnostic, kept for a send admitted before the host heard of the exit. */
   private readonly settledExitErrors = new Map<string, Error>()
 
   constructor(private readonly deps: ClaudeStructuredSessionAdapterDeps) {}
@@ -278,9 +280,8 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     ...(this.sessions.get(sessionId)?.restoreSkippedOptions ?? [])
   ]
 
-  readOptionRestoreUnanswered = (sessionId: string): readonly string[] => [
-    ...(this.sessions.get(sessionId)?.restoreUnansweredOptions ?? [])
-  ]
+  readOptionRestoreUnanswered = (sessionId: string): readonly string[] =>
+    claudeRestoreUnansweredOptions(this.sessions.get(sessionId))
 
   releaseAcquisition = (input: { sessionId: string }): Promise<boolean> =>
     releaseClaudeAcquisition({
@@ -314,16 +315,14 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     })
   }
 
-  closeAll = (): Promise<void> => {
-    this.settledExitErrors.clear()
-    return closeAllClaudeSessions({
+  closeAll = (): Promise<void> =>
+    closeAllClaudeSessions({
       sessions: this.sessions,
       acquisitions: this.acquisitions,
       exits: this.exits,
       closeSession: this.closeSession,
       closeExit: (sessionId) => this.releaseAcquisition({ sessionId })
     })
-  }
 
   private session(sessionId: string): ClaudeSession {
     const session = this.sessions.get(sessionId)

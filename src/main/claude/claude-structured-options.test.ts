@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  claudeRestoreUnansweredOptions,
   restoreClaudeStructuredSessionOptions,
   setClaudeStructuredOption
 } from './claude-structured-options'
@@ -470,7 +471,7 @@ describe('Claude structured option restore under the request deadline', () => {
     await expect(
       setClaudeStructuredOption(session, { key: 'model', value: 'opus' }, 10)
     ).resolves.toEqual({ model: 'opus' })
-    expect([...session.restoreUnansweredOptions]).toEqual([])
+    expect(claudeRestoreUnansweredOptions(session)).toEqual([])
   })
 
   it("keeps a timed-out client write as the deadline's own error, not a rejection", async () => {
