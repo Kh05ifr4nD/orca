@@ -254,7 +254,8 @@ export function normalizeGrokEvent(
     lastAssistantMessage: snapshot.lastAssistantMessage,
     lastAssistantMessageIsToolOutput: snapshot.lastAssistantMessageIsToolOutput,
     ...(resolution.workingMode ? { workingMode: resolution.workingMode } : {}),
-    ...(outcome === 'cancellation' ? { interrupted: true } : {}),
+    // Why: derived from the main agent, so the idle backstop that settles a cancelled turn held open by a task still reads interrupted.
+    ...(mainAgent.outcome === 'cancellation' ? { interrupted: true } : {}),
     ...(sessionBoundary ? { sessionBoundary: true } : {}),
     mainAgent
   })

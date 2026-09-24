@@ -202,9 +202,12 @@ export function markClaudeLeadTurnInterrupted(
   paneKey: string,
   row: { subagents?: readonly AgentSubagentSnapshot[] } = {}
 ): { state: AgentStatusState; workingMode?: AgentWorkingMode; mainAgent?: AgentMainAgentStatus } {
+  // Why: the caller admits only a working main agent, so the cancel always starts a done clock; a
+  // relayed pane's local record is not the relay's and may still hold an earlier cancel.
   const record = setClaudeMainAgentTurnState(state, paneKey, {
     state: 'done',
-    outcome: 'cancellation'
+    outcome: 'cancellation',
+    stateStartedAt: Date.now()
   })
   const resolved = resolveClaudePaneStatus(state, paneKey, record, row.subagents)
   const mainAgent = claudeMainAgentStatusForPayload(record)

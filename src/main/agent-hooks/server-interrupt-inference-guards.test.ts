@@ -255,6 +255,56 @@ describe('AgentHookServer listener replay', () => {
     }
   })
 
+  it("starts a relayed Claude pane's cancel clock at each cancel, not at an earlier one", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      const relayTurn = (prompt: string, startedAt: number): void =>
+        server.ingestRemote(
+          {
+            paneKey: PANE,
+            tabId: 'tab-1',
+            worktreeId: 'wt-1',
+            payload: {
+              state: 'working',
+              prompt,
+              agentType: 'claude',
+              mainAgent: { state: 'working', stateStartedAt: startedAt }
+            }
+          },
+          'conn-1'
+        )
+      const cancel = (prompt: string): boolean => {
+        const baseline = server.getStatusSnapshot()[0]
+        return server.inferInterrupt({
+          paneKey: PANE,
+          baselineUpdatedAt: baseline.receivedAt,
+          baselineStateStartedAt: baseline.stateStartedAt,
+          baselinePrompt: prompt,
+          baselineAgentType: 'claude',
+          intent: 'ctrl-c'
+        })
+      }
+      relayTurn('first', 900)
+      vi.setSystemTime(1_500)
+      expect(cancel('first')).toBe(true)
+
+      // Why: the relay owns this pane's main agent record, so the host's local one still says the
+      // first cancel; the second cancel must not inherit that clock.
+      vi.setSystemTime(5_000)
+      relayTurn('second', 5_000)
+      vi.setSystemTime(6_000)
+      expect(cancel('second')).toBe(true)
+      expect(server.getStatusSnapshot()[0]).toMatchObject({
+        state: 'done',
+        mainAgent: { state: 'done', outcome: 'cancellation', stateStartedAt: 6_000 }
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('infers a cancel of a live Claude main agent turn beside a working subagent and keeps the row working', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
