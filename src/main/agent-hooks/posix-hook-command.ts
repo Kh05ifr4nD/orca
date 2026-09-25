@@ -15,10 +15,11 @@ function quotePosixShellString(value: string): string {
  *
  * Cursor runs the stored string with the login shell. Nushell rejects `&&`
  * before `/bin/sh` starts. One single-quoted `sh -c` argument is valid there
- * and in sh, zsh, and bash. A `'` inside the argument is escaped for sh.
+ * and in sh, zsh, and bash. An embedded `'` is broken out as `"'"` — nushell
+ * single quotes cannot contain `'`, and the POSIX `'\''` form is a parse error.
  */
 function wrapForLoginShell(command: string): string {
-  return `/bin/sh -c '${command.replaceAll("'", "'\\''")}'`
+  return `/bin/sh -c '${command.replaceAll("'", "'\"'\"'")}'`
 }
 
 /**

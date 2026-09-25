@@ -38,7 +38,11 @@ import {
 import { wrapRuntimeHomeHookCommand } from './runtime-home-hook-command'
 import { findBareHookCommandVariables } from './managed-hook-command-env.test-fixture'
 
-const nuPath = spawnSync('/bin/sh', ['-c', 'command -v nu'], { encoding: 'utf8' }).stdout.trim()
+// Why: a missing sh returns null stdout, and .trim() at import time fails the whole file on Windows.
+const nuPath =
+  process.platform === 'win32'
+    ? ''
+    : (spawnSync('sh', ['-c', 'command -v nu'], { encoding: 'utf8' }).stdout || '').trim()
 
 let tmpDir: string
 let configPath: string
@@ -506,12 +510,11 @@ describe('wrapPosixHookCommand', () => {
   })
 
   it('escapes embedded single quotes so the wrapped command stays well-formed', () => {
-    // Why: POSIX single-quote escape renders ' as '\''. Verify a path with an
-    // embedded quote does not break out of the quoting and instead reaches
-    // /bin/sh as a single argument.
+    // Why: `"'"` is the apostrophe both nushell and POSIX shells accept.
+    // `'\''` is a nushell parse error, so the path would never reach /bin/sh.
     const cmd = wrapPosixHookCommand("/path/with'quote/x.sh")
     expect(cmd).toBe(
-      `/bin/sh -c 'if [ -f "/path/with'\\''quote/x.sh" ] && [ -r "/path/with'\\''quote/x.sh" ] && [ -x "/path/with'\\''quote/x.sh" ]; then /bin/sh "/path/with'\\''quote/x.sh"; else ${POSIX_HOOK_STDIN_DRAIN_COMMAND}; fi'`
+      `/bin/sh -c 'if [ -f "/path/with'"'"'quote/x.sh" ] && [ -r "/path/with'"'"'quote/x.sh" ] && [ -x "/path/with'"'"'quote/x.sh" ]; then /bin/sh "/path/with'"'"'quote/x.sh"; else ${POSIX_HOOK_STDIN_DRAIN_COMMAND}; fi'`
     )
   })
 
@@ -575,6 +578,15 @@ describe('wrapPosixHookCommand', () => {
       const presentResult = spawnSync(nuPath, ['-c', present], { encoding: 'utf8' })
       expect(presentResult.status).toBe(0)
       expect(presentResult.stdout).toBe('from-script\n')
+
+      const quotedDir = join(tmpDir, "o'brien")
+      mkdirSync(quotedDir)
+      const quotedScript = join(quotedDir, 'hook.sh')
+      writeFileSync(quotedScript, "#!/bin/sh\nprintf 'quoted\\n'\n", { mode: 0o755 })
+      const quoted = wrapPosixHookCommand(quotedScript)
+      const quotedResult = spawnSync(nuPath, ['-c', quoted], { encoding: 'utf8' })
+      expect(quotedResult.status, quotedResult.stderr).toBe(0)
+      expect(quotedResult.stdout).toBe('quoted\n')
     }
   )
 
